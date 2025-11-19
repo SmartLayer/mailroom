@@ -19,7 +19,7 @@ The IMAP MCP server is designed to work with Claude or any other MCP-compatible 
 
 - **Email Authentication**: Secure access to IMAP servers with various authentication methods
 - **Email Browsing**: List folders and messages with filtering options 
-- **Email Content**: Read message contents including text, HTML, and attachments 
+- **Email Content**: Read message contents including text, HTML, and attachments with download capability 
 - **Email Actions**: Move, delete, mark as read/unread, flag messages 
 - **Email Composition**: Draft and save replies to messages with proper formatting
   - Support for plain text and HTML replies
