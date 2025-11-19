@@ -543,3 +543,131 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             result["message"] = f"Error: {e}"
         
         return result
+
+    # List attachments for an email
+    @mcp.tool()
+    async def list_attachments(
+        folder: str,
+        uid: int,
+        ctx: Context,
+    ) -> str:
+        """List attachments for a specific email.
+        
+        Args:
+            folder: Folder name
+            uid: Email UID
+            ctx: MCP context
+            
+        Returns:
+            JSON-formatted list of attachments with metadata (index, filename, size, content_type, content_id)
+        """
+        client = get_client_from_context(ctx)
+        
+        try:
+            # Fetch the email
+            email_obj = client.fetch_email(uid, folder)
+            
+            if not email_obj:
+                return json.dumps({"error": f"Email with UID {uid} not found in folder {folder}"})
+            
+            # Extract attachment metadata
+            attachments_list = []
+            for index, attachment in enumerate(email_obj.attachments):
+                attachment_info = {
+                    "index": index,
+                    "filename": attachment.filename,
+                    "size": attachment.size,
+                    "content_type": attachment.content_type,
+                }
+                
+                # Include content_id if present
+                if attachment.content_id:
+                    attachment_info["content_id"] = attachment.content_id
+                
+                attachments_list.append(attachment_info)
+            
+            return json.dumps(attachments_list, indent=2)
+            
+        except Exception as e:
+            logger.error(f"Error listing attachments: {e}")
+            return json.dumps({"error": str(e)})
+
+    # Download an attachment
+    @mcp.tool()
+    async def download_attachment(
+        folder: str,
+        uid: int,
+        identifier: str,
+        save_path: str,
+        ctx: Context,
+    ) -> str:
+        """Download an attachment by filename or index.
+        
+        Args:
+            folder: Folder name
+            uid: Email UID
+            identifier: Attachment filename or index (as string)
+            save_path: Path where to save the attachment
+            ctx: MCP context
+            
+        Returns:
+            Success message with filename and size, or error message
+        """
+        client = get_client_from_context(ctx)
+        
+        try:
+            # Fetch the email
+            email_obj = client.fetch_email(uid, folder)
+            
+            if not email_obj:
+                return f"Error: Email with UID {uid} not found in folder {folder}"
+            
+            if not email_obj.attachments:
+                return "Error: Email has no attachments"
+            
+            # Find the attachment by identifier
+            attachment = None
+            
+            # First, try to match by exact filename
+            for att in email_obj.attachments:
+                if att.filename == identifier:
+                    attachment = att
+                    break
+            
+            # If not found, try to parse as index
+            if attachment is None:
+                try:
+                    index = int(identifier)
+                    if 0 <= index < len(email_obj.attachments):
+                        attachment = email_obj.attachments[index]
+                    else:
+                        return f"Error: Invalid attachment index {index}. Valid range: 0-{len(email_obj.attachments) - 1}"
+                except ValueError:
+                    return f"Error: Attachment '{identifier}' not found. Use filename or numeric index."
+            
+            if attachment is None:
+                return f"Error: Attachment '{identifier}' not found"
+            
+            # Sanitize the save_path to prevent path traversal
+            # Replace ../ and ..\ patterns
+            sanitized_path = save_path.replace("../", "").replace("..\\", "")
+            
+            # Check if attachment has content
+            if attachment.content is None:
+                return f"Error: Attachment '{attachment.filename}' has no content"
+            
+            # Write the attachment to disk
+            import os
+            
+            # Create directories if they don't exist
+            os.makedirs(os.path.dirname(sanitized_path) if os.path.dirname(sanitized_path) else ".", exist_ok=True)
+            
+            with open(sanitized_path, "wb") as f:
+                f.write(attachment.content)
+            
+            logger.info(f"Saved attachment '{attachment.filename}' ({attachment.size} bytes) to {sanitized_path}")
+            return f"Success: Saved '{attachment.filename}' ({attachment.size} bytes) to {sanitized_path}"
+            
+        except Exception as e:
+            logger.error(f"Error downloading attachment: {e}")
+            return f"Error: {e}"
