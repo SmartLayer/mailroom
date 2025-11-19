@@ -1,8 +1,10 @@
 """MCP tools implementation for email operations."""
 
+import base64
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Dict, List, Optional, Union, Any
 
@@ -11,6 +13,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp import Context
 
 from imap_mcp.imap_client import ImapClient
+from imap_mcp.models import EmailAttachment
 from imap_mcp.resources import get_client_from_context, get_smtp_client_from_context
 
 from typing import Dict
@@ -20,6 +23,56 @@ logger = logging.getLogger(__name__)
 
 # Define the path for storing tasks
 TASKS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tasks.json")
+
+
+def _embed_inline_images(html: str, attachments: List[EmailAttachment]) -> str:
+    """Embed inline images in HTML by converting cid: references to base64 data URIs.
+    
+    Args:
+        html: HTML content with potential cid: references
+        attachments: List of email attachments that may contain inline images
+        
+    Returns:
+        HTML with cid: references replaced by data: URIs
+    """
+    if not attachments:
+        return html
+    
+    # Create a mapping of content_id to attachment
+    cid_map = {}
+    for attachment in attachments:
+        if attachment.content_id and attachment.content:
+            # Content IDs may or may not have angle brackets, normalize them
+            cid = attachment.content_id.strip("<>")
+            cid_map[cid] = attachment
+    
+    if not cid_map:
+        return html
+    
+    # Find all cid: references in the HTML
+    # Match patterns like src="cid:XXX" or src='cid:XXX'
+    def replace_cid(match):
+        quote = match.group(1)  # Capture the quote character (" or ')
+        cid = match.group(2)  # Capture the CID value
+        
+        # Look up the attachment by CID
+        if cid in cid_map:
+            attachment = cid_map[cid]
+            # Convert content to base64
+            base64_content = base64.b64encode(attachment.content).decode("ascii")
+            # Create data URI
+            data_uri = f"data:{attachment.content_type};base64,{base64_content}"
+            return f'src={quote}{data_uri}{quote}'
+        else:
+            # If CID not found, leave it as-is
+            logger.warning(f"Inline image CID not found: {cid}")
+            return match.group(0)
+    
+    # Replace all cid: references
+    html = re.sub(r'src=(["\'])cid:([^"\']+)\1', replace_cid, html)
+    
+    return html
+
 
 def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
     """Register MCP tools.
@@ -670,4 +723,62 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             
         except Exception as e:
             logger.error(f"Error downloading attachment: {e}")
+            return f"Error: {e}"
+
+    # Export email HTML to file
+    @mcp.tool()
+    async def export_email_html(
+        folder: str,
+        uid: int,
+        save_path: str,
+        ctx: Context,
+    ) -> str:
+        """Export email HTML content to a standalone file with embedded images.
+        
+        Args:
+            folder: Folder name
+            uid: Email UID
+            save_path: Path where to save the HTML file
+            ctx: MCP context
+            
+        Returns:
+            Success message with file path and size, or error message
+        """
+        client = get_client_from_context(ctx)
+        
+        try:
+            # Fetch the email
+            email_obj = client.fetch_email(uid, folder)
+            
+            if not email_obj:
+                return f"Error: Email with UID {uid} not found in folder {folder}"
+            
+            # Check if email has HTML content
+            if not email_obj.content.html:
+                return "Error: Email has no HTML content"
+            
+            # Process HTML to embed inline images
+            html_content = _embed_inline_images(email_obj.content.html, email_obj.attachments)
+            
+            # Sanitize the save_path to prevent path traversal
+            # Replace ../ and ..\ patterns
+            sanitized_path = save_path.replace("../", "").replace("..\\", "")
+            
+            # Create directories if they don't exist
+            import os
+            
+            os.makedirs(os.path.dirname(sanitized_path) if os.path.dirname(sanitized_path) else ".", exist_ok=True)
+            
+            # Write the HTML to disk
+            with open(sanitized_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            
+            # Get file size
+            file_size = os.path.getsize(sanitized_path)
+            
+            logger.info(f"Exported HTML content ({file_size} bytes) to {sanitized_path}")
+            return f"Success: Exported HTML content ({file_size} bytes) to {sanitized_path}"
+            
+        except Exception as e:
+            logger.error(f"Error exporting HTML: {e}")
             return f"Error: {e}"
