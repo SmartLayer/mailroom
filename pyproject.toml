@@ -60,6 +60,9 @@ Issues = "https://github.com/non-dirty/imap-mcp/issues"
 [tool.setuptools]
 packages = ["imap_mcp"]
 
+[project.scripts]
+imap-mcp = "imap_mcp.server:main"
+
 [tool.black]
 line-length = 88
 target-version = ["py310"]

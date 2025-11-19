@@ -123,12 +123,12 @@ Available options:
 
 To start the IMAP MCP server:
 ```bash
-uv run imap_mcp.server --config config.yaml
+uv run imap-mcp --config config.yaml
 ```
 
 For development mode with debugging:
 ```bash
-uv run imap_mcp.server --dev
+uv run imap-mcp --dev
 ```
 
 #### Managing OAuth2 Tokens
