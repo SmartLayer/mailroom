@@ -50,6 +50,9 @@ dev = [
     "pre-commit>=2.19.0",
 ]
 
+[project.scripts]
+imap-mcp = "imap_mcp.server:main"
+
 [project.urls]
 Homepage = "https://github.com/non-dirty/imap-mcp"
 Issues = "https://github.com/non-dirty/imap-mcp/issues"
