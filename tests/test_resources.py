@@ -209,7 +209,8 @@ class TestResources:
         email.flags = ["\\Seen"]
         email.attachments = []
         email.date.isoformat.return_value = "2023-01-01T12:00:00"
-        email.content.get_best_content.return_value = "This is the email content"
+        email.content.html = None
+        email.content.text = "This is the email content"
         
         # Return the mock email from fetch_email
         mock_imap_client.fetch_email.return_value = email

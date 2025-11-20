@@ -203,9 +203,17 @@ def register_resources(mcp: FastMCP, imap_client: ImapClient) -> None:
             
             parts.append("")  # Empty line before content
             
-            # Add email content
-            content = email_obj.content.get_best_content()
-            parts.append(content)
+            # Add email content - prefer HTML if available for link extraction
+            if email_obj.content.html:
+                parts.append("Content-Type: text/html")
+                parts.append("")
+                parts.append(str(email_obj.content.html))
+            elif email_obj.content.text:
+                parts.append("Content-Type: text/plain")
+                parts.append("")
+                parts.append(str(email_obj.content.text))
+            else:
+                parts.append("(No content)")
             
             return "\n".join(parts)
         except Exception as e:
