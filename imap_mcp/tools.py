@@ -852,44 +852,67 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
     @mcp.tool()
     async def extract_email_links(
         folder: str,
-        uid: int,
+        uids: List[int],
         ctx: Context,
     ) -> str:
-        """Extract all links from email HTML content.
+        """Extract all links from email HTML content for multiple emails.
         
         This tool is useful for fraud detection and security analysis, allowing
-        you to examine all URLs in an email without downloading the full HTML content.
-        Links are deduplicated (only first occurrence of each URL is kept).
+        you to examine all URLs in multiple emails without downloading the full HTML content.
+        Links are deduplicated per email (only first occurrence of each URL is kept per email).
         
         Args:
             folder: Folder name
-            uid: Email UID
+            uids: List of email UIDs
             ctx: MCP context
             
         Returns:
-            JSON-formatted list of link objects with url, anchor, and position.
-            Returns error object if email not found or has no HTML content.
-            Returns empty list if HTML has no links.
+            JSON-formatted list of results, one per UID. Each result contains:
+            - uid: The email UID
+            - links: List of link objects with url, anchor, and position (or empty list)
+            - error: Error message if email not found or has no HTML content (optional)
         """
         client = get_client_from_context(ctx)
+        results = []
         
-        try:
-            # Fetch the email
-            email_obj = client.fetch_email(uid, folder)
-            
-            if not email_obj:
-                return json.dumps({"error": f"Email with UID {uid} not found in folder {folder}"})
-            
-            # Check if email has HTML content
-            if not email_obj.content.html:
-                return json.dumps({"error": "Email has no HTML content"})
-            
-            # Extract links from HTML
-            links = _extract_links_from_html(email_obj.content.html)
-            
-            logger.info(f"Extracted {len(links)} unique links from email UID {uid} in folder {folder}")
-            return json.dumps(links, indent=2)
-            
-        except Exception as e:
-            logger.error(f"Error extracting links: {e}")
-            return json.dumps({"error": str(e)})
+        for uid in uids:
+            try:
+                # Fetch the email
+                email_obj = client.fetch_email(uid, folder)
+                
+                if not email_obj:
+                    results.append({
+                        "uid": uid,
+                        "error": f"Email with UID {uid} not found in folder {folder}",
+                        "links": []
+                    })
+                    continue
+                
+                # Check if email has HTML content
+                if not email_obj.content.html:
+                    results.append({
+                        "uid": uid,
+                        "error": "Email has no HTML content",
+                        "links": []
+                    })
+                    continue
+                
+                # Extract links from HTML
+                links = _extract_links_from_html(email_obj.content.html)
+                
+                results.append({
+                    "uid": uid,
+                    "links": links
+                })
+                
+                logger.info(f"Extracted {len(links)} unique links from email UID {uid} in folder {folder}")
+                
+            except Exception as e:
+                logger.error(f"Error extracting links from UID {uid}: {e}")
+                results.append({
+                    "uid": uid,
+                    "error": str(e),
+                    "links": []
+                })
+        
+        return json.dumps(results, indent=2)
