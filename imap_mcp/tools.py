@@ -74,6 +74,71 @@ def _embed_inline_images(html: str, attachments: List[EmailAttachment]) -> str:
     return html
 
 
+def _extract_links_from_html(html: str) -> List[Dict[str, Any]]:
+    """Extract all links from HTML content.
+    
+    Args:
+        html: HTML content
+        
+    Returns:
+        List of link objects with url, anchor, and position (deduplicated by URL)
+    """
+    if not html:
+        return []
+    
+    # Pattern to match <a> tags with href attributes
+    # Uses re.DOTALL to handle multi-line <a> tags
+    # Matches: <a href="url">anchor text</a> or <a href='url'>anchor text</a>
+    # Also handles attributes before/after href and newlines within tags
+    # Pattern breakdown:
+    #   <a\s+          - opening tag with at least one whitespace
+    #   [^>]*?         - any attributes before href (non-greedy)
+    #   href=          - href attribute
+    #   (["\'])        - quote character (group 1)
+    #   ([^"\']+)      - URL content (group 2)
+    #   \1             - matching quote
+    #   [^>]*?         - any attributes after href (non-greedy)
+    #   >              - end of opening tag
+    #   (.*?)          - anchor content including newlines (group 3, non-greedy)
+    #   </a>           - closing tag
+    link_pattern = re.compile(
+        r'<a\s+[^>]*?href=(["\'])([^"\']+)\1[^>]*?>(.*?)</a>',
+        re.IGNORECASE | re.DOTALL
+    )
+    
+    links = []
+    seen_urls = set()
+    position = 1
+    
+    for match in link_pattern.finditer(html):
+        url = match.group(2)
+        anchor_html = match.group(3)
+        
+        # Skip if we've already seen this URL (deduplication)
+        if url in seen_urls:
+            continue
+        
+        seen_urls.add(url)
+        
+        # Strip HTML tags from anchor text to get plain text
+        # Also handles multi-line tags
+        anchor_text = re.sub(r'<[^>]+>', '', anchor_html, flags=re.DOTALL)
+        # Decode HTML entities and normalize whitespace (collapse multi-line spaces)
+        import html as html_module
+        anchor_text = html_module.unescape(anchor_text)
+        # Replace multiple whitespace characters (including newlines) with single space
+        anchor_text = re.sub(r'\s+', ' ', anchor_text).strip()
+        
+        links.append({
+            "url": url,
+            "anchor": anchor_text,
+            "position": position
+        })
+        position += 1
+    
+    return links
+
+
 def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
     """Register MCP tools.
     
@@ -782,3 +847,49 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         except Exception as e:
             logger.error(f"Error exporting HTML: {e}")
             return f"Error: {e}"
+
+    # Extract links from email HTML
+    @mcp.tool()
+    async def extract_email_links(
+        folder: str,
+        uid: int,
+        ctx: Context,
+    ) -> str:
+        """Extract all links from email HTML content.
+        
+        This tool is useful for fraud detection and security analysis, allowing
+        you to examine all URLs in an email without downloading the full HTML content.
+        Links are deduplicated (only first occurrence of each URL is kept).
+        
+        Args:
+            folder: Folder name
+            uid: Email UID
+            ctx: MCP context
+            
+        Returns:
+            JSON-formatted list of link objects with url, anchor, and position.
+            Returns error object if email not found or has no HTML content.
+            Returns empty list if HTML has no links.
+        """
+        client = get_client_from_context(ctx)
+        
+        try:
+            # Fetch the email
+            email_obj = client.fetch_email(uid, folder)
+            
+            if not email_obj:
+                return json.dumps({"error": f"Email with UID {uid} not found in folder {folder}"})
+            
+            # Check if email has HTML content
+            if not email_obj.content.html:
+                return json.dumps({"error": "Email has no HTML content"})
+            
+            # Extract links from HTML
+            links = _extract_links_from_html(email_obj.content.html)
+            
+            logger.info(f"Extracted {len(links)} unique links from email UID {uid} in folder {folder}")
+            return json.dumps(links, indent=2)
+            
+        except Exception as e:
+            logger.error(f"Error extracting links: {e}")
+            return json.dumps({"error": str(e)})
