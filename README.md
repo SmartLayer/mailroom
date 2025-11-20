@@ -143,6 +143,17 @@ To generate a new OAuth2 token:
 uv run imap_mcp.auth_setup generate-token --config config.yaml
 ```
 
+#### Using MCP Resources
+
+The server exposes email data through MCP resources that can be accessed via `fetch_mcp_resource`:
+
+- `email://folders` - List all email folders
+- `email://{folder}/list` - List emails in a folder (max 50 recent)
+- `email://search/{query}` - Search emails across folders
+- `email://{folder}/{uid}` - Get specific email content (returns HTML when available)
+
+These resources are designed to work with MCP-compatible clients like Claude Desktop or other AI assistants that support the Model Context Protocol.
+
 ## Development
 
 ### Setting Up Development Environment
