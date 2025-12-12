@@ -394,7 +394,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
     # Search for emails
     @mcp.tool()
     async def search_emails(
-        query: str,
+        query: Union[str, int],
         ctx: Context,
         folder: Optional[str] = None,
         criteria: str = "text",
@@ -403,7 +403,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         """Search for emails.
         
         Args:
-            query: Search query
+            query: Search query (numeric IDs are converted to strings)
             folder: Folder to search in (None for all folders)
             criteria: Search criteria (text, from, to, subject, all, unseen, seen)
             limit: Maximum number of results
@@ -412,6 +412,8 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         Returns:
             JSON-formatted list of search results
         """
+        # Convert to string if integer was passed (handles JSON parsing of numeric strings)
+        query = str(query)
         client = get_client_from_context(ctx)
         
         # Define search criteria

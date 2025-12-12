@@ -242,6 +242,18 @@ class TestTools:
         result = await search_emails("test query", mock_context, criteria="invalid")
         assert "Invalid search criteria" in result
 
+        # Test with numeric-only query (simulates JSON parsing converting "69172700" to int)
+        # This tests the fix for numeric strings being type-coerced to integers
+        mock_client.search.reset_mock()
+        mock_client.list_folders.reset_mock()
+        result = await search_emails(69172700, mock_context, folder="INBOX")  # Pass as int
+        result_data = json.loads(result)
+        assert isinstance(result_data, list)
+        # Verify the search was called with the query converted to string
+        mock_client.search.assert_called_once()
+        call_args = mock_client.search.call_args[0][0]
+        assert call_args == ["TEXT", "69172700"]  # Query should be converted to string
+
     @pytest.mark.asyncio
     async def test_process_email(self, tools, mock_client, mock_context):
         """Test processing an email with multiple actions."""
