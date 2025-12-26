@@ -58,6 +58,8 @@ class ImapConfig:
     password: Optional[str] = None
     oauth2: Optional[OAuth2Config] = None
     use_ssl: bool = True
+    idle_timeout: int = 300  # seconds: 0 = close after each call, -1 = never, >0 = timeout
+    verify_with_noop: bool = True  # send NOOP to verify connection health
     
     @property
     def is_gmail(self) -> bool:
@@ -98,6 +100,8 @@ class ImapConfig:
             password=password,
             oauth2=oauth2_config,
             use_ssl=data.get("use_ssl", True),
+            idle_timeout=data.get("idle_timeout", 300),
+            verify_with_noop=data.get("verify_with_noop", True),
         )
 
 
@@ -171,6 +175,8 @@ def load_config(config_path: Optional[str] = None) -> ServerConfig:
                 "username": os.environ.get("IMAP_USERNAME"),
                 "password": os.environ.get("IMAP_PASSWORD"),
                 "use_ssl": os.environ.get("IMAP_USE_SSL", "true").lower() == "true",
+                "idle_timeout": int(os.environ.get("IMAP_IDLE_TIMEOUT", "300")),
+                "verify_with_noop": os.environ.get("IMAP_VERIFY_WITH_NOOP", "true").lower() == "true",
             }
         }
         

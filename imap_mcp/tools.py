@@ -1,10 +1,12 @@
 """MCP tools implementation for email operations."""
 
+import asyncio
 import base64
 import json
 import logging
 import os
 import re
+import shlex
 from datetime import datetime
 from typing import Dict, List, Optional, Union, Any
 
@@ -137,6 +139,41 @@ def _extract_links_from_html(html: str) -> List[Dict[str, Any]]:
         position += 1
     
     return links
+
+
+def _parse_raw_imap_criteria(raw_query: str) -> Union[str, List]:
+    """Parse a raw IMAP search query string into a format suitable for imapclient.
+    
+    This function converts a raw IMAP search string (e.g., "OR TEXT 'foo' SUBJECT 'bar'")
+    into the list format that imapclient expects.
+    
+    Args:
+        raw_query: Raw IMAP search query string
+        
+    Returns:
+        Parsed criteria as string or list suitable for imapclient
+        
+    Examples:
+        >>> _parse_raw_imap_criteria("TEXT foo")
+        ['TEXT', 'foo']
+        
+        >>> _parse_raw_imap_criteria("OR TEXT foo SUBJECT bar")
+        ['OR', 'TEXT', 'foo', 'SUBJECT', 'bar']
+    """
+    # Use shlex to properly handle quoted strings
+    try:
+        tokens = shlex.split(raw_query)
+    except ValueError as e:
+        # If shlex fails, fall back to simple split
+        logger.warning(f"Failed to parse raw IMAP query with shlex: {e}. Falling back to simple split.")
+        tokens = raw_query.split()
+    
+    # If it's a simple single-keyword search (like "ALL", "UNSEEN"), return as string
+    if len(tokens) == 1:
+        return tokens[0]
+    
+    # Otherwise return as list for complex queries
+    return tokens
 
 
 def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
@@ -401,17 +438,38 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         limit: int = 10,
     ) -> str:
         """Search for emails.
-        
+
         Args:
-            query: Search query (numeric IDs are converted to strings)
+            query: Search query (numeric IDs are converted to strings). 
+                   For 'raw' criteria, provide the complete IMAP search expression.
             folder: Folder to search in (None for all folders)
-            criteria: Search criteria (text, from, to, subject, all, unseen, seen)
+            criteria: Search criteria (text, from, to, subject, all, unseen, seen, raw).
+                     Use 'raw' for complex IMAP expressions with OR/AND/NOT operators.
             limit: Maximum number of results
             ctx: MCP context
-            
+
         Returns:
             JSON-formatted list of search results
         """
+        try:
+            # Add 30-second timeout for the entire search operation
+            return await asyncio.wait_for(
+                _search_emails_impl(query, ctx, folder, criteria, limit),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            error_msg = f"Email search timed out after 30 seconds (query={query}, criteria={criteria}, folder={folder})"
+            logger.error(error_msg)
+            return json.dumps({"error": error_msg, "results": []})
+
+    async def _search_emails_impl(
+        query: Union[str, int],
+        ctx: Context,
+        folder: Optional[str],
+        criteria: str,
+        limit: int,
+    ) -> str:
+        """Internal implementation of search_emails without timeout wrapper."""
         # Convert to string if integer was passed (handles JSON parsing of numeric strings)
         query = str(query)
         client = get_client_from_context(ctx)
@@ -428,12 +486,25 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             "today": "today",
             "week": "week",
             "month": "month",
+            "raw": "raw",  # Special marker for raw IMAP expressions
         }
         
         if criteria.lower() not in search_criteria_map:
-            return f"Invalid search criteria: {criteria}"
+            return json.dumps({
+                "error": f"Invalid search criteria: {criteria}. Valid options: {', '.join(search_criteria_map.keys())}"
+            })
         
-        search_criteria = search_criteria_map[criteria.lower()]
+        # Handle raw IMAP criteria - parse the query string into proper format
+        if criteria.lower() == "raw":
+            try:
+                search_criteria = _parse_raw_imap_criteria(query)
+                logger.info(f"Parsed raw IMAP criteria: {search_criteria}")
+            except Exception as e:
+                return json.dumps({
+                    "error": f"Failed to parse raw IMAP criteria: {e}"
+                })
+        else:
+            search_criteria = search_criteria_map[criteria.lower()]
         
         folders_to_search = [folder] if folder else client.list_folders()
         results = []

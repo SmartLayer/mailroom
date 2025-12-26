@@ -33,6 +33,7 @@ class ImapClient:
         self.count_cache: Dict[str, Dict[str, Tuple[int, datetime]]] = {}  # Cache for message counts
         self.current_folder = None  # Store the currently selected folder
         self.folder_message_counts = {}  # Cache for folder message counts
+        self.last_activity: Optional[datetime] = None  # Track last successful IMAP operation
     
     def connect(self) -> None:
         """Connect to IMAP server.
@@ -42,9 +43,10 @@ class ImapClient:
         """
         try:
             self.client = imapclient.IMAPClient(
-                self.config.host, 
-                port=self.config.port, 
+                self.config.host,
+                port=self.config.port,
                 ssl=self.config.use_ssl,
+                timeout=10,  # 10 second connection timeout
             )
             
             # Use OAuth2 for Gmail if configured
@@ -68,6 +70,7 @@ class ImapClient:
                 self.client.login(self.config.username, self.config.password)
                 
             self.connected = True
+            self.last_activity = datetime.now()  # Track connection time
             logger.info(f"Connected to IMAP server {self.config.host}")
         except Exception as e:
             self.connected = False
@@ -84,16 +87,94 @@ class ImapClient:
             finally:
                 self.client = None
                 self.connected = False
+                self.last_activity = None  # Reset activity tracking
                 logger.info("Disconnected from IMAP server")
     
+    def _is_connection_stale(self) -> bool:
+        """Check if connection is likely stale based on idle timeout.
+        
+        Returns:
+            True if connection should be considered stale
+        """
+        idle_timeout = self.config.idle_timeout
+        
+        # -1 means never consider stale (legacy behaviour)
+        if idle_timeout < 0:
+            return False
+        
+        # 0 means always stale (close after each operation)
+        if idle_timeout == 0:
+            return True
+        
+        # Check actual idle time
+        if self.last_activity is None:
+            return True
+        
+        idle_seconds = (datetime.now() - self.last_activity).total_seconds()
+        return idle_seconds > idle_timeout
+    
+    def _verify_connection(self) -> bool:
+        """Verify connection is alive using NOOP command.
+        
+        Returns:
+            True if connection is alive, False otherwise
+        """
+        if not self.client or not self.connected:
+            return False
+        
+        try:
+            self.client.noop()
+            return True
+        except Exception as e:
+            logger.warning(f"Connection verification failed: {e}")
+            return False
+    
+    def _update_activity(self) -> None:
+        """Update last activity timestamp after successful operation."""
+        self.last_activity = datetime.now()
+    
     def ensure_connected(self) -> None:
-        """Ensure that we are connected to the IMAP server.
+        """Ensure connection is available and healthy.
+        
+        This method implements the connection lifecycle strategy:
+        - idle_timeout = 0: Reconnect before every operation (stateless mode)
+        - idle_timeout > 0: Reconnect if idle longer than timeout
+        - idle_timeout = -1: Never proactively reconnect (legacy mode)
         
         Raises:
-            ConnectionError: If connection fails
+            ConnectionError: If connection cannot be established
         """
-        if not self.connected:
+        idle_timeout = self.config.idle_timeout
+        
+        # Case 1: Not connected at all - must connect
+        if not self.connected or not self.client:
             self.connect()
+            return
+        
+        # Case 2: Stateless mode (idle_timeout = 0) - always reconnect
+        if idle_timeout == 0:
+            logger.debug("Stateless mode: reconnecting for operation")
+            self.disconnect()
+            self.connect()
+            return
+        
+        # Case 3: Legacy mode (idle_timeout = -1) - never proactively reconnect
+        if idle_timeout < 0:
+            return
+        
+        # Case 4: Connection might be stale - check and reconnect if needed
+        if self._is_connection_stale():
+            logger.info(f"Connection idle for >{idle_timeout}s, reconnecting...")
+            self.disconnect()
+            self.connect()
+            return
+        
+        # Case 5: Connection within timeout - optionally verify with NOOP
+        if self.config.verify_with_noop:
+            if not self._verify_connection():
+                logger.warning("Connection verification failed, reconnecting...")
+                self.disconnect()
+                self.connect()
     
     def get_capabilities(self) -> List[str]:
         """Get IMAP server capabilities.
@@ -114,6 +195,7 @@ class ImapClient:
                 cap = cap.decode('utf-8')
             capabilities.append(cap.upper())
         
+        self._update_activity()
         return capabilities
     
     def list_folders(self, refresh: bool = False) -> List[str]:
@@ -148,6 +230,7 @@ class ImapClient:
             folders.append(name)
             self.folder_cache[name] = flags
         
+        self._update_activity()
         logger.debug(f"Listed {len(folders)} folders")
         return folders
     
@@ -190,6 +273,7 @@ class ImapClient:
         try:
             result = self.client.select_folder(folder, readonly=readonly)
             self.current_folder = folder
+            self._update_activity()
             logger.debug(f"Selected folder '{folder}'")
             return result
         except imapclient.IMAPClient.Error as e:
@@ -246,6 +330,7 @@ class ImapClient:
                 criteria = criteria_map[criteria.lower()]
         
         results = self.client.search(criteria, charset=charset)
+        self._update_activity()
         logger.debug(f"Search returned {len(results)} results")
         return list(results)
     
@@ -289,6 +374,7 @@ class ImapClient:
         email_obj = Email.from_message(message, uid=uid, folder=folder)
         email_obj.flags = str_flags
         
+        self._update_activity()
         return email_obj
     
     def fetch_emails(
@@ -342,7 +428,8 @@ class ImapClient:
             email_obj.flags = str_flags
             
             emails[uid] = email_obj
-            
+        
+        self._update_activity()
         return emails
         
     def fetch_thread(self, uid: int, folder: str = "INBOX") -> List[Email]:
@@ -467,6 +554,7 @@ class ImapClient:
             key=lambda e: e.date if e.date else datetime.min
         )
         
+        self._update_activity()
         return sorted_emails
     
     def mark_email(
@@ -500,6 +588,7 @@ class ImapClient:
             else:
                 self.client.remove_flags([uid], flag)
                 logger.debug(f"Removed flag {flag} from message {uid}")
+            self._update_activity()
             return True
         except Exception as e:
             logger.error(f"Failed to mark email: {e}")
@@ -537,6 +626,7 @@ class ImapClient:
             self.client.copy([uid], target_folder)
             self.client.add_flags([uid], r"\Deleted")
             self.client.expunge()
+            self._update_activity()
             logger.debug(f"Moved message {uid} from {source_folder} to {target_folder}")
             return True
         except Exception as e:
@@ -562,6 +652,7 @@ class ImapClient:
         try:
             self.client.add_flags([uid], r"\Deleted")
             self.client.expunge()
+            self._update_activity()
             logger.debug(f"Deleted message {uid} from {folder}")
             return True
         except Exception as e:
@@ -642,6 +733,7 @@ class ImapClient:
             if uid is None:
                 logger.warning(f"Could not extract UID from append response: {response}")
             
+            self._update_activity()
             return uid
             
         except Exception as e:
