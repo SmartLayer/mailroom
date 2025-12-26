@@ -9,7 +9,7 @@ from mcp.server.fastmcp import FastMCP, Context
 
 from imap_mcp.imap_client import ImapClient
 from imap_mcp.models import Email, EmailAddress, EmailContent
-from imap_mcp.tools import register_tools
+from imap_mcp.tools import register_tools, _parse_raw_imap_criteria
 
 
 # Patch the get_client_from_context function to use our mock client
@@ -255,6 +255,58 @@ class TestTools:
         assert call_args == ["TEXT", "69172700"]  # Query should be converted to string
 
     @pytest.mark.asyncio
+    async def test_search_emails_raw_criteria(self, tools, mock_client, mock_context, mock_email):
+        """Test searching with raw IMAP criteria including OR expressions."""
+        search_emails = tools["search_emails"]
+        
+        # Test simple raw criteria
+        mock_client.search.reset_mock()
+        mock_client.list_folders.reset_mock()
+        mock_client.list_folders.return_value = ["INBOX"]
+        mock_client.search.return_value = [1, 2]
+        mock_client.fetch_emails.return_value = {1: mock_email, 2: mock_email}
+        
+        result = await search_emails("TEXT Edinburgh", mock_context, folder="INBOX", criteria="raw")
+        result_data = json.loads(result)
+        
+        # Verify search was called with parsed criteria
+        mock_client.search.assert_called_once()
+        call_args = mock_client.search.call_args[0][0]
+        assert call_args == ["TEXT", "Edinburgh"]
+        
+        # Test complex OR expression
+        mock_client.search.reset_mock()
+        complex_query = 'OR TEXT "Edinburgh" TEXT "Berlin"'
+        result = await search_emails(complex_query, mock_context, folder="INBOX", criteria="raw")
+        result_data = json.loads(result)
+        
+        # Verify search was called with parsed criteria
+        mock_client.search.assert_called_once()
+        call_args = mock_client.search.call_args[0][0]
+        assert call_args == ["OR", "TEXT", "Edinburgh", "TEXT", "Berlin"]
+        
+        # Test nested OR expression (like the travel search example)
+        mock_client.search.reset_mock()
+        nested_query = 'OR TEXT "Edinburgh" OR TEXT "Berlin" TEXT "Munich"'
+        result = await search_emails(nested_query, mock_context, folder="INBOX", criteria="raw")
+        result_data = json.loads(result)
+        
+        # Verify search was called with parsed criteria
+        mock_client.search.assert_called_once()
+        call_args = mock_client.search.call_args[0][0]
+        assert call_args == ["OR", "TEXT", "Edinburgh", "OR", "TEXT", "Berlin", "TEXT", "Munich"]
+        
+        # Test single keyword raw query
+        mock_client.search.reset_mock()
+        result = await search_emails("UNSEEN", mock_context, folder="INBOX", criteria="raw")
+        result_data = json.loads(result)
+        
+        # Verify search was called with string (not list) for single keyword
+        mock_client.search.assert_called_once()
+        call_args = mock_client.search.call_args[0][0]
+        assert call_args == "UNSEEN"
+
+    @pytest.mark.asyncio
     async def test_process_email(self, tools, mock_client, mock_context):
         """Test processing an email with multiple actions."""
         # Get the process_email function
@@ -362,3 +414,60 @@ class TestTools:
         # Test process_email with invalid action
         result = await process_email("INBOX", 123, "nonexistent_action", ctx=mock_context)
         assert "Invalid action" in result
+
+
+class TestRawImapCriteriaParsing:
+    """Test the _parse_raw_imap_criteria helper function."""
+    
+    def test_parse_simple_single_keyword(self):
+        """Test parsing simple single-keyword queries."""
+        assert _parse_raw_imap_criteria("ALL") == "ALL"
+        assert _parse_raw_imap_criteria("UNSEEN") == "UNSEEN"
+        assert _parse_raw_imap_criteria("SEEN") == "SEEN"
+    
+    def test_parse_simple_text_search(self):
+        """Test parsing simple TEXT searches."""
+        result = _parse_raw_imap_criteria("TEXT Edinburgh")
+        assert result == ["TEXT", "Edinburgh"]
+        
+        result = _parse_raw_imap_criteria('TEXT "booking confirmation"')
+        assert result == ["TEXT", "booking confirmation"]
+    
+    def test_parse_simple_or_expression(self):
+        """Test parsing simple OR expressions."""
+        result = _parse_raw_imap_criteria('OR TEXT "Edinburgh" TEXT "Berlin"')
+        assert result == ["OR", "TEXT", "Edinburgh", "TEXT", "Berlin"]
+    
+    def test_parse_nested_or_expression(self):
+        """Test parsing nested OR expressions."""
+        result = _parse_raw_imap_criteria('OR TEXT "Edinburgh" OR TEXT "Berlin" TEXT "Munich"')
+        assert result == ["OR", "TEXT", "Edinburgh", "OR", "TEXT", "Berlin", "TEXT", "Munich"]
+    
+    def test_parse_complex_travel_query(self):
+        """Test parsing the complex travel booking query from the example."""
+        query = 'OR TEXT "Edinburgh" OR TEXT "Berlin" OR TEXT "Munich" OR TEXT "Vienna" OR TEXT "Warsaw" OR TEXT "itinerary" OR TEXT "booking confirmation" OR TEXT "e-ticket" OR TEXT "reservation" OR TEXT "receipt" OR TEXT "ticket" TEXT "order"'
+        result = _parse_raw_imap_criteria(query)
+        
+        # Verify it's a list
+        assert isinstance(result, list)
+        
+        # Verify key elements are present
+        assert "OR" in result
+        assert "TEXT" in result
+        assert "Edinburgh" in result
+        assert "Berlin" in result
+        assert "booking confirmation" in result
+        assert "order" in result
+    
+    def test_parse_from_subject_criteria(self):
+        """Test parsing FROM and SUBJECT criteria."""
+        result = _parse_raw_imap_criteria('FROM "john@example.com"')
+        assert result == ["FROM", "john@example.com"]
+        
+        result = _parse_raw_imap_criteria('SUBJECT "meeting"')
+        assert result == ["SUBJECT", "meeting"]
+    
+    def test_parse_combined_criteria(self):
+        """Test parsing combined criteria without OR."""
+        result = _parse_raw_imap_criteria('SEEN FROM gmail')
+        assert result == ["SEEN", "FROM", "gmail"]

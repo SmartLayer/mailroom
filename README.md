@@ -26,9 +26,50 @@ The IMAP MCP server is designed to work with Claude or any other MCP-compatible 
   - Reply-all functionality with CC support
   - Proper threading with In-Reply-To and References headers
   - Save drafts to appropriate folders
-- **Search**: Basic search capabilities across folders 
+- **Search**: Advanced search capabilities with support for complex IMAP expressions
+  - Simple criteria: text, from, to, subject, all, unseen, seen
+  - Date-based searches: today, week, month
+  - Raw IMAP expressions: Full support for OR/AND/NOT operators in Polish notation
+  - Complex queries for finding specific email patterns (e.g., travel bookings, receipts) 
+- **Connection Management**: Intelligent connection lifecycle management with configurable idle timeout and automatic reconnection
 - **Interaction Patterns**: Structured patterns for processing emails and learning preferences (planned)
 - **Learning Layer**: Record and analyze user decisions to predict future actions (planned)
+
+## Connection Management
+
+IMAP servers typically drop idle connections after 10-30 minutes. Since AI assistants have bursty usage patterns (quick operations followed by thinking time and user interaction), the server includes intelligent connection lifecycle management to handle this gracefully.
+
+### Configuration
+
+Add connection settings to the `imap` section of the config file:
+
+```yaml
+imap:
+  host: imap.gmail.com
+  port: 993
+  username: your-email@gmail.com
+  use_ssl: true
+  idle_timeout: 300      # seconds before reconnecting (default: 300)
+  verify_with_noop: true # verify connection health with NOOP command
+```
+
+### idle_timeout Options
+
+| Value | Behaviour | Use Case |
+|-------|-----------|----------|
+| `0` | Close connection after each operation | Testing, debugging, strict resource control |
+| `300` (default) | Reconnect if idle > 5 minutes | Normal AI assistant usage |
+| `600` | Reconnect if idle > 10 minutes | Low-latency environments |
+| `-1` | Never proactively reconnect | Legacy behaviour |
+
+### How It Works
+
+1. **Activity Tracking**: Each successful IMAP operation updates an internal timestamp
+2. **Staleness Check**: Before operations, the client checks if idle time exceeds `idle_timeout`
+3. **NOOP Verification**: If enabled, sends a NOOP command to verify the connection is still alive
+4. **Automatic Reconnection**: Stale or dead connections are transparently reconnected
+
+This ensures reliable operation even when there are long gaps between MCP tool calls.
 
 ## Current Project Structure
 
@@ -143,6 +184,42 @@ To generate a new OAuth2 token:
 uv run imap_mcp.auth_setup generate-token --config config.yaml
 ```
 
+#### Advanced Email Search
+
+The server supports complex IMAP search expressions for powerful email filtering:
+
+**Simple searches:**
+```python
+# Using the search_emails tool
+search_emails(query="important", criteria="text")      # Search for text
+search_emails(query="john@example.com", criteria="from")  # From specific sender
+search_emails(query="", criteria="unseen")              # Unread emails
+search_emails(query="", criteria="today")               # Today's emails
+```
+
+**Complex searches with raw IMAP expressions:**
+```python
+# Simple OR: Find emails from Edinburgh or Berlin
+search_emails(
+    query='OR TEXT "Edinburgh" TEXT "Berlin"',
+    criteria="raw"
+)
+
+# Complex nested OR: Find travel-related emails
+search_emails(
+    query='OR TEXT "Edinburgh" OR TEXT "Berlin" OR TEXT "Munich" OR TEXT "itinerary" OR TEXT "booking confirmation" TEXT "e-ticket"',
+    criteria="raw"
+)
+
+# Combined criteria: Find unread emails from specific sender
+search_emails(
+    query='UNSEEN FROM "john@example.com"',
+    criteria="raw"
+)
+```
+
+**Note:** Raw IMAP expressions use Polish (prefix) notation where operators come before their operands. Each `OR` operator combines exactly two search criteria. For multiple OR operations, nest them properly as shown above.
+
 #### Using MCP Resources
 
 The server exposes email data through MCP resources that can be accessed via `fetch_mcp_resource`:
@@ -189,8 +266,9 @@ This MCP server requires access to your email account, which contains sensitive 
 - [x] Email resource implementation
 - [x] Email tool implementation
 - [x] Email reply and draft functionality
+- [x] Connection lifecycle management
+- [x] Advanced search capabilities with complex IMAP expressions
 - [ ] User preference learning implementation
-- [ ] Advanced search capabilities
 - [ ] Multi-account support
 - [ ] Integration with major email providers
 
