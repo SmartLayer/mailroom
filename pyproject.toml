@@ -36,6 +36,7 @@ dependencies = [
     "ruff>=0.11.2",
     "google-auth-oauthlib>=1.2.1",
     "flask>=3.1.0",
+    "typer>=0.24.1",
 ]
 
 [project.optional-dependencies]
@@ -52,6 +53,7 @@ dev = [
 
 [project.scripts]
 imap-mcp = "imap_mcp.server:main"
+imap-mcp-cli = "imap_mcp.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/non-dirty/imap-mcp"

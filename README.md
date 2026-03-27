@@ -35,6 +35,66 @@ The IMAP MCP server is designed to work with Claude or any other MCP-compatible 
 - **Interaction Patterns**: Structured patterns for processing emails and learning preferences (planned)
 - **Learning Layer**: Record and analyze user decisions to predict future actions (planned)
 
+## Command-Line Interface
+
+All MCP tools are also available as direct CLI commands via `imap-mcp-cli`, without running the MCP server. This is useful for scripting, debugging, and manual operations.
+
+### Usage
+
+```
+imap-mcp-cli --config path/to/config.yaml COMMAND [ARGS]
+```
+
+The `--config` option (or the `IMAP_MCP_CONFIG` environment variable) selects the YAML configuration file. Add `--verbose` / `-v` for debug logging.
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `server-status` | Show IMAP server configuration (no connection needed) |
+| `search-emails QUERY` | Search emails; `--criteria` selects field (subject, from, to, text, all, unseen, seen, raw), `--folder` limits to one folder, `--limit` caps results |
+| `move-email FOLDER UID TARGET` | Move an email to another folder |
+| `mark-as-read FOLDER UID` | Mark an email as read |
+| `mark-as-unread FOLDER UID` | Mark an email as unread |
+| `flag-email FOLDER UID` | Flag (star) an email; `--unflag` removes the flag |
+| `delete-email FOLDER UID` | Delete an email |
+| `process-email FOLDER UID ACTION` | Higher-level action dispatch: move, read, unread, flag, unflag, delete |
+| `list-attachments FOLDER UID` | List attachment metadata for an email |
+| `download-attachment FOLDER UID IDENTIFIER SAVE_PATH` | Download attachment by filename or index |
+| `export-email-html FOLDER UID SAVE_PATH` | Export HTML email to a standalone file with embedded images |
+| `extract-email-links FOLDER UID [UID...]` | Extract all hyperlinks from one or more emails |
+| `process-meeting-invite FOLDER UID` | Identify a meeting invite, check availability, and save a draft reply |
+
+### Examples
+
+```bash
+# Show what account is configured
+imap-mcp-cli --config config.yaml server-status
+
+# Find recent unread mail in the inbox
+imap-mcp-cli --config config.yaml search-emails "" --criteria unseen --folder INBOX --limit 10
+
+# Search by subject across all folders
+imap-mcp-cli --config config.yaml search-emails "invoice" --criteria subject
+
+# List attachments on a specific message
+imap-mcp-cli --config config.yaml list-attachments INBOX 12345
+
+# Save an attachment to disk
+imap-mcp-cli --config config.yaml download-attachment INBOX 12345 report.pdf /tmp/report.pdf
+
+# Export a HTML email for browser viewing
+imap-mcp-cli --config config.yaml export-email-html INBOX 12345 /tmp/email.html
+
+# Extract all links from several messages
+imap-mcp-cli --config config.yaml extract-email-links INBOX 12345 12346 12347
+
+# Move a message to a folder
+imap-mcp-cli --config config.yaml move-email INBOX 12345 Archive
+```
+
+All commands output JSON to stdout.
+
 ## Connection Management
 
 IMAP servers typically drop idle connections after 10-30 minutes. Since AI assistants have bursty usage patterns (quick operations followed by thinking time and user interaction), the server includes intelligent connection lifecycle management to handle this gracefully.
@@ -86,7 +146,8 @@ The project is currently organized as follows:
 │   ├── models.py          # Data models
 │   ├── resources.py       # MCP resources implementation
 │   ├── server.py          # Main server implementation
-│   └── tools.py           # MCP tools implementation
+│   ├── tools.py           # MCP tools implementation
+│   └── cli.py             # Command-line interface
 ├── tests/                 # Test suite
 │   ├── __init__.py
 │   └── test_models.py
