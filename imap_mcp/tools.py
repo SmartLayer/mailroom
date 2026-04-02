@@ -386,23 +386,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             if not email_obj:
                 return json.dumps({"error": f"Email with UID {uid} not found in folder {folder}"})
 
-            # Extract attachment metadata
-            attachments_list = []
-            for index, attachment in enumerate(email_obj.attachments):
-                attachment_info = {
-                    "index": index,
-                    "filename": attachment.filename,
-                    "size": attachment.size,
-                    "content_type": attachment.content_type,
-                }
-
-                # Include content_id if present
-                if attachment.content_id:
-                    attachment_info["content_id"] = attachment.content_id
-
-                attachments_list.append(attachment_info)
-
-            return json.dumps(attachments_list, indent=2)
+            return json.dumps(email_obj.attachment_summaries(), indent=2)
 
         except Exception as e:
             logger.error(f"Error listing attachments: {e}")
@@ -443,28 +427,9 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             if not email_obj.attachments:
                 return "Error: Email has no attachments"
 
-            # Find the attachment by identifier
-            attachment = None
-
-            # First, try to match by exact filename
-            for att in email_obj.attachments:
-                if att.filename == identifier:
-                    attachment = att
-                    break
-
-            # If not found, try to parse as index
+            attachment = email_obj.find_attachment(identifier)
             if attachment is None:
-                try:
-                    index = int(identifier)
-                    if 0 <= index < len(email_obj.attachments):
-                        attachment = email_obj.attachments[index]
-                    else:
-                        return f"Error: Invalid attachment index {index}. Valid range: 0-{len(email_obj.attachments) - 1}"
-                except ValueError:
-                    return f"Error: Attachment '{identifier}' not found. Use filename or numeric index."
-
-            if attachment is None:
-                return f"Error: Attachment '{identifier}' not found"
+                return f"Error: Attachment '{identifier}' not found. Use filename or numeric index (0-{len(email_obj.attachments) - 1})."
 
             # Sanitize the save_path to prevent path traversal
             sanitized_path = save_path.replace("../", "").replace("..\\", "")

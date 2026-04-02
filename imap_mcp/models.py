@@ -361,6 +361,46 @@ class Email:
 
         return re.sub(r'src=(["\'])cid:([^"\']+)\1', replace_cid, html_str)
 
+    def attachment_summaries(self) -> List[Dict[str, Any]]:
+        """Return metadata for each attachment.
+
+        Returns:
+            List of dicts with keys: index, filename, size, content_type,
+            and optionally content_id.
+        """
+        summaries = []
+        for index, att in enumerate(self.attachments):
+            info: Dict[str, Any] = {
+                "index": index,
+                "filename": att.filename,
+                "size": att.size,
+                "content_type": att.content_type,
+            }
+            if att.content_id:
+                info["content_id"] = att.content_id
+            summaries.append(info)
+        return summaries
+
+    def find_attachment(self, identifier: str) -> Optional["EmailAttachment"]:
+        """Find an attachment by filename or numeric index.
+
+        Args:
+            identifier: Attachment filename or index (as string).
+
+        Returns:
+            The matching EmailAttachment, or None if not found.
+        """
+        for att in self.attachments:
+            if att.filename == identifier:
+                return att
+        try:
+            index = int(identifier)
+            if 0 <= index < len(self.attachments):
+                return self.attachments[index]
+        except ValueError:
+            pass
+        return None
+
     def extract_links(self) -> List[Dict[str, Any]]:
         """Extract deduplicated links from the email's HTML content.
 
