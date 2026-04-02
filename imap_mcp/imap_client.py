@@ -3,6 +3,7 @@
 import email
 import logging
 import re
+import shlex
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -35,9 +36,32 @@ class ImapClient:
         self.folder_message_counts = {}  # Cache for folder message counts
         self.last_activity: Optional[datetime] = None  # Track last successful IMAP operation
     
+    @staticmethod
+    def parse_raw_criteria(raw_query: str) -> Union[str, List]:
+        """Parse a raw IMAP search query string into imapclient format.
+
+        Converts e.g. ``"OR TEXT 'foo' SUBJECT 'bar'"`` into
+        ``['OR', 'TEXT', 'foo', 'SUBJECT', 'bar']``.
+
+        Returns a plain string for single-keyword queries (``"ALL"``),
+        or a list for multi-token queries.
+        """
+        try:
+            tokens = shlex.split(raw_query)
+        except ValueError as e:
+            logger.warning(
+                f"Failed to parse raw IMAP query with shlex: {e}. "
+                "Falling back to simple split."
+            )
+            tokens = raw_query.split()
+
+        if len(tokens) == 1:
+            return tokens[0]
+        return tokens
+
     def connect(self) -> None:
         """Connect to IMAP server.
-        
+
         Raises:
             ConnectionError: If connection fails
         """

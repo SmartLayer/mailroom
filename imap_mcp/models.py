@@ -1,13 +1,17 @@
 """Data models for email handling."""
 
+import base64
 import email
 import html
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from email.header import decode_header
 from email.message import Message
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def decode_mime_header(header_value: Optional[str]) -> str:
@@ -322,3 +326,72 @@ class Email:
             f"Attachments: {len(self.attachments)}"
             f"{thread_info}"
         )
+
+    def html_with_embedded_images(self) -> str:
+        """Return HTML content with cid: references replaced by base64 data URIs.
+
+        Returns:
+            HTML string with inline images embedded, or empty string if no HTML.
+        """
+        html_str = self.content.html
+        if not html_str:
+            return ""
+        if not self.attachments:
+            return html_str
+
+        cid_map = {}
+        for att in self.attachments:
+            if att.content_id and att.content:
+                cid = att.content_id.strip("<>")
+                cid_map[cid] = att
+
+        if not cid_map:
+            return html_str
+
+        def replace_cid(match: re.Match) -> str:
+            quote = match.group(1)
+            cid = match.group(2)
+            if cid in cid_map:
+                att = cid_map[cid]
+                b64 = base64.b64encode(att.content).decode("ascii")
+                data_uri = f"data:{att.content_type};base64,{b64}"
+                return f'src={quote}{data_uri}{quote}'
+            logger.warning(f"Inline image CID not found: {cid}")
+            return match.group(0)
+
+        return re.sub(r'src=(["\'])cid:([^"\']+)\1', replace_cid, html_str)
+
+    def extract_links(self) -> List[Dict[str, Any]]:
+        """Extract deduplicated links from the email's HTML content.
+
+        Returns:
+            List of dicts with keys ``url``, ``anchor``, and ``position``.
+        """
+        html_str = self.content.html
+        if not html_str:
+            return []
+
+        link_pattern = re.compile(
+            r'<a\s+[^>]*?href=(["\'])([^"\']+)\1[^>]*?>(.*?)</a>',
+            re.IGNORECASE | re.DOTALL,
+        )
+
+        links: List[Dict[str, Any]] = []
+        seen_urls: set = set()
+        position = 1
+
+        for match in link_pattern.finditer(html_str):
+            url = match.group(2)
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+
+            anchor_html = match.group(3)
+            anchor_text = re.sub(r'<[^>]+>', '', anchor_html, flags=re.DOTALL)
+            anchor_text = html.unescape(anchor_text)
+            anchor_text = re.sub(r'\s+', ' ', anchor_text).strip()
+
+            links.append({"url": url, "anchor": anchor_text, "position": position})
+            position += 1
+
+        return links

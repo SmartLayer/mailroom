@@ -9,7 +9,7 @@ from mcp.server.fastmcp import FastMCP, Context
 
 from imap_mcp.imap_client import ImapClient
 from imap_mcp.models import Email, EmailAddress, EmailContent
-from imap_mcp.tools import register_tools, _parse_raw_imap_criteria
+from imap_mcp.tools import register_tools
 
 
 # Patch the get_client_from_context function to use our mock client
@@ -417,36 +417,36 @@ class TestTools:
 
 
 class TestRawImapCriteriaParsing:
-    """Test the _parse_raw_imap_criteria helper function."""
+    """Test the ImapClient.parse_raw_criteria helper function."""
     
     def test_parse_simple_single_keyword(self):
         """Test parsing simple single-keyword queries."""
-        assert _parse_raw_imap_criteria("ALL") == "ALL"
-        assert _parse_raw_imap_criteria("UNSEEN") == "UNSEEN"
-        assert _parse_raw_imap_criteria("SEEN") == "SEEN"
+        assert ImapClient.parse_raw_criteria("ALL") == "ALL"
+        assert ImapClient.parse_raw_criteria("UNSEEN") == "UNSEEN"
+        assert ImapClient.parse_raw_criteria("SEEN") == "SEEN"
     
     def test_parse_simple_text_search(self):
         """Test parsing simple TEXT searches."""
-        result = _parse_raw_imap_criteria("TEXT Edinburgh")
+        result = ImapClient.parse_raw_criteria("TEXT Edinburgh")
         assert result == ["TEXT", "Edinburgh"]
         
-        result = _parse_raw_imap_criteria('TEXT "booking confirmation"')
+        result = ImapClient.parse_raw_criteria('TEXT "booking confirmation"')
         assert result == ["TEXT", "booking confirmation"]
     
     def test_parse_simple_or_expression(self):
         """Test parsing simple OR expressions."""
-        result = _parse_raw_imap_criteria('OR TEXT "Edinburgh" TEXT "Berlin"')
+        result = ImapClient.parse_raw_criteria('OR TEXT "Edinburgh" TEXT "Berlin"')
         assert result == ["OR", "TEXT", "Edinburgh", "TEXT", "Berlin"]
     
     def test_parse_nested_or_expression(self):
         """Test parsing nested OR expressions."""
-        result = _parse_raw_imap_criteria('OR TEXT "Edinburgh" OR TEXT "Berlin" TEXT "Munich"')
+        result = ImapClient.parse_raw_criteria('OR TEXT "Edinburgh" OR TEXT "Berlin" TEXT "Munich"')
         assert result == ["OR", "TEXT", "Edinburgh", "OR", "TEXT", "Berlin", "TEXT", "Munich"]
     
     def test_parse_complex_travel_query(self):
         """Test parsing the complex travel booking query from the example."""
         query = 'OR TEXT "Edinburgh" OR TEXT "Berlin" OR TEXT "Munich" OR TEXT "Vienna" OR TEXT "Warsaw" OR TEXT "itinerary" OR TEXT "booking confirmation" OR TEXT "e-ticket" OR TEXT "reservation" OR TEXT "receipt" OR TEXT "ticket" TEXT "order"'
-        result = _parse_raw_imap_criteria(query)
+        result = ImapClient.parse_raw_criteria(query)
         
         # Verify it's a list
         assert isinstance(result, list)
@@ -461,13 +461,13 @@ class TestRawImapCriteriaParsing:
     
     def test_parse_from_subject_criteria(self):
         """Test parsing FROM and SUBJECT criteria."""
-        result = _parse_raw_imap_criteria('FROM "john@example.com"')
+        result = ImapClient.parse_raw_criteria('FROM "john@example.com"')
         assert result == ["FROM", "john@example.com"]
         
-        result = _parse_raw_imap_criteria('SUBJECT "meeting"')
+        result = ImapClient.parse_raw_criteria('SUBJECT "meeting"')
         assert result == ["SUBJECT", "meeting"]
     
     def test_parse_combined_criteria(self):
         """Test parsing combined criteria without OR."""
-        result = _parse_raw_imap_criteria('SEEN FROM gmail')
+        result = ImapClient.parse_raw_criteria('SEEN FROM gmail')
         assert result == ["SEEN", "FROM", "gmail"]

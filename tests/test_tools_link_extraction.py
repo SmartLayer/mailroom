@@ -5,24 +5,33 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from imap_mcp.models import Email, EmailAddress, EmailContent
-from imap_mcp.tools import _extract_links_from_html
+
+
+def _make_email(html):
+    """Helper to build an Email with given HTML."""
+    return Email(
+        message_id="<test@example.com>",
+        subject="Test",
+        from_=EmailAddress(name="S", address="s@x.com"),
+        to=[EmailAddress(name="R", address="r@x.com")],
+        content=EmailContent(html=html),
+    )
 
 
 class TestExtractLinksFromHtml:
-    """Test the _extract_links_from_html helper function."""
+    """Test the Email.extract_links method."""
 
     def test_extract_simple_links(self):
         """Test extracting simple links from HTML."""
-        html = """
+        links = _make_email("""
         <html>
             <body>
                 <a href="https://example.com">Example Site</a>
                 <a href="https://google.com">Google</a>
             </body>
         </html>
-        """
-        links = _extract_links_from_html(html)
-        
+        """).extract_links()
+
         assert len(links) == 2
         assert links[0] == {
             "url": "https://example.com",
@@ -37,8 +46,8 @@ class TestExtractLinksFromHtml:
 
     def test_extract_multiline_link(self):
         """Test extracting links that span multiple lines."""
-        html = """
-        <a 
+        links = _make_email("""
+        <a
             href="https://example.com/verify"
             class="button"
             style="color: blue;"
@@ -46,54 +55,48 @@ class TestExtractLinksFromHtml:
             Click here to
             verify your account
         </a>
-        """
-        links = _extract_links_from_html(html)
-        
+        """).extract_links()
+
         assert len(links) == 1
         assert links[0]["url"] == "https://example.com/verify"
-        # Multi-line whitespace should be collapsed to single space
         assert links[0]["anchor"] == "Click here to verify your account"
         assert links[0]["position"] == 1
 
     def test_deduplicate_repeated_urls(self):
         """Test that repeated URLs are deduplicated (first occurrence kept)."""
-        html = """
+        links = _make_email("""
         <a href="https://example.com">First Link</a>
         <a href="https://google.com">Google</a>
         <a href="https://example.com">Duplicate Link</a>
         <a href="https://example.com">Another Duplicate</a>
-        """
-        links = _extract_links_from_html(html)
-        
-        # Should only have 2 links (deduplicated)
+        """).extract_links()
+
         assert len(links) == 2
         assert links[0]["url"] == "https://example.com"
-        assert links[0]["anchor"] == "First Link"  # First occurrence
+        assert links[0]["anchor"] == "First Link"
         assert links[1]["url"] == "https://google.com"
 
     def test_links_with_no_anchor_text(self):
         """Test links with no anchor text (e.g., image links)."""
-        html = """
+        links = _make_email("""
         <a href="https://example.com"></a>
         <a href="https://tracking.com/pixel.gif"><img src="pixel.gif"></a>
-        """
-        links = _extract_links_from_html(html)
-        
+        """).extract_links()
+
         assert len(links) == 2
         assert links[0]["url"] == "https://example.com"
         assert links[0]["anchor"] == ""
         assert links[1]["url"] == "https://tracking.com/pixel.gif"
-        assert links[1]["anchor"] == ""  # Image tags are stripped
+        assert links[1]["anchor"] == ""
 
     def test_links_with_html_entities(self):
         """Test links with HTML entities in anchor text."""
-        html = """
+        links = _make_email("""
         <a href="https://example.com">Click &amp; Verify</a>
         <a href="https://test.com">Test &lt;Company&gt;</a>
         <a href="https://quote.com">&quot;Quoted Text&quot;</a>
-        """
-        links = _extract_links_from_html(html)
-        
+        """).extract_links()
+
         assert len(links) == 3
         assert links[0]["anchor"] == "Click & Verify"
         assert links[1]["anchor"] == "Test <Company>"
@@ -101,86 +104,75 @@ class TestExtractLinksFromHtml:
 
     def test_links_with_nested_html(self):
         """Test links with nested HTML elements."""
-        html = """
+        links = _make_email("""
         <a href="https://example.com">
-            <span style="color: red;">Important</span> 
+            <span style="color: red;">Important</span>
             <strong>Action Required</strong>
         </a>
-        """
-        links = _extract_links_from_html(html)
-        
+        """).extract_links()
+
         assert len(links) == 1
-        # HTML tags should be stripped, whitespace normalized
         assert links[0]["anchor"] == "Important Action Required"
 
     def test_empty_html(self):
         """Test with empty HTML."""
-        links = _extract_links_from_html("")
-        assert links == []
-        
-        links = _extract_links_from_html(None)
-        assert links == []
+        assert _make_email("").extract_links() == []
+        assert _make_email(None).extract_links() == []
 
     def test_html_with_no_links(self):
         """Test HTML content with no links."""
-        html = """
+        links = _make_email("""
         <html>
             <body>
                 <p>This is a paragraph with no links.</p>
                 <div>Just some text content.</div>
             </body>
         </html>
-        """
-        links = _extract_links_from_html(html)
+        """).extract_links()
         assert links == []
 
     def test_case_insensitive_tags(self):
         """Test that link extraction is case-insensitive."""
-        html = """
+        links = _make_email("""
         <A HREF="https://example.com">Upper Case</A>
         <a HREF="https://test.com">Mixed Case</a>
-        """
-        links = _extract_links_from_html(html)
-        
+        """).extract_links()
+
         assert len(links) == 2
         assert links[0]["url"] == "https://example.com"
         assert links[1]["url"] == "https://test.com"
 
     def test_single_vs_double_quotes(self):
         """Test links with single and double quotes."""
-        html = """
+        links = _make_email("""
         <a href="https://example.com">Double Quotes</a>
         <a href='https://test.com'>Single Quotes</a>
-        """
-        links = _extract_links_from_html(html)
-        
+        """).extract_links()
+
         assert len(links) == 2
         assert links[0]["url"] == "https://example.com"
         assert links[1]["url"] == "https://test.com"
 
     def test_attributes_before_and_after_href(self):
         """Test links with attributes before and after href."""
-        html = """
+        links = _make_email("""
         <a class="btn" href="https://example.com" id="link1">Before and After</a>
         <a href="https://test.com" target="_blank" rel="noopener">After Only</a>
-        """
-        links = _extract_links_from_html(html)
-        
+        """).extract_links()
+
         assert len(links) == 2
         assert links[0]["url"] == "https://example.com"
         assert links[1]["url"] == "https://test.com"
 
     def test_relative_and_absolute_urls(self):
         """Test extraction of both relative and absolute URLs."""
-        html = """
+        links = _make_email("""
         <a href="https://example.com/page">Absolute URL</a>
         <a href="/relative/path">Relative Path</a>
         <a href="#anchor">Anchor Link</a>
         <a href="mailto:test@example.com">Email Link</a>
-        """
-        links = _extract_links_from_html(html)
-        
-        # All should be extracted as-is
+        """).extract_links()
+
         assert len(links) == 4
         assert links[0]["url"] == "https://example.com/page"
         assert links[1]["url"] == "/relative/path"
@@ -189,15 +181,13 @@ class TestExtractLinksFromHtml:
 
     def test_position_tracking(self):
         """Test that position is correctly tracked for unique URLs."""
-        html = """
+        links = _make_email("""
         <a href="https://example.com">Link 1</a>
         <a href="https://test.com">Link 2</a>
         <a href="https://example.com">Duplicate</a>
         <a href="https://third.com">Link 3</a>
-        """
-        links = _extract_links_from_html(html)
-        
-        # Positions should be 1, 2, 3 (skipping duplicate)
+        """).extract_links()
+
         assert len(links) == 3
         assert links[0]["position"] == 1
         assert links[1]["position"] == 2

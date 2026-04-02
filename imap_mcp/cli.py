@@ -14,7 +14,6 @@ import typer
 
 from imap_mcp.config import load_config
 from imap_mcp.imap_client import ImapClient
-from imap_mcp.tools import _parse_raw_imap_criteria
 
 app = typer.Typer(
     name="imap-mcp-cli",
@@ -151,7 +150,7 @@ def search_emails(
 
     if criteria.lower() == "raw":
         try:
-            search_spec = _parse_raw_imap_criteria(query)
+            search_spec = ImapClient.parse_raw_criteria(query)
         except Exception as exc:
             typer.echo(f"Failed to parse raw IMAP criteria: {exc}", err=True)
             raise typer.Exit(1)
@@ -420,7 +419,6 @@ def export_email_html(
 ) -> None:
     """Export email HTML content to a standalone file with embedded images."""
     import os
-    from imap_mcp.tools import _embed_inline_images
 
     client = _make_client()
     try:
@@ -432,7 +430,7 @@ def export_email_html(
             typer.echo("Email has no HTML content", err=True)
             raise typer.Exit(1)
 
-        html_content = _embed_inline_images(email_obj.content.html, email_obj.attachments)
+        html_content = email_obj.html_with_embedded_images()
         sanitized = save_path.replace("../", "").replace("..\\", "")
         os.makedirs(os.path.dirname(sanitized) if os.path.dirname(sanitized) else ".", exist_ok=True)
         with open(sanitized, "w", encoding="utf-8") as fh:
@@ -452,8 +450,6 @@ def extract_email_links(
     uids: List[int] = typer.Argument(..., help="One or more email UIDs."),
 ) -> None:
     """Extract all links from email HTML content."""
-    from imap_mcp.tools import _extract_links_from_html
-
     client = _make_client()
     try:
         results = []
@@ -466,7 +462,7 @@ def extract_email_links(
                 if not email_obj.content.html:
                     results.append({"uid": uid, "error": "No HTML content", "links": []})
                     continue
-                links = _extract_links_from_html(email_obj.content.html)
+                links = email_obj.extract_links()
                 results.append({"uid": uid, "links": links})
             except Exception as exc:
                 results.append({"uid": uid, "error": str(exc), "links": []})

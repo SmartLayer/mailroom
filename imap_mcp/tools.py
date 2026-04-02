@@ -1,179 +1,22 @@
 """MCP tools implementation for email operations."""
 
 import asyncio
-import base64
 import json
 import logging
 import os
-import re
-import shlex
 from datetime import datetime
-from typing import Dict, List, Optional, Union, Any
-
+from typing import Dict, List, Optional, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp import Context
 
 from imap_mcp.imap_client import ImapClient
-from imap_mcp.models import EmailAttachment
 from imap_mcp.resources import get_client_from_context, get_smtp_client_from_context
-
-from typing import Dict
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 # Define the path for storing tasks
 TASKS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tasks.json")
-
-
-def _embed_inline_images(html: str, attachments: List[EmailAttachment]) -> str:
-    """Embed inline images in HTML by converting cid: references to base64 data URIs.
-    
-    Args:
-        html: HTML content with potential cid: references
-        attachments: List of email attachments that may contain inline images
-        
-    Returns:
-        HTML with cid: references replaced by data: URIs
-    """
-    if not attachments:
-        return html
-    
-    # Create a mapping of content_id to attachment
-    cid_map = {}
-    for attachment in attachments:
-        if attachment.content_id and attachment.content:
-            # Content IDs may or may not have angle brackets, normalize them
-            cid = attachment.content_id.strip("<>")
-            cid_map[cid] = attachment
-    
-    if not cid_map:
-        return html
-    
-    # Find all cid: references in the HTML
-    # Match patterns like src="cid:XXX" or src='cid:XXX'
-    def replace_cid(match):
-        quote = match.group(1)  # Capture the quote character (" or ')
-        cid = match.group(2)  # Capture the CID value
-        
-        # Look up the attachment by CID
-        if cid in cid_map:
-            attachment = cid_map[cid]
-            # Convert content to base64
-            base64_content = base64.b64encode(attachment.content).decode("ascii")
-            # Create data URI
-            data_uri = f"data:{attachment.content_type};base64,{base64_content}"
-            return f'src={quote}{data_uri}{quote}'
-        else:
-            # If CID not found, leave it as-is
-            logger.warning(f"Inline image CID not found: {cid}")
-            return match.group(0)
-    
-    # Replace all cid: references
-    html = re.sub(r'src=(["\'])cid:([^"\']+)\1', replace_cid, html)
-    
-    return html
-
-
-def _extract_links_from_html(html: str) -> List[Dict[str, Any]]:
-    """Extract all links from HTML content.
-    
-    Args:
-        html: HTML content
-        
-    Returns:
-        List of link objects with url, anchor, and position (deduplicated by URL)
-    """
-    if not html:
-        return []
-    
-    # Pattern to match <a> tags with href attributes
-    # Uses re.DOTALL to handle multi-line <a> tags
-    # Matches: <a href="url">anchor text</a> or <a href='url'>anchor text</a>
-    # Also handles attributes before/after href and newlines within tags
-    # Pattern breakdown:
-    #   <a\s+          - opening tag with at least one whitespace
-    #   [^>]*?         - any attributes before href (non-greedy)
-    #   href=          - href attribute
-    #   (["\'])        - quote character (group 1)
-    #   ([^"\']+)      - URL content (group 2)
-    #   \1             - matching quote
-    #   [^>]*?         - any attributes after href (non-greedy)
-    #   >              - end of opening tag
-    #   (.*?)          - anchor content including newlines (group 3, non-greedy)
-    #   </a>           - closing tag
-    link_pattern = re.compile(
-        r'<a\s+[^>]*?href=(["\'])([^"\']+)\1[^>]*?>(.*?)</a>',
-        re.IGNORECASE | re.DOTALL
-    )
-    
-    links = []
-    seen_urls = set()
-    position = 1
-    
-    for match in link_pattern.finditer(html):
-        url = match.group(2)
-        anchor_html = match.group(3)
-        
-        # Skip if we've already seen this URL (deduplication)
-        if url in seen_urls:
-            continue
-        
-        seen_urls.add(url)
-        
-        # Strip HTML tags from anchor text to get plain text
-        # Also handles multi-line tags
-        anchor_text = re.sub(r'<[^>]+>', '', anchor_html, flags=re.DOTALL)
-        # Decode HTML entities and normalize whitespace (collapse multi-line spaces)
-        import html as html_module
-        anchor_text = html_module.unescape(anchor_text)
-        # Replace multiple whitespace characters (including newlines) with single space
-        anchor_text = re.sub(r'\s+', ' ', anchor_text).strip()
-        
-        links.append({
-            "url": url,
-            "anchor": anchor_text,
-            "position": position
-        })
-        position += 1
-    
-    return links
-
-
-def _parse_raw_imap_criteria(raw_query: str) -> Union[str, List]:
-    """Parse a raw IMAP search query string into a format suitable for imapclient.
-    
-    This function converts a raw IMAP search string (e.g., "OR TEXT 'foo' SUBJECT 'bar'")
-    into the list format that imapclient expects.
-    
-    Args:
-        raw_query: Raw IMAP search query string
-        
-    Returns:
-        Parsed criteria as string or list suitable for imapclient
-        
-    Examples:
-        >>> _parse_raw_imap_criteria("TEXT foo")
-        ['TEXT', 'foo']
-        
-        >>> _parse_raw_imap_criteria("OR TEXT foo SUBJECT bar")
-        ['OR', 'TEXT', 'foo', 'SUBJECT', 'bar']
-    """
-    # Use shlex to properly handle quoted strings
-    try:
-        tokens = shlex.split(raw_query)
-    except ValueError as e:
-        # If shlex fails, fall back to simple split
-        logger.warning(f"Failed to parse raw IMAP query with shlex: {e}. Falling back to simple split.")
-        tokens = raw_query.split()
-    
-    # If it's a simple single-keyword search (like "ALL", "UNSEEN"), return as string
-    if len(tokens) == 1:
-        return tokens[0]
-    
-    # Otherwise return as list for complex queries
-    return tokens
 
 
 def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
@@ -580,7 +423,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         # Handle raw IMAP criteria - parse the query string into proper format
         if criteria.lower() == "raw":
             try:
-                search_criteria = _parse_raw_imap_criteria(query)
+                search_criteria = ImapClient.parse_raw_criteria(query)
                 logger.info(f"Parsed raw IMAP criteria: {search_criteria}")
             except Exception as e:
                 return json.dumps({
@@ -988,7 +831,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
                 return "Error: Email has no HTML content"
             
             # Process HTML to embed inline images
-            html_content = _embed_inline_images(email_obj.content.html, email_obj.attachments)
+            html_content = email_obj.html_with_embedded_images()
             
             # Sanitize the save_path to prevent path traversal
             # Replace ../ and ..\ patterns
@@ -1065,7 +908,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
                     continue
                 
                 # Extract links from HTML
-                links = _extract_links_from_html(email_obj.content.html)
+                links = email_obj.extract_links()
                 
                 results.append({
                     "uid": uid,
