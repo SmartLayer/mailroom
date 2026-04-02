@@ -1,10 +1,18 @@
 # IMAP MCP Server
 
-A Model Context Protocol (MCP) server that enables AI assistants to check email, process messages, and learn user preferences through interaction.
+An email toolkit for AI assistants, offering both a lightweight command-line interface and a full MCP server.
 
 ## Overview
 
-This project implements an MCP server that interfaces with IMAP email servers to provide the following capabilities:
+This project provides two ways for an AI assistant to work with IMAP email:
+
+1. **Command-line interface (CLI)** — a lightweight tool that an AI assistant invokes via a skill or shell command. It requires only a Python runtime and a few common packages; the `mcp` library is not in its import chain. This is the recommended default. Most conversations do not involve email at all, and among those that do, many need only a quick search or a single reply. The CLI keeps the cost proportional to the need: it is invoked only when the assistant decides to check or act on email, and it adds nothing to the context window beforehand.
+
+2. **MCP server** — a persistent process that exposes the same operations as MCP tools and resources. It is heavier: the MCP protocol itself consumes context on every turn, whether or not email is discussed. But it is the only option in deployment scenarios where the assistant cannot execute local commands — for instance, when running through the Claude web interface or another hosted MCP client.
+
+The two modes share the same domain code (`imap_client`, `models`, `config`). The difference is only in the entry point and the transport: the CLI reads arguments from the command line and writes JSON to stdout; the MCP server reads and writes MCP protocol messages.
+
+### Capabilities
 
 - Email browsing and searching
 - Email organization (moving, tagging, marking)
@@ -12,8 +20,6 @@ This project implements an MCP server that interfaces with IMAP email servers to
 - Interactive email processing and learning user preferences
 - Automated email summarization and categorization
 - Support for multiple IMAP providers
-
-The IMAP MCP server is designed to work with Claude or any other MCP-compatible assistant, allowing them to act as intelligent email assistants that learn your preferences over time.
 
 ## Features
 
@@ -37,13 +43,21 @@ The IMAP MCP server is designed to work with Claude or any other MCP-compatible 
 
 ## Command-Line Interface
 
-All MCP tools are also available as direct CLI commands via `imap-mcp-cli`, without running the MCP server. This is useful for scripting, debugging, and manual operations.
+All MCP tools are also available as direct CLI commands, without running the MCP server. This is the recommended way to give an AI assistant access to email when it can execute local commands (e.g. via a skill in Claude Code). The CLI does not import the `mcp` package, so it can run under the system Python with only its own lightweight dependencies installed.
 
-### Usage
+### Invocation
 
-```
+There are two equivalent ways to run the CLI:
+
+```bash
+# Using the console_script entry point (requires pip/uv install):
 imap-mcp-cli --config path/to/config.yaml COMMAND [ARGS]
+
+# Using python3 -m (works without installing the entry point):
+python3 -m imap_mcp.cli --config path/to/config.yaml COMMAND [ARGS]
 ```
+
+The `python3 -m` form is useful on systems where the package is available on `PYTHONPATH` or installed into the system Python but the console_script shim was not created. It runs the same code.
 
 The `--config` option (or the `IMAP_MCP_CONFIG` environment variable) selects the YAML configuration file. Add `--verbose` / `-v` for debug logging.
 
@@ -208,18 +222,6 @@ The project is currently organized as follows:
    ```
 
 ### Usage
-
-#### Checking Email
-
-To list emails in your inbox:
-```bash
-uv run list_inbox.py --config config.yaml --folder INBOX --limit 10
-```
-
-Available options:
-- `--folder`: Specify which folder to check (default: INBOX)
-- `--limit`: Maximum number of emails to display (default: 10)
-- `--verbose`: Enable detailed logging output
 
 #### Starting the MCP Server
 
