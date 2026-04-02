@@ -6,7 +6,7 @@ from datetime import datetime
 from email.message import EmailMessage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from imap_mcp.models import Email, EmailAddress
 
@@ -157,5 +157,93 @@ def create_reply_mime(
     
     # Add Date header
     message["Date"] = email.utils.formatdate(localtime=True)
-    
+
     return message
+
+
+def _find_reply_from_address(email_obj: Email, my_address: str) -> EmailAddress:
+    """Find the best reply-from address by matching the account address.
+
+    Searches the To and CC fields of *email_obj* for an address matching
+    *my_address* (case-insensitive).  Falls back to the first To recipient
+    or, if there are none, constructs an ``EmailAddress`` from *my_address*.
+    """
+    my_lower = my_address.lower()
+    for recipient in (email_obj.to or []) + (email_obj.cc or []):
+        if recipient.address and recipient.address.lower() == my_lower:
+            return recipient
+    if email_obj.to:
+        return email_obj.to[0]
+    return EmailAddress(name="", address=my_address)
+
+
+def compose_and_save_reply_draft(
+    client,
+    folder: str,
+    uid: int,
+    reply_body: str,
+    reply_all: bool = False,
+    cc: Optional[List[str]] = None,
+    bcc: Optional[List[str]] = None,
+    body_html: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Fetch an email, compose a reply, and save it as a draft.
+
+    Args:
+        client: An ``ImapClient`` instance (duck-typed to avoid circular import).
+        folder: IMAP folder containing the original email.
+        uid: UID of the original email.
+        reply_body: Plain-text reply body.
+        reply_all: Reply to all recipients.
+        cc: Optional CC addresses as strings.
+        bcc: Optional BCC addresses as strings.
+        body_html: Optional HTML reply body.
+
+    Returns:
+        Dict with keys ``status``, ``message``, ``draft_uid``, ``draft_folder``.
+    """
+    result: Dict[str, Any] = {
+        "status": "error",
+        "message": "",
+        "draft_uid": None,
+        "draft_folder": None,
+    }
+
+    try:
+        email_obj = client.fetch_email(uid, folder=folder)
+        if not email_obj:
+            result["message"] = f"Email with UID {uid} not found in folder {folder}"
+            return result
+
+        reply_from = _find_reply_from_address(email_obj, client.config.username)
+
+        cc_addresses = None
+        if cc:
+            cc_addresses = [EmailAddress.parse(addr) for addr in cc]
+
+        mime_message = create_reply_mime(
+            original_email=email_obj,
+            reply_to=reply_from,
+            body=reply_body,
+            reply_all=reply_all,
+            cc=cc_addresses,
+            html_body=body_html,
+        )
+
+        if bcc:
+            mime_message["Bcc"] = ", ".join(bcc)
+
+        draft_uid = client.save_draft_mime(mime_message)
+        if draft_uid:
+            drafts_folder = client._get_drafts_folder()
+            result["status"] = "success"
+            result["message"] = "Draft reply saved"
+            result["draft_uid"] = draft_uid
+            result["draft_folder"] = drafts_folder
+        else:
+            result["message"] = "Failed to save draft"
+    except Exception as e:
+        logger.error(f"Error drafting reply: {e}")
+        result["message"] = f"Error: {e}"
+
+    return result

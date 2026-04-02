@@ -1,4 +1,8 @@
-"""Mock calendar availability checking functionality."""
+"""Mock calendar availability checking functionality.
+
+.. todo:: Expose ``check_mock_availability`` as an individual MCP tool
+          (previously registered as the non-functional ``check_calendar_availability_tool`` stub).
+"""
 
 import logging
 import random

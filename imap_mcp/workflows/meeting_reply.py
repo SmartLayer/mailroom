@@ -1,8 +1,19 @@
-"""Meeting invite reply generation functionality."""
+"""Meeting invite reply generation functionality.
+
+.. todo:: Expose ``generate_meeting_reply_content`` as an individual MCP tool
+          (previously registered as the non-functional ``draft_meeting_reply_tool`` stub).
+.. todo:: Expose ``process_meeting_invite_workflow`` as an individual MCP tool
+          (previously registered as the non-functional ``process_invite_email_tool`` stub).
+"""
 
 import logging
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
+from imap_mcp.models import EmailAddress
+from imap_mcp.smtp_client import create_reply_mime
+from imap_mcp.workflows.invite_parser import identify_meeting_invite_details
+from imap_mcp.workflows.calendar_mock import check_mock_availability
 
 logger = logging.getLogger(__name__)
 
@@ -165,3 +176,84 @@ def _generate_decline_reply(
         "reply_body": reply_body,
         "reply_type": "decline"
     }
+
+
+def process_meeting_invite_workflow(
+    client,
+    folder: str,
+    uid: int,
+    availability_mode: str = "random",
+) -> Dict[str, Any]:
+    """Fetch an email, identify a meeting invite, check availability, and save a draft reply.
+
+    Args:
+        client: An ``ImapClient`` instance (duck-typed to avoid circular import).
+        folder: IMAP folder containing the email.
+        uid: UID of the email.
+        availability_mode: One of random, always_available, always_busy,
+                           business_hours, weekdays.
+
+    Returns:
+        Dict with keys ``status``, ``message``, ``draft_uid``,
+        ``draft_folder``, ``availability``.
+    """
+    result: Dict[str, Any] = {
+        "status": "error",
+        "message": "An error occurred during processing",
+        "draft_uid": None,
+        "draft_folder": None,
+        "availability": None,
+    }
+
+    try:
+        email_obj = client.fetch_email(uid, folder)
+        if not email_obj:
+            result["message"] = f"Email with UID {uid} not found in folder {folder}"
+            return result
+
+        invite_result = identify_meeting_invite_details(email_obj)
+        if not invite_result["is_invite"]:
+            result["status"] = "not_invite"
+            result["message"] = "The email is not a meeting invite"
+            return result
+
+        invite_details = invite_result["details"]
+
+        avail_result = check_mock_availability(
+            invite_details.get("start_time"),
+            invite_details.get("end_time"),
+            availability_mode,
+        )
+        result["availability"] = avail_result["available"]
+
+        reply_content = generate_meeting_reply_content(invite_details, avail_result)
+
+        reply_from = (
+            email_obj.to[0]
+            if email_obj.to
+            else EmailAddress(name="Me", address=client.config.username)
+        )
+
+        mime_message = create_reply_mime(
+            original_email=email_obj,
+            reply_to=reply_from,
+            body=reply_content["reply_body"],
+            subject=reply_content["reply_subject"],
+            reply_all=False,
+        )
+
+        draft_uid = client.save_draft_mime(mime_message)
+        if draft_uid:
+            drafts_folder = client._get_drafts_folder()
+            result["status"] = "success"
+            result["message"] = f"Draft reply created: {reply_content['reply_type']}"
+            result["draft_uid"] = draft_uid
+            result["draft_folder"] = drafts_folder
+        else:
+            result["message"] = "Failed to save draft"
+
+    except Exception as e:
+        logger.error(f"Error processing meeting invite: {e}")
+        result["message"] = f"Error: {e}"
+
+    return result

@@ -1,4 +1,8 @@
-"""Meeting invite identification and parsing logic."""
+"""Meeting invite identification and parsing logic.
+
+.. todo:: Expose ``identify_meeting_invite_details`` as an individual MCP tool
+          (previously registered as the non-functional ``identify_meeting_invite_tool`` stub).
+"""
 
 import logging
 import re

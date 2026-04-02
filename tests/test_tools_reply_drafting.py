@@ -1,74 +1,127 @@
+"""Tests for compose_and_save_reply_draft in smtp_client."""
+
 import pytest
-from datetime import datetime, timedelta
-import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
+from datetime import datetime
 
-from imap_mcp.tools import draft_meeting_reply
+from imap_mcp.models import Email, EmailAddress, EmailContent
+from imap_mcp.smtp_client import compose_and_save_reply_draft, _find_reply_from_address
 
-# Create a mock Context
-@pytest.fixture
-def mock_ctx():
-    ctx = MagicMock()
-    return ctx
 
-# Generate test invite details
-@pytest.fixture
-def sample_invite_details():
-    now = datetime.now()
-    start_time = (now + timedelta(days=1)).isoformat()
-    end_time = (now + timedelta(days=1, hours=1)).isoformat()
-    
-    return {
-        "subject": "Team Sync Meeting",
-        "start_time": start_time,
-        "end_time": end_time,
-        "organizer": "organizer@example.com",
-        "location": "Conference Room A"
-    }
+class TestFindReplyFromAddress:
+    """Tests for _find_reply_from_address helper."""
 
-@pytest.mark.asyncio  # Add this decorator
-async def test_draft_reply_accept(mock_ctx, sample_invite_details):
-    """Test generating an acceptance reply."""
-    result = await draft_meeting_reply(sample_invite_details, True, mock_ctx)
-    
-    assert isinstance(result, dict)
-    assert "reply_subject" in result
-    assert "reply_body" in result
-    assert result["reply_subject"] == "Re: Team Sync Meeting"
-    assert "confirming my attendance" in result["reply_body"]
-    assert "Conference Room A" in result["reply_body"]
+    @pytest.fixture
+    def email_obj(self):
+        return Email(
+            message_id="<test@example.com>",
+            subject="Test",
+            from_=EmailAddress(name="Sender", address="sender@example.com"),
+            to=[
+                EmailAddress(name="Me", address="me@example.com"),
+                EmailAddress(name="Other", address="other@example.com"),
+            ],
+            cc=[EmailAddress(name="CC", address="cc@example.com")],
+            date=datetime(2025, 4, 1, 10, 0, 0),
+            content=EmailContent(text="body"),
+            headers={},
+        )
 
-@pytest.mark.asyncio  # Add this decorator
-async def test_draft_reply_decline(mock_ctx, sample_invite_details):
-    """Test generating a decline reply."""
-    result = await draft_meeting_reply(sample_invite_details, False, mock_ctx)
-    
-    assert isinstance(result, dict)
-    assert "reply_subject" in result
-    assert "reply_body" in result
-    assert result["reply_subject"] == "Re: Team Sync Meeting"
-    assert "Unfortunately" in result["reply_body"]
-    assert "won't be able to attend" in result["reply_body"]
+    def test_matches_to_field(self, email_obj):
+        result = _find_reply_from_address(email_obj, "me@example.com")
+        assert result.address == "me@example.com"
 
-@pytest.mark.asyncio  # Add this decorator
-async def test_draft_reply_missing_details(mock_ctx):
-    """Test handling of missing required fields."""
-    incomplete_details = {
-        "subject": "Incomplete Meeting",
-        # Missing start_time, end_time, organizer
-    }
-    
-    with pytest.raises(ValueError) as excinfo:
-        await draft_meeting_reply(incomplete_details, True, mock_ctx)
-    
-    assert "Missing required fields" in str(excinfo.value)
+    def test_matches_cc_field(self, email_obj):
+        result = _find_reply_from_address(email_obj, "cc@example.com")
+        assert result.address == "cc@example.com"
 
-@pytest.mark.asyncio  # Add this decorator
-async def test_draft_reply_subject_already_re(mock_ctx, sample_invite_details):
-    """Test subject handling when original subject already starts with 'Re:'."""
-    sample_invite_details["subject"] = "Re: Previous Discussion"
-    
-    result = await draft_meeting_reply(sample_invite_details, True, mock_ctx)
-    
-    assert result["reply_subject"] == "Re: Previous Discussion"
-    # Should not be "Re: Re: Previous Discussion"
+    def test_case_insensitive(self, email_obj):
+        result = _find_reply_from_address(email_obj, "ME@EXAMPLE.COM")
+        assert result.address == "me@example.com"
+
+    def test_fallback_to_first_to(self, email_obj):
+        result = _find_reply_from_address(email_obj, "unknown@example.com")
+        assert result.address == "me@example.com"
+
+    def test_fallback_no_to(self):
+        email_obj = Email(
+            message_id="<test@example.com>",
+            subject="Test",
+            from_=EmailAddress(name="Sender", address="sender@example.com"),
+            to=[],
+            date=datetime(2025, 4, 1, 10, 0, 0),
+            content=EmailContent(text="body"),
+            headers={},
+        )
+        result = _find_reply_from_address(email_obj, "me@example.com")
+        assert result.address == "me@example.com"
+
+
+class TestComposeAndSaveReplyDraft:
+    """Tests for compose_and_save_reply_draft."""
+
+    @pytest.fixture
+    def mock_client(self):
+        client = MagicMock()
+        client.config = MagicMock()
+        client.config.username = "me@example.com"
+        client.save_draft_mime = MagicMock(return_value=42)
+        client._get_drafts_folder = MagicMock(return_value="Drafts")
+        return client
+
+    @pytest.fixture
+    def original_email(self):
+        return Email(
+            message_id="<orig@example.com>",
+            subject="Hello",
+            from_=EmailAddress(name="Sender", address="sender@example.com"),
+            to=[EmailAddress(name="Me", address="me@example.com")],
+            date=datetime(2025, 4, 1, 10, 0, 0),
+            content=EmailContent(text="Original body"),
+            headers={},
+        )
+
+    def test_success(self, mock_client, original_email):
+        mock_client.fetch_email.return_value = original_email
+
+        result = compose_and_save_reply_draft(
+            mock_client, "INBOX", 1, "Thanks!",
+        )
+
+        assert result["status"] == "success"
+        assert result["draft_uid"] == 42
+        assert result["draft_folder"] == "Drafts"
+        mock_client.save_draft_mime.assert_called_once()
+
+    def test_email_not_found(self, mock_client):
+        mock_client.fetch_email.return_value = None
+
+        result = compose_and_save_reply_draft(
+            mock_client, "INBOX", 999, "Reply",
+        )
+
+        assert result["status"] == "error"
+        assert "not found" in result["message"].lower()
+
+    def test_save_draft_failure(self, mock_client, original_email):
+        mock_client.fetch_email.return_value = original_email
+        mock_client.save_draft_mime.return_value = None
+
+        result = compose_and_save_reply_draft(
+            mock_client, "INBOX", 1, "Reply",
+        )
+
+        assert result["status"] == "error"
+        assert "Failed to save draft" in result["message"]
+
+    def test_with_cc_and_bcc(self, mock_client, original_email):
+        mock_client.fetch_email.return_value = original_email
+
+        result = compose_and_save_reply_draft(
+            mock_client, "INBOX", 1, "Reply",
+            cc=["cc@example.com"], bcc=["bcc@example.com"],
+        )
+
+        assert result["status"] == "success"
+        mime_msg = mock_client.save_draft_mime.call_args[0][0]
+        assert "bcc@example.com" in str(mime_msg.get("Bcc", ""))

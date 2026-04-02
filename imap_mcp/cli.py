@@ -130,61 +130,13 @@ def search_emails(
     limit: int = typer.Option(10, "--limit", "-n", help="Maximum number of results."),
 ) -> None:
     """Search for emails."""
-    search_criteria_map = {
-        "text": ["TEXT", query],
-        "from": ["FROM", query],
-        "to": ["TO", query],
-        "subject": ["SUBJECT", query],
-        "all": "ALL",
-        "unseen": "UNSEEN",
-        "seen": "SEEN",
-        "today": "today",
-        "week": "week",
-        "month": "month",
-        "raw": "raw",
-    }
-
-    if criteria.lower() not in search_criteria_map:
-        typer.echo(f"Invalid criteria '{criteria}'. Valid: {', '.join(search_criteria_map)}", err=True)
-        raise typer.Exit(1)
-
-    if criteria.lower() == "raw":
-        try:
-            search_spec = ImapClient.parse_raw_criteria(query)
-        except Exception as exc:
-            typer.echo(f"Failed to parse raw IMAP criteria: {exc}", err=True)
-            raise typer.Exit(1)
-    else:
-        search_spec = search_criteria_map[criteria.lower()]
-
     client = _make_client()
     try:
-        folders_to_search = [folder] if folder else client.list_folders()
-        results = []
-
-        for current_folder in folders_to_search:
-            try:
-                uids = client.search(search_spec, folder=current_folder)
-                uids = sorted(uids, reverse=True)[:limit]
-                if uids:
-                    emails = client.fetch_emails(uids, folder=current_folder)
-                    for uid, email_obj in emails.items():
-                        results.append({
-                            "uid": uid,
-                            "folder": current_folder,
-                            "from": str(email_obj.from_),
-                            "to": [str(t) for t in email_obj.to],
-                            "subject": email_obj.subject,
-                            "date": email_obj.date.isoformat() if email_obj.date else None,
-                            "flags": email_obj.flags,
-                            "has_attachments": len(email_obj.attachments) > 0,
-                        })
-            except Exception as exc:
-                logger.warning("Error searching folder %s: %s", current_folder, exc)
-
-        results.sort(key=lambda x: x.get("date") or "0", reverse=True)
-        results = results[:limit]
+        results = client.search_emails(query, criteria, folder=folder, limit=limit)
         _out(results)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1)
     finally:
         client.disconnect()
 
@@ -492,45 +444,32 @@ def draft_reply(
     By default, saves the draft to the IMAP drafts folder.
     With -o, writes the raw RFC 822 message to a file or stdout.
     """
-    from imap_mcp.smtp_client import create_reply_mime
-    from imap_mcp.models import EmailAddress
-
     client = _make_client()
     try:
-        email_obj = client.fetch_email(uid, folder)
-        if not email_obj:
-            typer.echo(f"Email UID {uid} not found in {folder}", err=True)
-            raise typer.Exit(1)
-
-        # Find the recipient that matches this account's address
-        reply_from = None
-        my_addr = client.config.username.lower()
-        for recipient in (email_obj.to or []) + (email_obj.cc or []):
-            if recipient.address and recipient.address.lower() == my_addr:
-                reply_from = recipient
-                break
-        if reply_from is None:
-            reply_from = (email_obj.to[0] if email_obj.to
-                          else EmailAddress(name="", address=client.config.username))
-
-        cc_addresses = None
-        if cc:
-            cc_addresses = [EmailAddress.parse(addr) for addr in cc]
-
-        mime_message = create_reply_mime(
-            original_email=email_obj,
-            reply_to=reply_from,
-            body=body,
-            reply_all=reply_all,
-            cc=cc_addresses,
-            html_body=body_html,
-        )
-
-        if bcc:
-            mime_message["Bcc"] = ", ".join(bcc)
-
         if output is not None:
-            # Output raw RFC 822 message
+            # --output path: build MIME locally and write raw bytes
+            from imap_mcp.smtp_client import create_reply_mime, _find_reply_from_address
+            from imap_mcp.models import EmailAddress
+
+            email_obj = client.fetch_email(uid, folder)
+            if not email_obj:
+                typer.echo(f"Email UID {uid} not found in {folder}", err=True)
+                raise typer.Exit(1)
+
+            reply_from = _find_reply_from_address(email_obj, client.config.username)
+            cc_addresses = [EmailAddress.parse(addr) for addr in cc] if cc else None
+
+            mime_message = create_reply_mime(
+                original_email=email_obj,
+                reply_to=reply_from,
+                body=body,
+                reply_all=reply_all,
+                cc=cc_addresses,
+                html_body=body_html,
+            )
+            if bcc:
+                mime_message["Bcc"] = ", ".join(bcc)
+
             if hasattr(mime_message, "as_bytes"):
                 raw = mime_message.as_bytes()
             else:
@@ -545,13 +484,17 @@ def draft_reply(
                     fh.write(raw)
                 typer.echo(f"Wrote {len(raw)} bytes to {output}", err=True)
         else:
-            # Save as draft in IMAP
-            draft_uid = client.save_draft_mime(mime_message)
-            if draft_uid:
-                drafts_folder = client._get_drafts_folder()
-                _out({"status": "success", "draft_uid": draft_uid, "draft_folder": drafts_folder})
+            # Default path: save as draft via domain function
+            from imap_mcp.smtp_client import compose_and_save_reply_draft
+
+            result = compose_and_save_reply_draft(
+                client, folder, uid, body,
+                reply_all=reply_all, cc=cc, bcc=bcc, body_html=body_html,
+            )
+            if result["status"] == "success":
+                _out(result)
             else:
-                typer.echo("Failed to save draft", err=True)
+                typer.echo(result.get("message", "Failed to save draft"), err=True)
                 raise typer.Exit(1)
     finally:
         client.disconnect()
@@ -571,68 +514,14 @@ def process_meeting_invite(
     ),
 ) -> None:
     """Process a meeting invite and create a draft reply."""
-    from imap_mcp.models import EmailAddress
-    from imap_mcp.workflows.invite_parser import identify_meeting_invite_details
-    from imap_mcp.workflows.calendar_mock import check_mock_availability
-    from imap_mcp.workflows.meeting_reply import generate_meeting_reply_content
-    from imap_mcp.smtp_client import create_reply_mime
+    from imap_mcp.workflows.meeting_reply import process_meeting_invite_workflow
 
     client = _make_client()
-    result: dict = {
-        "status": "error",
-        "message": "An error occurred",
-        "draft_uid": None,
-        "draft_folder": None,
-        "availability": None,
-    }
     try:
-        email_obj = client.fetch_email(uid, folder)
-        if not email_obj:
-            result["message"] = f"Email UID {uid} not found in {folder}"
-            _out(result)
-            return
-
-        invite_result = identify_meeting_invite_details(email_obj)
-        if not invite_result["is_invite"]:
-            result["status"] = "not_invite"
-            result["message"] = "Not a meeting invite"
-            _out(result)
-            return
-
-        invite_details = invite_result["details"]
-        avail_result = check_mock_availability(
-            invite_details.get("start_time"),
-            invite_details.get("end_time"),
-            availability_mode,
-        )
-        result["availability"] = avail_result["available"]
-        reply_content = generate_meeting_reply_content(invite_details, avail_result)
-
-        reply_from = email_obj.to[0] if email_obj.to else EmailAddress(
-            name="Me", address=client.config.username
-        )
-        mime_message = create_reply_mime(
-            original_email=email_obj,
-            reply_to=reply_from,
-            body=reply_content["reply_body"],
-            subject=reply_content["reply_subject"],
-            reply_all=False,
-        )
-        draft_uid = client.save_draft_mime(mime_message)
-        if draft_uid:
-            drafts_folder = client._get_drafts_folder()
-            result["status"] = "success"
-            result["message"] = f"Draft created: {reply_content['reply_type']}"
-            result["draft_uid"] = draft_uid
-            result["draft_folder"] = drafts_folder
-        else:
-            result["message"] = "Failed to save draft"
-    except Exception as exc:
-        result["message"] = f"Error: {exc}"
+        result = process_meeting_invite_workflow(client, folder, uid, availability_mode)
+        _out(result)
     finally:
         client.disconnect()
-
-    _out(result)
 
 
 # ---------------------------------------------------------------------------

@@ -200,111 +200,68 @@ class TestTools:
 
     @pytest.mark.asyncio
     async def test_search_emails(self, tools, mock_client, mock_context, mock_email):
-        """Test searching for emails."""
-        # Get the search_emails function
+        """Test searching for emails via the MCP tool wrapper."""
         search_emails = tools["search_emails"]
-        
-        # Test searching with default parameters
+
+        # Configure client.search_emails to return sample results
+        sample_results = [
+            {"uid": 1, "folder": "INBOX", "from": "sender@example.com",
+             "to": ["recipient@example.com"], "subject": "Test Email",
+             "date": "2025-04-01T10:00:00", "flags": ["\\Seen"],
+             "has_attachments": False},
+        ]
+        mock_client.search_emails.return_value = sample_results
+
+        # Test default parameters
         result = await search_emails("test query", mock_context)
         result_data = json.loads(result)
-        
-        # Assert client methods were called properly
-        mock_client.list_folders.assert_called_once()
-        assert mock_client.search.call_count > 0 
-        
-        # Check result structure
         assert isinstance(result_data, list)
-        assert len(result_data) > 0
-        assert "uid" in result_data[0]
-        assert "folder" in result_data[0]
-        assert "subject" in result_data[0]
-        
-        # Reset mocks
-        mock_client.list_folders.reset_mock()
-        mock_client.search.reset_mock()
-        mock_client.fetch_emails.reset_mock()
-        
-        # Test searching with specific folder
-        result = await search_emails("test query", mock_context, folder="INBOX")
-        
-        # Assert client methods were called properly
-        mock_client.list_folders.assert_not_called()
-        mock_client.search.assert_called_once()
-        
-        # Test with different criteria
-        criteria_tests = ["from", "to", "subject", "all", "unseen", "seen"]
-        for criteria in criteria_tests:
-            mock_client.search.reset_mock()
-            result = await search_emails("test query", mock_context, criteria=criteria)
-            assert mock_client.search.called
-        
-        # Test with invalid criteria
+        assert len(result_data) == 1
+        assert result_data[0]["subject"] == "Test Email"
+        mock_client.search_emails.assert_called_once_with(
+            "test query", "text", folder=None, limit=10,
+        )
+
+        # Test with specific folder and criteria
+        mock_client.search_emails.reset_mock()
+        result = await search_emails("test query", mock_context, folder="INBOX", criteria="from")
+        mock_client.search_emails.assert_called_once_with(
+            "test query", "from", folder="INBOX", limit=10,
+        )
+
+        # Test with invalid criteria — client.search_emails raises ValueError
+        mock_client.search_emails.reset_mock()
+        mock_client.search_emails.side_effect = ValueError("Invalid search criteria: invalid")
         result = await search_emails("test query", mock_context, criteria="invalid")
         assert "Invalid search criteria" in result
+        mock_client.search_emails.side_effect = None
 
-        # Test with numeric-only query (simulates JSON parsing converting "69172700" to int)
-        # This tests the fix for numeric strings being type-coerced to integers
-        mock_client.search.reset_mock()
-        mock_client.list_folders.reset_mock()
-        result = await search_emails(69172700, mock_context, folder="INBOX")  # Pass as int
-        result_data = json.loads(result)
-        assert isinstance(result_data, list)
-        # Verify the search was called with the query converted to string
-        mock_client.search.assert_called_once()
-        call_args = mock_client.search.call_args[0][0]
-        assert call_args == ["TEXT", "69172700"]  # Query should be converted to string
+        # Test numeric query is coerced to string
+        mock_client.search_emails.reset_mock()
+        mock_client.search_emails.return_value = sample_results
+        result = await search_emails(69172700, mock_context, folder="INBOX")
+        mock_client.search_emails.assert_called_once_with(
+            "69172700", "text", folder="INBOX", limit=10,
+        )
 
     @pytest.mark.asyncio
     async def test_search_emails_raw_criteria(self, tools, mock_client, mock_context, mock_email):
-        """Test searching with raw IMAP criteria including OR expressions."""
+        """Test searching with raw IMAP criteria delegates to client.search_emails."""
         search_emails = tools["search_emails"]
-        
-        # Test simple raw criteria
-        mock_client.search.reset_mock()
-        mock_client.list_folders.reset_mock()
-        mock_client.list_folders.return_value = ["INBOX"]
-        mock_client.search.return_value = [1, 2]
-        mock_client.fetch_emails.return_value = {1: mock_email, 2: mock_email}
-        
+
+        sample_results = [
+            {"uid": 1, "folder": "INBOX", "from": "sender@example.com",
+             "to": ["recipient@example.com"], "subject": "Edinburgh trip",
+             "date": "2025-04-01T10:00:00", "flags": [], "has_attachments": False},
+        ]
+        mock_client.search_emails.return_value = sample_results
+
         result = await search_emails("TEXT Edinburgh", mock_context, folder="INBOX", criteria="raw")
         result_data = json.loads(result)
-        
-        # Verify search was called with parsed criteria
-        mock_client.search.assert_called_once()
-        call_args = mock_client.search.call_args[0][0]
-        assert call_args == ["TEXT", "Edinburgh"]
-        
-        # Test complex OR expression
-        mock_client.search.reset_mock()
-        complex_query = 'OR TEXT "Edinburgh" TEXT "Berlin"'
-        result = await search_emails(complex_query, mock_context, folder="INBOX", criteria="raw")
-        result_data = json.loads(result)
-        
-        # Verify search was called with parsed criteria
-        mock_client.search.assert_called_once()
-        call_args = mock_client.search.call_args[0][0]
-        assert call_args == ["OR", "TEXT", "Edinburgh", "TEXT", "Berlin"]
-        
-        # Test nested OR expression (like the travel search example)
-        mock_client.search.reset_mock()
-        nested_query = 'OR TEXT "Edinburgh" OR TEXT "Berlin" TEXT "Munich"'
-        result = await search_emails(nested_query, mock_context, folder="INBOX", criteria="raw")
-        result_data = json.loads(result)
-        
-        # Verify search was called with parsed criteria
-        mock_client.search.assert_called_once()
-        call_args = mock_client.search.call_args[0][0]
-        assert call_args == ["OR", "TEXT", "Edinburgh", "OR", "TEXT", "Berlin", "TEXT", "Munich"]
-        
-        # Test single keyword raw query
-        mock_client.search.reset_mock()
-        result = await search_emails("UNSEEN", mock_context, folder="INBOX", criteria="raw")
-        result_data = json.loads(result)
-        
-        # Verify search was called with string (not list) for single keyword
-        mock_client.search.assert_called_once()
-        call_args = mock_client.search.call_args[0][0]
-        assert call_args == "UNSEEN"
+        assert isinstance(result_data, list)
+        mock_client.search_emails.assert_called_once_with(
+            "TEXT Edinburgh", "raw", folder="INBOX", limit=10,
+        )
 
     @pytest.mark.asyncio
     async def test_process_email(self, tools, mock_client, mock_context):
@@ -390,11 +347,11 @@ class TestTools:
         result = await mark_as_read("INBOX", 123, mock_context)
         assert "Error" in result
         
-        # Test search_emails error handling
-        mock_client.search.side_effect = Exception("Search failed")
+        # Test search_emails error handling — client.search_emails raises ValueError
+        mock_client.search_emails.side_effect = ValueError("Search failed")
         result = await search_emails("test", mock_context)
-        # Search should continue with other folders and return an empty list
-        assert "[]" in result or result == "[]"
+        assert "Search failed" in result
+        mock_client.search_emails.side_effect = None
 
     @pytest.mark.asyncio
     async def test_tool_parameter_validation(self, tools, mock_client, mock_context):
@@ -403,9 +360,11 @@ class TestTools:
         search_emails = tools["search_emails"]
         process_email = tools["process_email"]
         
-        # Test search_emails with invalid criteria
+        # Test search_emails with invalid criteria — client raises ValueError
+        mock_client.search_emails.side_effect = ValueError("Invalid search criteria: invalid_criteria")
         result = await search_emails("test", mock_context, criteria="invalid_criteria")
         assert "Invalid search criteria" in result
+        mock_client.search_emails.side_effect = None
         
         # Test process_email with missing target folder for move action
         result = await process_email("INBOX", 123, "move", ctx=mock_context)

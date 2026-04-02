@@ -5,7 +5,7 @@ import logging
 import re
 import shlex
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import imapclient
 
@@ -763,3 +763,79 @@ class ImapClient:
         except Exception as e:
             logger.error(f"Failed to save draft: {e}")
             return None
+
+    def search_emails(
+        self,
+        query: str,
+        criteria: str = "text",
+        folder: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """High-level email search across one or all folders.
+
+        Args:
+            query: Search query string. For ``raw`` criteria this is the full
+                   IMAP search expression.
+            criteria: One of text, from, to, subject, all, unseen, seen,
+                      today, week, month, raw.
+            folder: Folder to search (``None`` searches all folders).
+            limit: Maximum number of results.
+
+        Returns:
+            List of result dicts sorted by date descending, each with keys:
+            uid, folder, from, to, subject, date, flags, has_attachments.
+
+        Raises:
+            ValueError: If *criteria* is not recognised.
+        """
+        criteria_map = {
+            "text": ["TEXT", query],
+            "from": ["FROM", query],
+            "to": ["TO", query],
+            "subject": ["SUBJECT", query],
+            "all": "ALL",
+            "unseen": "UNSEEN",
+            "seen": "SEEN",
+            "today": "today",
+            "week": "week",
+            "month": "month",
+            "raw": "raw",
+        }
+
+        key = criteria.lower()
+        if key not in criteria_map:
+            raise ValueError(
+                f"Invalid search criteria: {criteria}. "
+                f"Valid options: {', '.join(criteria_map)}"
+            )
+
+        if key == "raw":
+            search_spec = self.parse_raw_criteria(query)
+        else:
+            search_spec = criteria_map[key]
+
+        folders_to_search = [folder] if folder else self.list_folders()
+        results: List[Dict[str, Any]] = []
+
+        for current_folder in folders_to_search:
+            try:
+                uids = self.search(search_spec, folder=current_folder)
+                uids = sorted(uids, reverse=True)[:limit]
+                if uids:
+                    emails = self.fetch_emails(uids, folder=current_folder)
+                    for uid, email_obj in emails.items():
+                        results.append({
+                            "uid": uid,
+                            "folder": current_folder,
+                            "from": str(email_obj.from_),
+                            "to": [str(t) for t in email_obj.to],
+                            "subject": email_obj.subject,
+                            "date": email_obj.date.isoformat() if email_obj.date else None,
+                            "flags": email_obj.flags,
+                            "has_attachments": len(email_obj.attachments) > 0,
+                        })
+            except Exception as e:
+                logger.warning(f"Error searching folder {current_folder}: {e}")
+
+        results.sort(key=lambda x: x.get("date") or "0", reverse=True)
+        return results[:limit]
