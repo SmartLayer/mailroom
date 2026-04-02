@@ -683,6 +683,51 @@ class ImapClient:
             logger.error(f"Failed to delete email: {e}")
             return False
     
+    def process_email_action(
+        self, uid: int, folder: str, action: str,
+        target_folder: Optional[str] = None,
+    ) -> str:
+        """Execute a high-level email action by name.
+
+        Args:
+            uid: Email UID
+            folder: Folder containing the email
+            action: One of move, read, unread, flag, unflag, delete
+            target_folder: Required when *action* is ``move``
+
+        Returns:
+            Human-readable result message
+
+        Raises:
+            ValueError: If *action* is unknown or *target_folder* missing for move
+        """
+        action_l = action.lower()
+        if action_l == "move":
+            if not target_folder:
+                raise ValueError("target_folder is required for move action")
+            self.move_email(uid, folder, target_folder)
+            return f"Email moved from {folder} to {target_folder}"
+        elif action_l == "read":
+            self.mark_email(uid, folder, r"\Seen", True)
+            return "Email marked as read"
+        elif action_l == "unread":
+            self.mark_email(uid, folder, r"\Seen", False)
+            return "Email marked as unread"
+        elif action_l == "flag":
+            self.mark_email(uid, folder, r"\Flagged", True)
+            return "Email flagged"
+        elif action_l == "unflag":
+            self.mark_email(uid, folder, r"\Flagged", False)
+            return "Email unflagged"
+        elif action_l == "delete":
+            self.delete_email(uid, folder)
+            return "Email deleted"
+        else:
+            raise ValueError(
+                f"Unknown action '{action}'. "
+                "Valid: move, read, unread, flag, unflag, delete"
+            )
+
     def _get_drafts_folder(self) -> str:
         """Get the drafts folder name for the current server.
         

@@ -266,64 +266,42 @@ class TestTools:
     @pytest.mark.asyncio
     async def test_process_email(self, tools, mock_client, mock_context):
         """Test processing an email with multiple actions."""
-        # Get the process_email function
         process_email = tools["process_email"]
-        
-        # Test move action
-        mock_client.move_email.reset_mock()
-        mock_client.move_email.return_value = True
-        
+
+        # Test move action — delegates to process_email_action
+        mock_client.process_email_action.return_value = "Email moved from INBOX to Archive"
         result = await process_email(
             "INBOX", 123, "move", mock_context, target_folder="Archive"
         )
-        
-        mock_client.move_email.assert_called_once_with(123, "INBOX", "Archive")
+        mock_client.process_email_action.assert_called_with(
+            123, "INBOX", "move", target_folder="Archive"
+        )
         assert "Email moved" in result
-        
-        # Test move action without target folder
-        result = await process_email("INBOX", 123, "move", mock_context)
-        assert "Target folder must be specified" in result
-        
+
         # Test read action
-        mock_client.mark_email.reset_mock()
-        mock_client.mark_email.return_value = True
-        
+        mock_client.process_email_action.return_value = "Email marked as read"
         result = await process_email("INBOX", 123, "read", mock_context)
-        
-        mock_client.mark_email.assert_called_once_with(123, "INBOX", "\\Seen", True)
+        mock_client.process_email_action.assert_called_with(
+            123, "INBOX", "read", target_folder=None
+        )
         assert "Email marked as read" in result
-        
-        # Test unread action
-        mock_client.mark_email.reset_mock()
-        mock_client.mark_email.return_value = True
-        
-        result = await process_email("INBOX", 123, "unread", mock_context)
-        
-        mock_client.mark_email.assert_called_once_with(123, "INBOX", "\\Seen", False)
-        assert "Email marked as unread" in result
-        
-        # Test flag action
-        mock_client.mark_email.reset_mock()
-        mock_client.mark_email.return_value = True
-        
-        result = await process_email("INBOX", 123, "flag", mock_context)
-        
-        mock_client.mark_email.assert_called_once_with(123, "INBOX", "\\Flagged", True)
-        assert "Email flagged" in result
-        
-        # Test delete action
-        mock_client.delete_email.reset_mock()
-        mock_client.delete_email.return_value = True
-        
-        result = await process_email("INBOX", 123, "delete", mock_context)
-        
-        mock_client.delete_email.assert_called_once_with(123, "INBOX")
-        assert "Email deleted" in result
-        
-        # Test invalid action
+
+        # Test move without target folder — ValueError from domain
+        mock_client.process_email_action.side_effect = ValueError(
+            "target_folder is required for move action"
+        )
+        result = await process_email("INBOX", 123, "move", mock_context)
+        assert "target_folder" in result
+        mock_client.process_email_action.side_effect = None
+
+        # Test invalid action — ValueError from domain
+        mock_client.process_email_action.side_effect = ValueError(
+            "Unknown action 'invalid_action'"
+        )
         result = await process_email("INBOX", 123, "invalid_action", mock_context)
-        assert "Invalid action" in result
-        
+        assert "Unknown action" in result
+        mock_client.process_email_action.side_effect = None
+
         # Test email not found
         mock_client.fetch_email.return_value = None
         result = await process_email("INBOX", 123, "read", mock_context)
@@ -367,12 +345,15 @@ class TestTools:
         mock_client.search_emails.side_effect = None
         
         # Test process_email with missing target folder for move action
+        mock_client.process_email_action.side_effect = ValueError("target_folder is required for move action")
         result = await process_email("INBOX", 123, "move", ctx=mock_context)
-        assert "Target folder must be specified" in result
-        
+        assert "target_folder" in result
+
         # Test process_email with invalid action
+        mock_client.process_email_action.side_effect = ValueError("Unknown action 'nonexistent_action'")
         result = await process_email("INBOX", 123, "nonexistent_action", ctx=mock_context)
-        assert "Invalid action" in result
+        assert "Unknown action" in result
+        mock_client.process_email_action.side_effect = None
 
 
 class TestRawImapCriteriaParsing:

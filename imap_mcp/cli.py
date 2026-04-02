@@ -14,6 +14,7 @@ import typer
 
 from imap_mcp.config import load_config
 from imap_mcp.imap_client import ImapClient
+from imap_mcp.models import extract_links_batch, sanitize_and_save
 
 app = typer.Typer(
     name="imap-mcp-cli",
@@ -248,32 +249,12 @@ def process_email(
         if not email_obj:
             typer.echo(f"Email UID {uid} not found in {folder}", err=True)
             raise typer.Exit(1)
-
-        action_l = action.lower()
-        if action_l == "move":
-            if not target_folder:
-                typer.echo("--target-folder is required for move action", err=True)
-                raise typer.Exit(1)
-            client.move_email(uid, folder, target_folder)
-            _out({"message": f"Moved from {folder} to {target_folder}"})
-        elif action_l == "read":
-            client.mark_email(uid, folder, r"\Seen", True)
-            _out({"message": "Marked as read"})
-        elif action_l == "unread":
-            client.mark_email(uid, folder, r"\Seen", False)
-            _out({"message": "Marked as unread"})
-        elif action_l == "flag":
-            client.mark_email(uid, folder, r"\Flagged", True)
-            _out({"message": "Flagged"})
-        elif action_l == "unflag":
-            client.mark_email(uid, folder, r"\Flagged", False)
-            _out({"message": "Unflagged"})
-        elif action_l == "delete":
-            client.delete_email(uid, folder)
-            _out({"message": "Deleted"})
-        else:
-            typer.echo(f"Unknown action '{action}'. Valid: move, read, unread, flag, unflag, delete", err=True)
+        try:
+            message = client.process_email_action(uid, folder, action, target_folder=target_folder)
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
             raise typer.Exit(1)
+        _out({"message": message})
     finally:
         client.disconnect()
 
@@ -317,8 +298,6 @@ def download_attachment(
     save_path: str = typer.Argument(..., help="Path to save the attachment."),
 ) -> None:
     """Download an attachment from an email."""
-    import os
-
     client = _make_client()
     try:
         email_obj = client.fetch_email(uid, folder)
@@ -329,32 +308,16 @@ def download_attachment(
             typer.echo("Email has no attachments", err=True)
             raise typer.Exit(1)
 
-        attachment = None
-        for att in email_obj.attachments:
-            if att.filename == identifier:
-                attachment = att
-                break
+        attachment = email_obj.find_attachment(identifier)
         if attachment is None:
-            try:
-                idx = int(identifier)
-                if 0 <= idx < len(email_obj.attachments):
-                    attachment = email_obj.attachments[idx]
-                else:
-                    typer.echo(f"Index {idx} out of range (0–{len(email_obj.attachments)-1})", err=True)
-                    raise typer.Exit(1)
-            except ValueError:
-                typer.echo(f"Attachment '{identifier}' not found", err=True)
-                raise typer.Exit(1)
-
+            typer.echo(f"Attachment '{identifier}' not found. Use filename or numeric index (0-{len(email_obj.attachments)-1}).", err=True)
+            raise typer.Exit(1)
         if attachment.content is None:
             typer.echo(f"Attachment '{attachment.filename}' has no content", err=True)
             raise typer.Exit(1)
 
-        sanitized = save_path.replace("../", "").replace("..\\", "")
-        os.makedirs(os.path.dirname(sanitized) if os.path.dirname(sanitized) else ".", exist_ok=True)
-        with open(sanitized, "wb") as fh:
-            fh.write(attachment.content)
-        _out({"saved": sanitized, "filename": attachment.filename, "size": attachment.size})
+        saved = sanitize_and_save(attachment.content, save_path, mode="wb")
+        _out({"saved": saved, "filename": attachment.filename, "size": attachment.size})
     finally:
         client.disconnect()
 
@@ -383,11 +346,8 @@ def export_email_html(
             raise typer.Exit(1)
 
         html_content = email_obj.html_with_embedded_images()
-        sanitized = save_path.replace("../", "").replace("..\\", "")
-        os.makedirs(os.path.dirname(sanitized) if os.path.dirname(sanitized) else ".", exist_ok=True)
-        with open(sanitized, "w", encoding="utf-8") as fh:
-            fh.write(html_content)
-        _out({"saved": sanitized, "size": os.path.getsize(sanitized)})
+        saved = sanitize_and_save(html_content, save_path, mode="w")
+        _out({"saved": saved, "size": os.path.getsize(saved)})
     finally:
         client.disconnect()
 
@@ -404,20 +364,7 @@ def extract_email_links(
     """Extract all links from email HTML content."""
     client = _make_client()
     try:
-        results = []
-        for uid in uids:
-            try:
-                email_obj = client.fetch_email(uid, folder)
-                if not email_obj:
-                    results.append({"uid": uid, "error": f"UID {uid} not found", "links": []})
-                    continue
-                if not email_obj.content.html:
-                    results.append({"uid": uid, "error": "No HTML content", "links": []})
-                    continue
-                links = email_obj.extract_links()
-                results.append({"uid": uid, "links": links})
-            except Exception as exc:
-                results.append({"uid": uid, "error": str(exc), "links": []})
+        results = extract_links_batch(client.fetch_email, folder, uids)
         _out(results)
     finally:
         client.disconnect()

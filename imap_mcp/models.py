@@ -4,6 +4,7 @@ import base64
 import email
 import html
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -12,6 +13,25 @@ from email.message import Message
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_and_save(content: bytes | str, save_path: str, mode: str = "wb") -> str:
+    """Sanitise *save_path*, create parent directories, and write *content*.
+
+    Args:
+        content: Bytes or string to write.
+        save_path: Destination path (path-traversal fragments are stripped).
+        mode: File open mode (``"wb"`` for bytes, ``"w"`` for text).
+
+    Returns:
+        The sanitised path that was actually written to.
+    """
+    sanitized = save_path.replace("../", "").replace("..\\", "")
+    parent = os.path.dirname(sanitized) or "."
+    os.makedirs(parent, exist_ok=True)
+    with open(sanitized, mode) as fh:
+        fh.write(content)
+    return sanitized
 
 
 def decode_mime_header(header_value: Optional[str]) -> str:
@@ -435,3 +455,37 @@ class Email:
             position += 1
 
         return links
+
+
+def extract_links_batch(
+    fetch_fn, folder: str, uids: List[int],
+) -> List[Dict[str, Any]]:
+    """Extract links from multiple emails, collecting per-UID errors.
+
+    Args:
+        fetch_fn: Callable ``(uid, folder) -> Optional[Email]`` (typically
+            ``ImapClient.fetch_email``).
+        folder: Folder name.
+        uids: Email UIDs to process.
+
+    Returns:
+        List of dicts, one per UID, each with ``uid``, ``links``, and
+        optionally ``error``.
+    """
+    results: List[Dict[str, Any]] = []
+    for uid in uids:
+        try:
+            email_obj = fetch_fn(uid, folder)
+            if not email_obj:
+                results.append({"uid": uid, "error": f"Email with UID {uid} not found in folder {folder}", "links": []})
+                continue
+            if not email_obj.content.html:
+                results.append({"uid": uid, "error": "Email has no HTML content", "links": []})
+                continue
+            links = email_obj.extract_links()
+            results.append({"uid": uid, "links": links})
+            logger.info(f"Extracted {len(links)} unique links from email UID {uid} in folder {folder}")
+        except Exception as e:
+            logger.error(f"Error extracting links from UID {uid}: {e}")
+            results.append({"uid": uid, "error": str(e), "links": []})
+    return results
