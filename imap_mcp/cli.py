@@ -14,7 +14,7 @@ import typer
 
 from imap_mcp.config import load_config
 from imap_mcp.imap_client import ImapClient
-from imap_mcp.models import extract_links_batch, sanitize_and_save
+from imap_mcp.models import extract_links_batch
 
 app = typer.Typer(
     name="imap-mcp-cli",
@@ -304,20 +304,11 @@ def download_attachment(
         if not email_obj:
             typer.echo(f"Email UID {uid} not found in {folder}", err=True)
             raise typer.Exit(1)
-        if not email_obj.attachments:
-            typer.echo("Email has no attachments", err=True)
-            raise typer.Exit(1)
-
-        attachment = email_obj.find_attachment(identifier)
-        if attachment is None:
-            typer.echo(f"Attachment '{identifier}' not found. Use filename or numeric index (0-{len(email_obj.attachments)-1}).", err=True)
-            raise typer.Exit(1)
-        if attachment.content is None:
-            typer.echo(f"Attachment '{attachment.filename}' has no content", err=True)
-            raise typer.Exit(1)
-
-        saved = sanitize_and_save(attachment.content, save_path, mode="wb")
-        _out({"saved": saved, "filename": attachment.filename, "size": attachment.size})
+        result = email_obj.save_attachment(identifier, save_path)
+        _out(result)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
     finally:
         client.disconnect()
 
@@ -333,21 +324,17 @@ def export_email_html(
     save_path: str = typer.Argument(..., help="Path to save the HTML file."),
 ) -> None:
     """Export email HTML content to a standalone file with embedded images."""
-    import os
-
     client = _make_client()
     try:
         email_obj = client.fetch_email(uid, folder)
         if not email_obj:
             typer.echo(f"Email UID {uid} not found in {folder}", err=True)
             raise typer.Exit(1)
-        if not email_obj.content.html:
-            typer.echo("Email has no HTML content", err=True)
-            raise typer.Exit(1)
-
-        html_content = email_obj.html_with_embedded_images()
-        saved = sanitize_and_save(html_content, save_path, mode="w")
-        _out({"saved": saved, "size": os.path.getsize(saved)})
+        result = email_obj.export_html_to_file(save_path)
+        _out(result)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
     finally:
         client.disconnect()
 

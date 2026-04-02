@@ -32,7 +32,7 @@
 - Types: All functions must have type hints (mypy enforces this)
 - Naming: snake_case for variables/functions, PascalCase for classes
 - Error handling: Use specific exceptions and provide helpful messages
-- Documentation: Write docstrings for all classes and methods
+- Documentation: Write docstrings for all classes and methods using the existing Google-style convention (summary line, then Args/Returns/Raises sections). When adding or moving code, match the docstring style of neighbouring functions — do not condense or omit sections that peers include.
 - Testing: Follow TDD pattern (write tests before implementation)
 - Project structure follows the standard Python package layout
 

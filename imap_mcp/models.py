@@ -401,6 +401,50 @@ class Email:
             summaries.append(info)
         return summaries
 
+    def save_attachment(self, identifier: str, save_path: str) -> Dict[str, Any]:
+        """Find an attachment by identifier, validate it, and save to disk.
+
+        Args:
+            identifier: Attachment filename or index (as string).
+            save_path: Destination path (path-traversal fragments are stripped).
+
+        Returns:
+            Dict with ``filename``, ``size``, and ``saved`` (sanitised path).
+
+        Raises:
+            ValueError: If no attachments, identifier not found, or no content.
+        """
+        if not self.attachments:
+            raise ValueError("Email has no attachments")
+        attachment = self.find_attachment(identifier)
+        if attachment is None:
+            raise ValueError(
+                f"Attachment '{identifier}' not found. "
+                f"Use filename or numeric index (0-{len(self.attachments) - 1})."
+            )
+        if attachment.content is None:
+            raise ValueError(f"Attachment '{attachment.filename}' has no content")
+        saved = sanitize_and_save(attachment.content, save_path, mode="wb")
+        return {"filename": attachment.filename, "size": attachment.size, "saved": saved}
+
+    def export_html_to_file(self, save_path: str) -> Dict[str, Any]:
+        """Export HTML with embedded images to a file.
+
+        Args:
+            save_path: Destination path (path-traversal fragments are stripped).
+
+        Returns:
+            Dict with ``saved`` (sanitised path) and ``size`` (bytes written).
+
+        Raises:
+            ValueError: If the email has no HTML content.
+        """
+        if not self.content.html:
+            raise ValueError("Email has no HTML content")
+        html_content = self.html_with_embedded_images()
+        saved = sanitize_and_save(html_content, save_path, mode="w")
+        return {"saved": saved, "size": os.path.getsize(saved)}
+
     def find_attachment(self, identifier: str) -> Optional["EmailAttachment"]:
         """Find an attachment by filename or numeric index.
 

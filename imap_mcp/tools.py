@@ -13,13 +13,12 @@ of the domain modules listed above, not here.
 import asyncio
 import json
 import logging
-import os
 from typing import Any, Dict, List, Optional, Union
 
 from mcp.server.fastmcp import Context, FastMCP
 
 from imap_mcp.imap_client import ImapClient
-from imap_mcp.models import extract_links_batch, sanitize_and_save
+from imap_mcp.models import extract_links_batch
 from imap_mcp.resources import get_client_from_context
 
 logger = logging.getLogger(__name__)
@@ -338,16 +337,11 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             email_obj = client.fetch_email(uid, folder)
             if not email_obj:
                 return f"Error: Email with UID {uid} not found in folder {folder}"
-            if not email_obj.attachments:
-                return "Error: Email has no attachments"
-            attachment = email_obj.find_attachment(identifier)
-            if attachment is None:
-                return f"Error: Attachment '{identifier}' not found. Use filename or numeric index (0-{len(email_obj.attachments) - 1})."
-            if attachment.content is None:
-                return f"Error: Attachment '{attachment.filename}' has no content"
-            saved = sanitize_and_save(attachment.content, save_path, mode="wb")
-            logger.info(f"Saved attachment '{attachment.filename}' ({attachment.size} bytes) to {saved}")
-            return f"Success: Saved '{attachment.filename}' ({attachment.size} bytes) to {saved}"
+            result = email_obj.save_attachment(identifier, save_path)
+            logger.info(f"Saved attachment '{result['filename']}' ({result['size']} bytes) to {result['saved']}")
+            return f"Success: Saved '{result['filename']}' ({result['size']} bytes) to {result['saved']}"
+        except ValueError as e:
+            return f"Error: {e}"
         except Exception as e:
             logger.error(f"Error downloading attachment: {e}")
             return f"Error: {e}"
@@ -374,13 +368,11 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             email_obj = client.fetch_email(uid, folder)
             if not email_obj:
                 return f"Error: Email with UID {uid} not found in folder {folder}"
-            if not email_obj.content.html:
-                return "Error: Email has no HTML content"
-            html_content = email_obj.html_with_embedded_images()
-            saved = sanitize_and_save(html_content, save_path, mode="w")
-            file_size = os.path.getsize(saved)
-            logger.info(f"Exported HTML content ({file_size} bytes) to {saved}")
-            return f"Success: Exported HTML content ({file_size} bytes) to {saved}"
+            result = email_obj.export_html_to_file(save_path)
+            logger.info(f"Exported HTML content ({result['size']} bytes) to {result['saved']}")
+            return f"Success: Exported HTML content ({result['size']} bytes) to {result['saved']}"
+        except ValueError as e:
+            return f"Error: {e}"
         except Exception as e:
             logger.error(f"Error exporting HTML: {e}")
             return f"Error: {e}"
