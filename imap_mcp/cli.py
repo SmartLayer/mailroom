@@ -75,6 +75,25 @@ def _out(data: object) -> None:
 
 
 # ---------------------------------------------------------------------------
+# list-accounts
+# ---------------------------------------------------------------------------
+
+@app.command("list-accounts")
+def list_accounts() -> None:
+    """List configured email accounts."""
+    cfg = load_config(_config_path)
+    accounts = []
+    for name, acct in cfg.accounts.items():
+        accounts.append({
+            "name": name,
+            "default": name == cfg.default_account,
+            "user": acct.imap.username,
+            "host": acct.imap.host,
+        })
+    _out(accounts)
+
+
+# ---------------------------------------------------------------------------
 # server-status
 # ---------------------------------------------------------------------------
 

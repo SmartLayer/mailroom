@@ -142,7 +142,11 @@ class MultiAccountConfig:
     """Multi-account MCP server configuration."""
 
     accounts: Dict[str, AccountConfig]
-    default_account: str
+
+    @property
+    def default_account(self) -> str:
+        """First account is the default."""
+        return next(iter(self.accounts))
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "MultiAccountConfig":
@@ -154,18 +158,7 @@ class MultiAccountConfig:
         if not accounts:
             raise ValueError("No accounts defined in multi-account configuration")
 
-        default = data.get("default_account", "")
-        if not default:
-            # Use first account as default
-            default = next(iter(accounts))
-            logger.info(f"No default_account specified, using '{default}'")
-
-        if default not in accounts:
-            raise ValueError(
-                f"default_account '{default}' not found in accounts: {list(accounts.keys())}"
-            )
-
-        return cls(accounts=accounts, default_account=default)
+        return cls(accounts=accounts)
 
     @classmethod
     def from_single(cls, config: ServerConfig) -> "MultiAccountConfig":
@@ -173,7 +166,7 @@ class MultiAccountConfig:
         # Derive account name from username (e.g. "admin@rivermill.au" -> "admin")
         name = config.imap.username.split("@")[0] if config.imap.username else "default"
         account = AccountConfig(imap=config.imap, allowed_folders=config.allowed_folders)
-        return cls(accounts={name: account}, default_account=name)
+        return cls(accounts={name: account})
 
 
 def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:

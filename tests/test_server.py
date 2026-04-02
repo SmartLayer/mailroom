@@ -28,7 +28,6 @@ class TestServer:
                 ),
                 allowed_folders=["INBOX", "Sent"],
             )},
-            default_account="test",
         )
 
         with mock.patch("imap_mcp.server.load_config", return_value=mock_config):
@@ -50,7 +49,6 @@ class TestServer:
             accounts={"test": AccountConfig(
                 imap=ImapConfig(host="localhost", port=993, username="test", password="pw"),
             )},
-            default_account="test",
         )
         with mock.patch("imap_mcp.server.load_config", return_value=mock_config):
             with mock.patch("imap_mcp.server.logger") as mock_logger:
@@ -78,7 +76,6 @@ class TestServer:
         )
         mock_config = MultiAccountConfig(
             accounts={"test": AccountConfig(imap=imap_cfg)},
-            default_account="test",
         )
         mock_server._config = mock_config
 
@@ -105,7 +102,6 @@ class TestServer:
             accounts={"test": AccountConfig(
                 imap=ImapConfig(host="imap.example.com", port=993, username="test@example.com", password="password"),
             )},
-            default_account="test",
         )
 
         with mock.patch("imap_mcp.server.load_config", return_value=mock_config) as mock_load_config:
@@ -139,7 +135,6 @@ class TestServer:
                 ),
                 allowed_folders=["INBOX", "Sent"],
             )},
-            default_account="test",
         )
 
         with mock.patch("imap_mcp.server.load_config", return_value=mock_config):
