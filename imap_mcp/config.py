@@ -107,11 +107,11 @@ class ImapConfig:
 
 @dataclass
 class ServerConfig:
-    """MCP server configuration."""
-    
+    """MCP server configuration (single-account, kept for backward compat)."""
+
     imap: ImapConfig
     allowed_folders: Optional[List[str]] = None
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ServerConfig":
         """Create configuration from dictionary."""
@@ -121,29 +121,81 @@ class ServerConfig:
         )
 
 
-def load_config(config_path: Optional[str] = None) -> ServerConfig:
-    """Load configuration from file or environment variables.
-    
+@dataclass
+class AccountConfig:
+    """Configuration for a single email account."""
+
+    imap: ImapConfig
+    allowed_folders: Optional[List[str]] = None
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AccountConfig":
+        """Create account configuration from dictionary."""
+        return cls(
+            imap=ImapConfig.from_dict(data.get("imap", {})),
+            allowed_folders=data.get("allowed_folders"),
+        )
+
+
+@dataclass
+class MultiAccountConfig:
+    """Multi-account MCP server configuration."""
+
+    accounts: Dict[str, AccountConfig]
+    default_account: str
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MultiAccountConfig":
+        """Create multi-account configuration from dictionary."""
+        accounts = {}
+        for name, account_data in data.get("accounts", {}).items():
+            accounts[name] = AccountConfig.from_dict(account_data)
+
+        if not accounts:
+            raise ValueError("No accounts defined in multi-account configuration")
+
+        default = data.get("default_account", "")
+        if not default:
+            # Use first account as default
+            default = next(iter(accounts))
+            logger.info(f"No default_account specified, using '{default}'")
+
+        if default not in accounts:
+            raise ValueError(
+                f"default_account '{default}' not found in accounts: {list(accounts.keys())}"
+            )
+
+        return cls(accounts=accounts, default_account=default)
+
+    @classmethod
+    def from_single(cls, config: ServerConfig) -> "MultiAccountConfig":
+        """Wrap a single-account ServerConfig into MultiAccountConfig."""
+        # Derive account name from username (e.g. "admin@rivermill.au" -> "admin")
+        name = config.imap.username.split("@")[0] if config.imap.username else "default"
+        account = AccountConfig(imap=config.imap, allowed_folders=config.allowed_folders)
+        return cls(accounts={name: account}, default_account=name)
+
+
+def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
+    """Load raw configuration data from file or environment variables.
+
     Args:
         config_path: Path to configuration file
-        
+
     Returns:
-        Server configuration
-    
+        Raw configuration dictionary
+
     Raises:
-        FileNotFoundError: If configuration file is not found
-        ValueError: If configuration is invalid
+        ValueError: If no configuration source is available
     """
-    # Default locations to check for config file
     default_locations = [
         Path("config.yaml"),
         Path("config.yml"),
         Path("~/.config/imap-mcp/config.yaml"),
         Path("/etc/imap-mcp/config.yaml"),
     ]
-    
-    # Load from specified path or try default locations
-    config_data = {}
+
+    config_data: Dict[str, Any] = {}
     if config_path:
         try:
             with open(config_path, "r") as f:
@@ -159,15 +211,14 @@ def load_config(config_path: Optional[str] = None) -> ServerConfig:
                     config_data = yaml.safe_load(f) or {}
                 logger.info(f"Loaded configuration from {expanded_path}")
                 break
-    
-    # If environment variables are set, they take precedence
+
     if not config_data:
         logger.info("No configuration file found, using environment variables")
         if not os.environ.get("IMAP_HOST"):
             raise ValueError(
                 "No configuration file found and IMAP_HOST environment variable not set"
             )
-        
+
         config_data = {
             "imap": {
                 "host": os.environ.get("IMAP_HOST"),
@@ -179,12 +230,36 @@ def load_config(config_path: Optional[str] = None) -> ServerConfig:
                 "verify_with_noop": os.environ.get("IMAP_VERIFY_WITH_NOOP", "true").lower() == "true",
             }
         }
-        
+
         if os.environ.get("IMAP_ALLOWED_FOLDERS"):
             config_data["allowed_folders"] = os.environ.get("IMAP_ALLOWED_FOLDERS").split(",")
-    
-    # Create config object
+
+    return config_data
+
+
+def load_config(config_path: Optional[str] = None) -> MultiAccountConfig:
+    """Load configuration from file or environment variables.
+
+    Supports both single-account (``imap:`` top-level key) and multi-account
+    (``accounts:`` top-level key) formats.  Single-account configs are
+    automatically wrapped into a one-entry ``MultiAccountConfig``.
+
+    Args:
+        config_path: Path to configuration file
+
+    Returns:
+        Multi-account server configuration
+
+    Raises:
+        ValueError: If configuration is invalid
+    """
+    config_data = _load_config_data(config_path)
+
     try:
-        return ServerConfig.from_dict(config_data)
+        if "accounts" in config_data:
+            return MultiAccountConfig.from_dict(config_data)
+        # Single-account format — wrap into MultiAccountConfig
+        server_config = ServerConfig.from_dict(config_data)
+        return MultiAccountConfig.from_single(server_config)
     except KeyError as e:
         raise ValueError(f"Missing required configuration: {e}")

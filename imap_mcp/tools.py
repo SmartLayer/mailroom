@@ -186,84 +186,89 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
 
     # Using decorator pattern to register tools
     @mcp.tool()
-    async def draft_meeting_reply_tool(invite_details: Dict[str, Any], availability_status: bool, ctx: Context) -> Dict[str, str]:
+    async def draft_meeting_reply_tool(invite_details: Dict[str, Any], availability_status: bool, ctx: Context, account: Optional[str] = None) -> Dict[str, str]:
         """Drafts a meeting reply (accept/decline) based on calendar invite details and availability.
-        
+
         Args:
             invite_details: Dictionary containing invite details (subject, start_time, end_time, organizer, location)
             availability_status: Whether the user is available for the meeting (True=available/accept, False=unavailable/decline)
             ctx: MCP context
-            
+            account: Account name (None for default account)
+
         Returns:
             Dictionary with reply text and additional metadata
         """
         return await draft_meeting_reply(invite_details, availability_status, ctx)
     
     @mcp.tool()
-    async def identify_meeting_invite_tool(folder: str, uid: int, ctx: Context) -> Dict[str, Any]:
+    async def identify_meeting_invite_tool(folder: str, uid: int, ctx: Context, account: Optional[str] = None) -> Dict[str, Any]:
         """Identifies if an email is a meeting invite and extracts relevant details.
-        
+
         Args:
             folder: Email folder name
             uid: Email UID
             ctx: MCP context
-            
+            account: Account name (None for default account)
+
         Returns:
             Dictionary with invite details if it's a meeting invite, or status information if not
         """
         return await identify_meeting_invite(folder, uid, ctx)
     
     @mcp.tool()
-    async def check_calendar_availability_tool(start_time: str, end_time: str, ctx: Context) -> Dict[str, Any]:
+    async def check_calendar_availability_tool(start_time: str, end_time: str, ctx: Context, account: Optional[str] = None) -> Dict[str, Any]:
         """Checks calendar availability for a given time slot.
-        
+
         Args:
             start_time: Meeting start time (ISO format)
             end_time: Meeting end time (ISO format)
             ctx: MCP context
-            
+            account: Account name (None for default account)
+
         Returns:
             Dictionary with availability status and additional information
         """
         return await check_calendar_availability(start_time, end_time, ctx)
     
     @mcp.tool()
-    async def process_invite_email_tool(folder: str, uid: int, ctx: Context) -> Dict[str, Any]:
+    async def process_invite_email_tool(folder: str, uid: int, ctx: Context, account: Optional[str] = None) -> Dict[str, Any]:
         """Processes a meeting invitation email: identifies invite, checks availability, drafts reply, saves draft.
-        
+
         Args:
             folder: Email folder name
             uid: Email UID
             ctx: MCP context
-            
+            account: Account name (None for default account)
+
         Returns:
             Dictionary with processing results and status information
         """
         return await process_invite_email(folder, uid, ctx)
     
     @mcp.tool()
-    async def create_task(description: str, ctx: Context, due_date: Optional[str] = None, 
-                          priority: Optional[int] = None) -> str:
+    async def create_task(description: str, ctx: Context, due_date: Optional[str] = None,
+                          priority: Optional[int] = None, account: Optional[str] = None) -> str:
         """Creates a new task and saves it to a local file.
-        
+
         Args:
             description: Task description
             ctx: MCP context
             due_date: Optional due date in ISO format
             priority: Optional priority (1=high, 2=medium, 3=low)
-            
+            account: Account name (None for default account)
+
         Returns:
             Success message or error information
         """
-        # Call the internal implementation
         return await _create_task_impl(description, ctx, due_date, priority)
     
     @mcp.tool()
     async def draft_reply_tool(folder: str, uid: int, reply_body: str, ctx: Context,
                            reply_all: bool = False, cc: Optional[List[str]] = None,
-                           body_html: Optional[str] = None) -> Dict[str, Any]:
+                           bcc: Optional[List[str]] = None,
+                           body_html: Optional[str] = None, account: Optional[str] = None) -> Dict[str, Any]:
         """Creates a draft reply to an email and saves it to the drafts folder.
-        
+
         Args:
             folder: Email folder name
             uid: Email UID
@@ -271,34 +276,103 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             ctx: MCP context
             reply_all: Whether to reply to all recipients
             cc: Optional CC recipients
+            bcc: Optional BCC recipients
             body_html: Optional HTML version of the reply
-            
+            account: Account name (None for default account)
+
         Returns:
             Dictionary with status and the UID of the created draft
         """
-        # Avoid recursion by calling the internal implementation
-        return await _draft_reply_impl(folder, uid, reply_body, ctx, reply_all, cc, body_html)
-    
+        return await _draft_reply_impl(folder, uid, reply_body, ctx, reply_all, cc, bcc, body_html, account)
+
+    async def _draft_reply_impl(
+        folder: str, uid: int, reply_body: str, ctx: Context,
+        reply_all: bool = False, cc: Optional[List[str]] = None,
+        bcc: Optional[List[str]] = None,
+        body_html: Optional[str] = None, account: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a draft reply to an email and save it to the drafts folder."""
+        from imap_mcp.smtp_client import create_reply_mime
+        from imap_mcp.models import EmailAddress
+
+        client = get_client_from_context(ctx, account)
+        result: Dict[str, Any] = {
+            "status": "error",
+            "message": "",
+            "draft_uid": None,
+            "draft_folder": None,
+        }
+
+        try:
+            email_obj = client.fetch_email(uid, folder=folder)
+            if not email_obj:
+                result["message"] = f"Email with UID {uid} not found in folder {folder}"
+                return result
+
+            # Find the recipient that matches this account's address
+            reply_from = None
+            my_addr = client.config.username.lower()
+            for recipient in (email_obj.to or []) + (email_obj.cc or []):
+                if recipient.address and recipient.address.lower() == my_addr:
+                    reply_from = recipient
+                    break
+            if reply_from is None:
+                reply_from = (email_obj.to[0] if email_obj.to
+                              else EmailAddress(name="", address=client.config.username))
+
+            cc_addresses = None
+            if cc:
+                cc_addresses = [EmailAddress.parse(addr) for addr in cc]
+
+            mime_message = create_reply_mime(
+                original_email=email_obj,
+                reply_to=reply_from,
+                body=reply_body,
+                reply_all=reply_all,
+                cc=cc_addresses,
+                html_body=body_html,
+            )
+
+            if bcc:
+                mime_message["Bcc"] = ", ".join(bcc)
+
+            draft_uid = client.save_draft_mime(mime_message)
+            if draft_uid:
+                drafts_folder = client._get_drafts_folder()
+                result["status"] = "success"
+                result["message"] = "Draft reply saved"
+                result["draft_uid"] = draft_uid
+                result["draft_folder"] = drafts_folder
+            else:
+                result["message"] = "Failed to save draft"
+        except Exception as e:
+            logger.error(f"Error drafting reply: {e}")
+            result["message"] = f"Error: {e}"
+
+        return result
+
     # Move email to a different folder
     @mcp.tool()
     async def move_email(
-        folder: str, 
-        uid: int, 
+        folder: str,
+        uid: int,
         target_folder: str,
         ctx: Context,
+        account: Optional[str] = None,
     ) -> str:
         """Move email to another folder.
-        
+
         Args:
             folder: Source folder
             uid: Email UID
             target_folder: Target folder
             ctx: MCP context
-            
+            account: Account name (None for default account)
+
         Returns:
             Success message or error message
         """
-        client = get_client_from_context(ctx)
+        client = get_client_from_context(ctx, account)
         
         try:
             success = client.move_email(uid, folder, target_folder)
@@ -316,18 +390,20 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         folder: str,
         uid: int,
         ctx: Context,
+        account: Optional[str] = None,
     ) -> str:
         """Mark email as read.
-        
+
         Args:
             folder: Folder name
             uid: Email UID
             ctx: MCP context
-            
+            account: Account name (None for default account)
+
         Returns:
             Success message or error message
         """
-        client = get_client_from_context(ctx)
+        client = get_client_from_context(ctx, account)
         
         try:
             success = client.mark_email(uid, folder, r"\Seen", True)
@@ -345,18 +421,20 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         folder: str,
         uid: int,
         ctx: Context,
+        account: Optional[str] = None,
     ) -> str:
         """Mark email as unread.
-        
+
         Args:
             folder: Folder name
             uid: Email UID
             ctx: MCP context
-            
+            account: Account name (None for default account)
+
         Returns:
             Success message or error message
         """
-        client = get_client_from_context(ctx)
+        client = get_client_from_context(ctx, account)
         
         try:
             success = client.mark_email(uid, folder, r"\Seen", False)
@@ -375,19 +453,21 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         uid: int,
         ctx: Context,
         flag: bool = True,
+        account: Optional[str] = None,
     ) -> str:
         """Flag or unflag email.
-        
+
         Args:
             folder: Folder name
             uid: Email UID
             flag: True to flag, False to unflag
             ctx: MCP context
-            
+            account: Account name (None for default account)
+
         Returns:
             Success message or error message
         """
-        client = get_client_from_context(ctx)
+        client = get_client_from_context(ctx, account)
         
         try:
             success = client.mark_email(uid, folder, r"\Flagged", flag)
@@ -405,18 +485,20 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         folder: str,
         uid: int,
         ctx: Context,
+        account: Optional[str] = None,
     ) -> str:
         """Delete email.
-        
+
         Args:
             folder: Folder name
             uid: Email UID
             ctx: MCP context
-            
+            account: Account name (None for default account)
+
         Returns:
             Success message or error message
         """
-        client = get_client_from_context(ctx)
+        client = get_client_from_context(ctx, account)
         
         try:
             success = client.delete_email(uid, folder)
@@ -436,25 +518,26 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         folder: Optional[str] = None,
         criteria: str = "text",
         limit: int = 10,
+        account: Optional[str] = None,
     ) -> str:
         """Search for emails.
 
         Args:
-            query: Search query (numeric IDs are converted to strings). 
+            query: Search query (numeric IDs are converted to strings).
                    For 'raw' criteria, provide the complete IMAP search expression.
             folder: Folder to search in (None for all folders)
             criteria: Search criteria (text, from, to, subject, all, unseen, seen, raw).
                      Use 'raw' for complex IMAP expressions with OR/AND/NOT operators.
             limit: Maximum number of results
             ctx: MCP context
+            account: Account name (None for default account)
 
         Returns:
             JSON-formatted list of search results
         """
         try:
-            # Add 30-second timeout for the entire search operation
             return await asyncio.wait_for(
-                _search_emails_impl(query, ctx, folder, criteria, limit),
+                _search_emails_impl(query, ctx, folder, criteria, limit, account),
                 timeout=30.0
             )
         except asyncio.TimeoutError:
@@ -468,11 +551,11 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         folder: Optional[str],
         criteria: str,
         limit: int,
+        account: Optional[str] = None,
     ) -> str:
         """Internal implementation of search_emails without timeout wrapper."""
-        # Convert to string if integer was passed (handles JSON parsing of numeric strings)
         query = str(query)
-        client = get_client_from_context(ctx)
+        client = get_client_from_context(ctx, account)
         
         # Define search criteria
         search_criteria_map = {
@@ -556,12 +639,13 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         ctx: Context,
         notes: Optional[str] = None,
         target_folder: Optional[str] = None,
+        account: Optional[str] = None,
     ) -> str:
         """Process an email with specified action.
-        
+
         This is a higher-level tool that combines multiple actions and records
         the decision for learning purposes.
-        
+
         Args:
             folder: Folder name
             uid: Email UID
@@ -569,11 +653,12 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             notes: Optional notes about the decision
             target_folder: Target folder for move action
             ctx: MCP context
-            
+            account: Account name (None for default account)
+
         Returns:
             Success message or error message
         """
-        client = get_client_from_context(ctx)
+        client = get_client_from_context(ctx, account)
         
         # Fetch the email first to have context for learning
         email_obj = client.fetch_email(uid, folder)
@@ -620,6 +705,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         uid: int,
         ctx: Context,
         availability_mode: str = "random",
+        account: Optional[str] = None,
     ) -> dict:
         """Process a meeting invite email and create a draft reply.
         
@@ -650,7 +736,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         from imap_mcp.workflows.meeting_reply import generate_meeting_reply_content
         from imap_mcp.smtp_client import create_reply_mime
 
-        client = get_client_from_context(ctx)
+        client = get_client_from_context(ctx, account)
         result = {
             "status": "error",
             "message": "An error occurred during processing",
@@ -741,18 +827,20 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         folder: str,
         uid: int,
         ctx: Context,
+        account: Optional[str] = None,
     ) -> str:
         """List attachments for a specific email.
-        
+
         Args:
             folder: Folder name
             uid: Email UID
             ctx: MCP context
-            
+            account: Account name (None for default account)
+
         Returns:
             JSON-formatted list of attachments with metadata (index, filename, size, content_type, content_id)
         """
-        client = get_client_from_context(ctx)
+        client = get_client_from_context(ctx, account)
         
         try:
             # Fetch the email
@@ -791,20 +879,22 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         identifier: str,
         save_path: str,
         ctx: Context,
+        account: Optional[str] = None,
     ) -> str:
         """Download an attachment by filename or index.
-        
+
         Args:
             folder: Folder name
             uid: Email UID
             identifier: Attachment filename or index (as string)
             save_path: Path where to save the attachment
             ctx: MCP context
-            
+            account: Account name (None for default account)
+
         Returns:
             Success message with filename and size, or error message
         """
-        client = get_client_from_context(ctx)
+        client = get_client_from_context(ctx, account)
         
         try:
             # Fetch the email
@@ -870,19 +960,21 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         uid: int,
         save_path: str,
         ctx: Context,
+        account: Optional[str] = None,
     ) -> str:
         """Export email HTML content to a standalone file with embedded images.
-        
+
         Args:
             folder: Folder name
             uid: Email UID
             save_path: Path where to save the HTML file
             ctx: MCP context
-            
+            account: Account name (None for default account)
+
         Returns:
             Success message with file path and size, or error message
         """
-        client = get_client_from_context(ctx)
+        client = get_client_from_context(ctx, account)
         
         try:
             # Fetch the email
@@ -927,25 +1019,27 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         folder: str,
         uids: List[int],
         ctx: Context,
+        account: Optional[str] = None,
     ) -> str:
         """Extract all links from email HTML content for multiple emails.
-        
+
         This tool is useful for fraud detection and security analysis, allowing
         you to examine all URLs in multiple emails without downloading the full HTML content.
         Links are deduplicated per email (only first occurrence of each URL is kept per email).
-        
+
         Args:
             folder: Folder name
             uids: List of email UIDs
             ctx: MCP context
-            
+            account: Account name (None for default account)
+
         Returns:
             JSON-formatted list of results, one per UID. Each result contains:
             - uid: The email UID
             - links: List of link objects with url, anchor, and position (or empty list)
             - error: Error message if email not found or has no HTML content (optional)
         """
-        client = get_client_from_context(ctx)
+        client = get_client_from_context(ctx, account)
         results = []
         
         for uid in uids:

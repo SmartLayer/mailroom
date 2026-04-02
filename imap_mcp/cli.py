@@ -24,6 +24,7 @@ app = typer.Typer(
 
 # Module-level state set by the --config callback.
 _config_path: Optional[str] = None
+_account_name: Optional[str] = None
 
 logger = logging.getLogger(__name__)
 
@@ -37,17 +38,29 @@ def _global_options(
         help="Path to YAML configuration file.",
         envvar="IMAP_MCP_CONFIG",
     ),
+    account: Optional[str] = typer.Option(
+        None,
+        "--account",
+        "-a",
+        help="Account name (for multi-account configs). Uses default if omitted.",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging."),
 ) -> None:
-    global _config_path
+    global _config_path, _account_name
     _config_path = config
+    _account_name = account
     level = logging.DEBUG if verbose else logging.WARNING
     logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
 
 
 def _make_client() -> ImapClient:
     cfg = load_config(_config_path)
-    client = ImapClient(cfg.imap, cfg.allowed_folders)
+    name = _account_name or cfg.default_account
+    if name not in cfg.accounts:
+        available = list(cfg.accounts.keys())
+        raise typer.BadParameter(f"Unknown account '{name}'. Available: {available}")
+    acct = cfg.accounts[name]
+    client = ImapClient(acct.imap, acct.allowed_folders)
     client.connect()
     return client
 
@@ -72,12 +85,17 @@ def server_status() -> None:
     status = {
         "server": "IMAP MCP",
         "version": "0.1.0",
-        "imap_host": cfg.imap.host,
-        "imap_port": cfg.imap.port,
-        "imap_user": cfg.imap.username,
-        "imap_ssl": cfg.imap.use_ssl,
-        "allowed_folders": list(cfg.allowed_folders) if cfg.allowed_folders else "all",
+        "default_account": cfg.default_account,
+        "accounts": {},
     }
+    for name, acct in cfg.accounts.items():
+        status["accounts"][name] = {
+            "imap_host": acct.imap.host,
+            "imap_port": acct.imap.port,
+            "imap_user": acct.imap.username,
+            "imap_ssl": acct.imap.use_ssl,
+            "allowed_folders": list(acct.allowed_folders) if acct.allowed_folders else "all",
+        }
     _out(status)
 
 
@@ -434,6 +452,92 @@ def extract_email_links(
             except Exception as exc:
                 results.append({"uid": uid, "error": str(exc), "links": []})
         _out(results)
+    finally:
+        client.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# draft-reply
+# ---------------------------------------------------------------------------
+
+@app.command("draft-reply")
+def draft_reply(
+    folder: str = typer.Option(..., "--folder", "-f", help="Folder containing the email."),
+    uid: int = typer.Option(..., "--uid", help="Email UID to reply to."),
+    body: str = typer.Option(..., "--body", "-b", help="Reply body text."),
+    reply_all: bool = typer.Option(False, "--reply-all", help="Reply to all recipients."),
+    cc: Optional[List[str]] = typer.Option(None, "--cc", help="CC recipients."),
+    bcc: Optional[List[str]] = typer.Option(None, "--bcc", help="BCC recipients (added to raw message; stripped by sending agents)."),
+    body_html: Optional[str] = typer.Option(None, "--body-html", help="HTML version of reply body."),
+    output: Optional[str] = typer.Option(None, "--output", "-o",
+        help="Output path for raw RFC 822 message. Use '-' for stdout (suitable for piping)."),
+) -> None:
+    """Draft a reply to an email.
+
+    By default, saves the draft to the IMAP drafts folder.
+    With -o, writes the raw RFC 822 message to a file or stdout.
+    """
+    from imap_mcp.smtp_client import create_reply_mime
+    from imap_mcp.models import EmailAddress
+
+    client = _make_client()
+    try:
+        email_obj = client.fetch_email(uid, folder)
+        if not email_obj:
+            typer.echo(f"Email UID {uid} not found in {folder}", err=True)
+            raise typer.Exit(1)
+
+        # Find the recipient that matches this account's address
+        reply_from = None
+        my_addr = client.config.username.lower()
+        for recipient in (email_obj.to or []) + (email_obj.cc or []):
+            if recipient.address and recipient.address.lower() == my_addr:
+                reply_from = recipient
+                break
+        if reply_from is None:
+            reply_from = (email_obj.to[0] if email_obj.to
+                          else EmailAddress(name="", address=client.config.username))
+
+        cc_addresses = None
+        if cc:
+            cc_addresses = [EmailAddress.parse(addr) for addr in cc]
+
+        mime_message = create_reply_mime(
+            original_email=email_obj,
+            reply_to=reply_from,
+            body=body,
+            reply_all=reply_all,
+            cc=cc_addresses,
+            html_body=body_html,
+        )
+
+        if bcc:
+            mime_message["Bcc"] = ", ".join(bcc)
+
+        if output is not None:
+            # Output raw RFC 822 message
+            if hasattr(mime_message, "as_bytes"):
+                raw = mime_message.as_bytes()
+            else:
+                raw = mime_message.as_string().encode("utf-8")
+
+            if output == "-":
+                sys.stdout.buffer.write(raw)
+            else:
+                import os
+                os.makedirs(os.path.dirname(output) if os.path.dirname(output) else ".", exist_ok=True)
+                with open(output, "wb") as fh:
+                    fh.write(raw)
+                typer.echo(f"Wrote {len(raw)} bytes to {output}", err=True)
+        else:
+            # Save as draft in IMAP
+            draft_uid = client.save_draft_mime(mime_message)
+            if draft_uid:
+                drafts_folder = client._get_drafts_folder()
+                _out({"status": "success", "draft_uid": draft_uid, "draft_folder": drafts_folder})
+            else:
+                typer.echo("Failed to save draft", err=True)
+                raise typer.Exit(1)
     finally:
         client.disconnect()
 

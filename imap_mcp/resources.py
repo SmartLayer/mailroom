@@ -2,6 +2,7 @@
 
 import json
 import logging
+from typing import Optional
 
 from mcp.server.fastmcp import FastMCP, Context
 
@@ -12,19 +13,33 @@ import imap_mcp.smtp_client as smtp_client
 logger = logging.getLogger(__name__)
 
 
-def get_client_from_context(ctx: Context) -> ImapClient:
-    """Get IMAP client from context.
-    
+def get_client_from_context(ctx: Context, account: Optional[str] = None) -> ImapClient:
+    """Get IMAP client from context, optionally for a specific account.
+
     Args:
         ctx: MCP context
-        
+        account: Account name.  When *None*, the default account is used.
+
     Returns:
-        IMAP client
-        
+        IMAP client for the requested account
+
     Raises:
-        RuntimeError: If IMAP client is not available
+        RuntimeError: If IMAP client is not available or account is unknown
     """
-    client = ctx.request_context.lifespan_context.get("imap_client")
+    lc = ctx.request_context.lifespan_context
+
+    # Multi-account path
+    clients = lc.get("imap_clients")
+    if clients is not None:
+        default = lc.get("default_account", "")
+        key = account or default
+        if key not in clients:
+            available = list(clients.keys())
+            raise RuntimeError(f"Unknown account '{key}'. Available: {available}")
+        return clients[key]
+
+    # Legacy single-client path (kept for tests that inject "imap_client" directly)
+    client = lc.get("imap_client")
     if not client:
         raise RuntimeError("IMAP client not available")
     return client

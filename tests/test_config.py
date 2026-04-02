@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from imap_mcp.config import ImapConfig, ServerConfig, load_config
+from imap_mcp.config import ImapConfig, MultiAccountConfig, ServerConfig, load_config
 
 
 class TestImapConfig:
@@ -207,21 +207,21 @@ class TestLoadConfig:
             },
             "allowed_folders": ["INBOX", "Sent"]
         }
-        
-        # Create temporary config file
+
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w+") as temp_file:
             yaml.dump(config_data, temp_file)
             temp_file.flush()
-            
-            # Load config from the temp file
+
             config = load_config(temp_file.name)
-            
-            # Verify config data
-            assert config.imap.host == "imap.example.com"
-            assert config.imap.port == 993
-            assert config.imap.username == "test@example.com"
-            assert config.imap.password == "password"
-            assert config.allowed_folders == ["INBOX", "Sent"]
+
+            # load_config now returns MultiAccountConfig
+            assert isinstance(config, MultiAccountConfig)
+            acct = config.accounts[config.default_account]
+            assert acct.imap.host == "imap.example.com"
+            assert acct.imap.port == 993
+            assert acct.imap.username == "test@example.com"
+            assert acct.imap.password == "password"
+            assert acct.allowed_folders == ["INBOX", "Sent"]
 
     def test_load_from_default_locations(self, monkeypatch, tmp_path):
         """Test loading configuration from default locations."""
@@ -267,11 +267,12 @@ class TestLoadConfig:
         
         # Load config without specifying path (should find default)
         config = load_config()
-        
-        # Verify config data
-        assert config.imap.host == "imap.example.com"
-        assert config.imap.username == "test@example.com"
-        assert config.imap.password == "password"
+
+        assert isinstance(config, MultiAccountConfig)
+        acct = config.accounts[config.default_account]
+        assert acct.imap.host == "imap.example.com"
+        assert acct.imap.username == "test@example.com"
+        assert acct.imap.password == "password"
 
     def test_load_from_env_variables(self, monkeypatch):
         """Test loading configuration from environment variables."""
@@ -290,23 +291,22 @@ class TestLoadConfig:
                 raise FileNotFoundError(f"No such file: {args[0]}")
             return original_open(*args, **kwargs)
         
-        # Need to patch the built-in open function
         with patch("builtins.open", side_effect=mock_open):
-            # Load config (will use env variables since file doesn't exist)
             config = load_config("nonexistent_file.yaml")
-            
-            # Verify config data
-            assert config.imap.host == "imap.example.com"
-            assert config.imap.port == 993
-            assert config.imap.username == "test@example.com"
-            assert config.imap.password == "env_password"
-            assert config.imap.use_ssl is True
-            assert config.allowed_folders == ["INBOX", "Sent", "Archive"]
-            
-            # Test with non-SSL setting
+
+            assert isinstance(config, MultiAccountConfig)
+            acct = config.accounts[config.default_account]
+            assert acct.imap.host == "imap.example.com"
+            assert acct.imap.port == 993
+            assert acct.imap.username == "test@example.com"
+            assert acct.imap.password == "env_password"
+            assert acct.imap.use_ssl is True
+            assert acct.allowed_folders == ["INBOX", "Sent", "Archive"]
+
             monkeypatch.setenv("IMAP_USE_SSL", "false")
             config = load_config("nonexistent_file.yaml")
-            assert config.imap.use_ssl is False
+            acct = config.accounts[config.default_account]
+            assert acct.imap.use_ssl is False
 
     def test_load_missing_required_env(self, monkeypatch):
         """Test error when required environment variables are missing."""

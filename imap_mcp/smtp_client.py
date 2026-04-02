@@ -74,7 +74,8 @@ def create_reply_mime(
         message["Subject"] = subject
     else:
         # Add "Re: " prefix if not already present
-        original_subject = original_email.subject
+        # Unfold any MIME-folded subject (strip CR/LF and collapse whitespace)
+        original_subject = " ".join(original_email.subject.split())
         if not original_subject.startswith("Re:"):
             message["Subject"] = f"Re: {original_subject}"
         else:
@@ -83,16 +84,19 @@ def create_reply_mime(
     # Set references for threading
     references = []
     if "References" in original_email.headers:
-        references.append(original_email.headers["References"])
+        # Unfold any wrapped header values (remove CR/LF/extra whitespace)
+        refs_value = " ".join(original_email.headers["References"].split())
+        references.append(refs_value)
     if original_email.message_id:
-        references.append(original_email.message_id)
-    
+        msg_id = " ".join(original_email.message_id.split())
+        references.append(msg_id)
+
     if references:
         message["References"] = " ".join(references)
     
     # Set In-Reply-To header
     if original_email.message_id:
-        message["In-Reply-To"] = original_email.message_id
+        message["In-Reply-To"] = " ".join(original_email.message_id.split())
     
     # Prepare content
     if html_body:
