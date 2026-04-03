@@ -1,0 +1,95 @@
+.TH MAILROOM 1 "April 2026" "mailroom 1.0.0" "User Commands"
+.SH NAME
+mailroom \- email toolkit for AI assistants and command\-line scripting
+.SH SYNOPSIS
+.B mailroom
+[\fB\-\-config\fR \fIFILE\fR]
+[\fB\-\-account\fR \fINAME\fR]
+[\fB\-\-verbose\fR]
+\fICOMMAND\fR [\fIARGS\fR]
+.SH DESCRIPTION
+.B mailroom
+provides CLI commands for searching, reading, moving, flagging, and
+replying to emails over IMAP. It can also run an MCP (Model Context
+Protocol) server for integration with AI assistants.
+.SH GLOBAL OPTIONS
+.TP
+\fB\-c\fR, \fB\-\-config\fR \fIFILE\fR
+Path to TOML configuration file. May also be set via the
+\fBMAILROOM_CONFIG\fR environment variable.
+.TP
+\fB\-a\fR, \fB\-\-account\fR \fINAME\fR
+Account name for multi\-account configurations. Uses the default account
+if omitted.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Enable verbose (debug) logging.
+.SH COMMANDS
+.TP
+\fBlist\-accounts\fR
+List configured email accounts.
+.TP
+\fBserver\-status\fR
+Show IMAP server status and configuration.
+.TP
+\fBsearch\-emails\fR [\fIQUERY\fR] [\fB\-\-folder\fR \fIFOLDER\fR] [\fB\-\-limit\fR \fIN\fR]
+Search for emails. Supports Gmail\-style queries (e.g.\&
+\fIfrom:alice subject:invoice\fR), bare\-word text search, and raw IMAP
+queries prefixed with \fIimap:\fR.
+.TP
+\fBmove\-email\fR \fIFOLDER\fR \fIUID\fR \fITARGET_FOLDER\fR
+Move an email to another folder.
+.TP
+\fBmark\-as\-read\fR \fIFOLDER\fR \fIUID\fR
+Mark an email as read.
+.TP
+\fBmark\-as\-unread\fR \fIFOLDER\fR \fIUID\fR
+Mark an email as unread.
+.TP
+\fBflag\-email\fR \fIFOLDER\fR \fIUID\fR [\fB\-\-unflag\fR]
+Flag (star) an email, or remove the flag with \fB\-\-unflag\fR.
+.TP
+\fBdelete\-email\fR \fIFOLDER\fR \fIUID\fR
+Delete an email.
+.TP
+\fBprocess\-email\fR \fIFOLDER\fR \fIUID\fR \fIACTION\fR [\fB\-\-target\-folder\fR \fIF\fR] [\fB\-\-notes\fR \fITEXT\fR]
+Process an email with a given action (move, read, unread, flag, unflag,
+delete).
+.TP
+\fBlist\-attachments\fR \fIFOLDER\fR \fIUID\fR
+List attachments for an email.
+.TP
+\fBdownload\-attachment\fR \fIFOLDER\fR \fIUID\fR \fIIDENTIFIER\fR \fISAVE_PATH\fR
+Download an attachment by filename or numeric index.
+.TP
+\fBexport\-email\-html\fR \fIFOLDER\fR \fIUID\fR \fISAVE_PATH\fR
+Export email HTML content to a standalone file with embedded images.
+.TP
+\fBextract\-email\-links\fR \fIFOLDER\fR \fIUID\fR [\fIUID\fR ...]
+Extract all links from email HTML content.
+.TP
+\fBdraft\-reply\fR \fB\-\-folder\fR \fIF\fR \fB\-\-uid\fR \fIUID\fR \fB\-\-body\fR \fITEXT\fR [\fIOPTIONS\fR]
+Draft a reply to an email. By default saves to the IMAP drafts folder.
+With \fB\-\-output\fR, writes raw RFC 822 to a file or stdout (\fB\-\fR).
+.TP
+\fBprocess\-meeting\-invite\fR \fIFOLDER\fR \fIUID\fR [\fB\-\-availability\-mode\fR \fIMODE\fR]
+Process a meeting invite and create a draft reply.
+.TP
+\fBmcp\fR [\fB\-\-config\fR \fIFILE\fR] [\fB\-\-debug\fR] [\fB\-\-dev\fR] [\fB\-\-version\fR]
+Start the MCP server. Requires the optional \fBmcp\fR Python package.
+.SH ENVIRONMENT
+.TP
+\fBMAILROOM_CONFIG\fR
+Path to the TOML configuration file, used when \fB\-\-config\fR is not
+given.
+.SH FILES
+.TP
+.I config.toml
+Default configuration file. See
+.I /usr/share/doc/mailroom/examples/config.toml
+for a sample.
+.SH AUTHOR
+Weiwu Zhang
+.SH SEE ALSO
+.BR imap (7),
+.BR python3 (1)

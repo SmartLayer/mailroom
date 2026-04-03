@@ -27,11 +27,13 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "requests>=2.32.0",
     "typer>=0.15.0",
-    "flask>=3.1.0",
-    "mcp>=1.0.0",
 ]
 
 [project.optional-dependencies]
+mcp = [
+    "flask>=3.1.0",
+    "mcp>=1.0.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=6.0.0",
@@ -51,8 +53,8 @@ Homepage = "https://github.com/SmartLayer/mailroom"
 Issues = "https://github.com/SmartLayer/mailroom/issues"
 Author = "https://www.linkedin.com/in/weiwuzhang/"
 
-[tool.setuptools]
-packages = ["mailroom"]
+[tool.setuptools.packages.find]
+include = ["mailroom*"]
 
 [tool.black]
 line-length = 88

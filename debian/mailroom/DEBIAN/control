@@ -1,0 +1,18 @@
+Package: mailroom
+Version: 1.0.0
+Architecture: all
+Maintainer: Weiwu Zhang <weiwu@zhangweiwu.com>
+Installed-Size: 234
+Depends: python3-dotenv, python3-imapclient, python3-requests, python3-typer, python3:any, python3 (>= 3.11)
+Suggests: python3-flask
+Section: mail
+Priority: optional
+Homepage: https://github.com/SmartLayer/mailroom
+Description: Email toolkit for AI assistants and command-line scripting
+ Mailroom provides CLI commands for searching, reading, moving, flagging,
+ and replying to emails over IMAP. It also offers an MCP (Model Context
+ Protocol) server mode for integration with AI assistants.
+ .
+ The Debian package provides all CLI commands. The MCP server subcommand
+ requires the python3-mcp package which is not yet available in Debian;
+ users who need MCP mode should install via pipx or Homebrew instead.

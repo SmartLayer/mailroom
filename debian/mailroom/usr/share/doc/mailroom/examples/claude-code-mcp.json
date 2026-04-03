@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "mailroom": {
+      "command": "mailroom",
+      "args": ["mcp", "--config", "/path/to/config.toml"],
+      "env": {
+        "IMAP_PASSWORD": "your_secure_password"
+      }
+    }
+  }
+}

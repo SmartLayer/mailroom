@@ -1,95 +1,114 @@
-# Mailroom Server Installation Guide
-
-This document provides detailed instructions for installing and setting up the Mailroom Server.
+# Mailroom Installation Guide
 
 ## Prerequisites
 
 - Python 3.11 or higher
 - An IMAP-enabled email account
-- [uv](https://docs.astral.sh/uv/) - Python package installer (required for installation)
-- Claude Desktop or another MCP-compatible client
 
-## Installation Steps
+## Installation Methods
 
-### 1. Install the uv tool
-
-The MCP server installation requires the uv tool from Astral. Install it according to the official documentation:
-https://docs.astral.sh/uv/
-
-### 2. Clone the repository
+### pipx from GitHub (all features, all platforms)
 
 ```bash
-git clone https://github.com/SmartLayer/mailroom.git
-cd mailroom
+pipx install "mailroom[mcp] @ git+https://github.com/SmartLayer/mailroom"
 ```
 
-### 3. Install the package and dependencies
+This installs everything including MCP server mode. For CLI-only (no MCP):
 
 ```bash
-pip install -e .
+pipx install "git+https://github.com/SmartLayer/mailroom"
 ```
 
-For development, install with additional development dependencies:
+### Homebrew (all features, macOS and Linux)
 
 ```bash
-pip install -e ".[dev]"
+brew install --formula https://raw.githubusercontent.com/SmartLayer/mailroom/main/formula/mailroom.rb
 ```
 
-### 4. Create a configuration file
+### Debian / Ubuntu (CLI-only)
+
+Download `mailroom_1.0.0_all.deb` from the [release assets](https://github.com/SmartLayer/mailroom/releases/tag/v1.0.0) and install:
+
+```bash
+sudo apt install ./mailroom_1.0.0_all.deb
+```
+
+The .deb provides all CLI commands. The MCP server subcommand (`mailroom mcp`) is not supported in the .deb — it requires the `mcp` Python package which is not yet available as a Debian package. Users who need MCP mode should install via pipx or Homebrew.
+
+To build the .deb from source:
+
+```bash
+sudo apt install debhelper dh-python pybuild-plugin-pyproject
+dpkg-buildpackage -us -uc -b
+# produces ../mailroom_1.0.0_all.deb
+```
+
+### RPM / Fedora (CLI-only)
+
+Build from the included spec file:
+
+```bash
+rpmbuild -ba mailroom.spec
+```
+
+Or use `fpm` for a quick build:
+
+```bash
+fpm -s python -t rpm --python-bin python3 --python-pip pip3 \
+    --depends python3-imapclient --depends python3-typer \
+    --depends python3-requests --depends python3-dotenv \
+    .
+```
+
+## Configuration
+
+Copy the sample configuration and edit with your credentials:
 
 ```bash
 cp config.sample.toml config.toml
 ```
 
-Edit the `config.toml` file with your email settings:
+Example configuration:
 
 ```toml
-[imap]
-host = "imap.example.com"
-port = 993
-username = "your.email@example.com"
-# password = "your_password"  # or set IMAP_PASSWORD environment variable
-use_ssl = true
+default_account = "personal"
 
-# Optional: restrict access to specific folders
-# allowed_folders = ["INBOX", "Sent", "Archive", "Important"]
+[accounts.personal]
+host = "imap.gmail.com"
+username = "you@gmail.com"
+client_id = "YOUR_CLIENT_ID"
+client_secret = "YOUR_CLIENT_SECRET"
+refresh_token = "YOUR_REFRESH_TOKEN"
 ```
 
-For security, it's recommended to use environment variables for sensitive information:
+For password-based authentication, set the password in the config or via environment variable:
 
 ```bash
 export IMAP_PASSWORD="your_secure_password"
 ```
 
-### 5. Running the server
+## Usage
 
-#### Basic usage:
+### CLI commands
 
 ```bash
-mailroom mcp
+mailroom search-emails "from:alice subject:invoice"
+mailroom list-accounts
+mailroom move-email INBOX 123 Archive
+mailroom draft-reply --folder INBOX --uid 123 --body "Thanks for the update."
 ```
 
-#### With specific config file:
+Run `mailroom --help` for the full list of commands, or `man mailroom` on systems installed via .deb.
+
+### MCP server (pipx / Homebrew installs only)
 
 ```bash
 mailroom mcp --config /path/to/config.toml
 ```
 
-#### For development mode (with inspector):
+### Integrating with Claude Desktop
 
-```bash
-mailroom mcp --config /path/to/config.toml --dev
-```
-
-#### For debugging:
-
-```bash
-mailroom mcp --config /path/to/config.toml --debug
-```
-
-## Integrating with Claude Desktop
-
-Add the following to your Claude Desktop configuration:
+Add to your Claude Desktop MCP configuration:
 
 ```json
 {
@@ -107,10 +126,8 @@ Add the following to your Claude Desktop configuration:
 
 ## Troubleshooting
 
-If you encounter issues with the installation or running the server:
-
-1. Ensure all prerequisites are installed correctly
-2. Verify your IMAP server settings are correct
-3. Check that your email provider allows IMAP access
-4. For authentication issues, try using an app-specific password if available
-5. Enable debug mode (`--debug`) for more detailed logs
+1. Verify your IMAP server settings are correct
+2. Check that your email provider allows IMAP access
+3. For Gmail, use OAuth2 credentials (app passwords work but are less reliable)
+4. Enable debug mode (`--verbose`) for detailed logs
+5. For authentication errors with OAuth2, refresh your token: `mailroom auth refresh-token --config config.toml`
