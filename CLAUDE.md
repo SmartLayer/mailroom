@@ -1,7 +1,5 @@
 # Mailroom Server Development Guide
 
-> **Important**: Before starting any development task, first consult the [DOCUMENTATION_CATALOG.md](./DOCUMENTATION_CATALOG.md) file to identify the most relevant documentation for your task. This catalog provides a comprehensive overview of all documentation files in the project.
-
 ## Environment Setup and Build Commands with `uv`
 - Create virtual environment: `uv venv`
 - Activate virtual environment: `source .venv/bin/activate` (Unix/macOS) or `.venv\Scripts\activate` (Windows)
