@@ -136,7 +136,7 @@ def server_status() -> None:
 
 @app.command("search-emails")
 def search_emails(
-    query: str = typer.Argument(..., help="Search query string."),
+    query: str = typer.Argument("", help="Search query string."),
     folder: Optional[str] = typer.Option(None, "--folder", "-f", help="Folder to search (default: all)."),
     criteria: str = typer.Option("subject", "--criteria", "-C",
         help="Search criteria: text, from, to, subject, all, unseen, seen, today, week, month, raw."),

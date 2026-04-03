@@ -90,7 +90,7 @@ Every command outputs JSON to stdout. Errors go to stderr. This makes Mailroom c
 
 ```bash
 # What's unread?
-mailroom search-emails "" --criteria unseen --folder INBOX --limit 10
+mailroom search-emails --criteria unseen --folder INBOX --limit 10
 
 # Search by subject across all folders
 mailroom search-emails "hotel booking" --criteria subject
@@ -137,7 +137,7 @@ mailroom search-emails "sender@example.com" --criteria from --folder INBOX \
   | xargs -I{} mailroom move-email INBOX {} Forwarded
 
 # Daily digest: save today's unread subjects to a file
-mailroom search-emails "" --criteria unseen --folder INBOX \
+mailroom search-emails --criteria unseen --folder INBOX \
   | jq -r '.[].subject' > ~/daily-digest.txt
 ```
 
@@ -166,7 +166,7 @@ password = "YOUR_APP_PASSWORD"
 Select an account with `-a`:
 
 ```bash
-mailroom -a work search-emails "" --criteria unseen
+mailroom -a work search-emails --criteria unseen
 ```
 
 ## Connection handling
