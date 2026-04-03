@@ -1,4 +1,4 @@
-# Mailroom
+# ![Mailroom](docs/logo.png)
 
 [![CI](https://github.com/SmartLayer/mailroom/actions/workflows/code_checks.yml/badge.svg)](https://github.com/SmartLayer/mailroom/actions/workflows/code_checks.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
