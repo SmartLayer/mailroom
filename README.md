@@ -14,18 +14,6 @@ Mailroom lets AI assistants search, read, download, reply to, and organize email
 - Search across all folders at once
 - Handle a meeting invite — check availability, draft a response
 
-## Quick start
-
-```bash
-uvx mailroom --config config.yaml search-emails "invoice" --criteria subject
-```
-
-No installation step — `uvx` runs it directly. To install permanently:
-
-```bash
-uv tool install mailroom
-```
-
 ## Configuration
 
 Copy the sample and fill in your credentials:
@@ -60,6 +48,33 @@ imap:
 ```
 
 Gmail OAuth2 setup requires a Google Cloud project with the Gmail API enabled. See [GMAIL_SETUP.md](GMAIL_SETUP.md) for the full walkthrough.
+
+## Quick test
+
+With uv (any platform):
+
+```bash
+uvx mailroom --config config.yaml search-emails "invoice" --criteria subject
+```
+
+No installation step — `uvx` runs it directly. To install permanently:
+
+```bash
+uv tool install mailroom
+```
+
+On Ubuntu 25.10 or later, the CLI dependencies are in the standard repositories. Install them, then run directly from a clone:
+
+```bash
+sudo apt-get install python3-typer python3-yaml python3-dotenv python3-imapclient python3-requests
+```
+Then you can run it directly without uv
+
+```bash
+python3 -m mailroom --config config.yaml search-emails "invoice" --criteria subject
+```
+
+The MCP server (`mailroom mcp`) requires the `mcp` Python package, which is not in apt. Use `uv` or `pip` for that. Manuy people prefer to use cli instead of mcp as the latter loads 80+ tools into every conversation, in that case no need to install mcp package.
 
 ## CLI usage
 
