@@ -32,7 +32,7 @@ jobs:
       
     - name: Install dependencies
       run: |
-        uv pip install -e ".[dev]"
+        uv pip install -e ".[dev,mcp]"
         
     - name: Make scripts executable
       run: |
