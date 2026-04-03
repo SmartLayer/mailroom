@@ -19,8 +19,8 @@ https://docs.astral.sh/uv/
 ### 2. Clone the repository
 
 ```bash
-git clone https://github.com/non-dirty/imap-mcp.git
-cd imap-mcp
+git clone https://github.com/SmartLayer/mailroom.git
+cd mailroom
 ```
 
 ### 3. Install the package and dependencies

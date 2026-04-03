@@ -48,8 +48,8 @@ dev = [
 mailroom = "mailroom.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/non-dirty/imap-mcp"
-Issues = "https://github.com/non-dirty/imap-mcp/issues"
+Homepage = "https://github.com/SmartLayer/mailroom"
+Issues = "https://github.com/SmartLayer/mailroom/issues"
 
 [tool.setuptools]
 packages = ["mailroom"]

@@ -47,13 +47,13 @@ After completing the current issues (#10-#14), the GitHub Integration process wi
 
 ```bash
 # Check GitHub issues
-gh issue list --repo non-dirty/mailroom
+gh issue list --repo SmartLayer/mailroom
 
 # Run code coverage
 uv run -m pytest --cov=mailroom --cov-report=term
 
 # Verify GitHub project board
-gh project view --owner non-dirty --repo mailroom
+gh project view --owner SmartLayer --repo mailroom
 ```
 
 This document serves as a reference for the transition process and verification.
