@@ -248,9 +248,12 @@ class TestCombinedQueries:
     def test_multiple_prefixes_and_date(self):
         result = parse_query("from:alice subject:invoice after:2025-01-01 is:unread")
         assert result == [
-            "FROM", "alice",
-            "SUBJECT", "invoice",
-            "SINCE", date(2025, 1, 1),
+            "FROM",
+            "alice",
+            "SUBJECT",
+            "invoice",
+            "SINCE",
+            date(2025, 1, 1),
             "UNSEEN",
         ]
 

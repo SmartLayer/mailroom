@@ -2,11 +2,11 @@
 
 import logging
 import os
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import tomllib
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,13 @@ load_dotenv()
 _GLOBAL_KEYS = {"default_account", "accounts", "idle_timeout", "verify_with_noop"}
 
 # Keys that signal OAuth2 auth (vs password auth)
-_OAUTH2_KEYS = {"client_id", "client_secret", "refresh_token", "access_token", "token_expiry"}
+_OAUTH2_KEYS = {
+    "client_id",
+    "client_secret",
+    "refresh_token",
+    "access_token",
+    "token_expiry",
+}
 
 
 @dataclass
@@ -39,8 +45,12 @@ class OAuth2Config:
         back to environment variables.
         """
         client_id = data.get("client_id") or os.environ.get("GMAIL_CLIENT_ID")
-        client_secret = data.get("client_secret") or os.environ.get("GMAIL_CLIENT_SECRET")
-        refresh_token = data.get("refresh_token") or os.environ.get("GMAIL_REFRESH_TOKEN")
+        client_secret = data.get("client_secret") or os.environ.get(
+            "GMAIL_CLIENT_SECRET"
+        )
+        refresh_token = data.get("refresh_token") or os.environ.get(
+            "GMAIL_REFRESH_TOKEN"
+        )
 
         if not client_id or not client_secret:
             return None
@@ -64,7 +74,9 @@ class ImapConfig:
     password: Optional[str] = None
     oauth2: Optional[OAuth2Config] = None
     use_ssl: bool = True
-    idle_timeout: int = 300  # seconds: 0 = close after each call, -1 = never, >0 = timeout
+    idle_timeout: int = (
+        300  # seconds: 0 = close after each call, -1 = never, >0 = timeout
+    )
     verify_with_noop: bool = True  # send NOOP to verify connection health
 
     @property
@@ -78,7 +90,9 @@ class ImapConfig:
         return self.is_gmail and self.oauth2 is not None
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], defaults: Dict[str, Any] | None = None) -> "ImapConfig":
+    def from_dict(
+        cls, data: Dict[str, Any], defaults: Dict[str, Any] | None = None
+    ) -> "ImapConfig":
         """Create configuration from a flat account dictionary.
 
         Args:
@@ -116,7 +130,9 @@ class ImapConfig:
             oauth2=oauth2_config,
             use_ssl=use_ssl,
             idle_timeout=data.get("idle_timeout", defaults.get("idle_timeout", 300)),
-            verify_with_noop=data.get("verify_with_noop", defaults.get("verify_with_noop", True)),
+            verify_with_noop=data.get(
+                "verify_with_noop", defaults.get("verify_with_noop", True)
+            ),
         )
 
 
@@ -128,7 +144,9 @@ class AccountConfig:
     allowed_folders: Optional[List[str]] = None
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], defaults: Dict[str, Any] | None = None) -> "AccountConfig":
+    def from_dict(
+        cls, data: Dict[str, Any], defaults: Dict[str, Any] | None = None
+    ) -> "AccountConfig":
         """Create account configuration from a flat dictionary.
 
         Args:
@@ -226,15 +244,18 @@ def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
                     "password": os.environ.get("IMAP_PASSWORD"),
                     "use_ssl": os.environ.get("IMAP_USE_SSL", "true").lower() == "true",
                     "idle_timeout": int(os.environ.get("IMAP_IDLE_TIMEOUT", "300")),
-                    "verify_with_noop": os.environ.get("IMAP_VERIFY_WITH_NOOP", "true").lower() == "true",
+                    "verify_with_noop": os.environ.get(
+                        "IMAP_VERIFY_WITH_NOOP", "true"
+                    ).lower()
+                    == "true",
                 }
             }
         }
 
         if os.environ.get("IMAP_ALLOWED_FOLDERS"):
-            config_data["accounts"]["default"]["allowed_folders"] = (
-                os.environ.get("IMAP_ALLOWED_FOLDERS").split(",")
-            )
+            config_data["accounts"]["default"]["allowed_folders"] = os.environ.get(
+                "IMAP_ALLOWED_FOLDERS"
+            ).split(",")
 
     return config_data
 

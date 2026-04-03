@@ -5,8 +5,8 @@ import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
+from mcp.server.fastmcp import Context, FastMCP
 
-from mcp.server.fastmcp import FastMCP, Context
 from mailroom.imap_client import ImapClient
 from mailroom.models import Email, EmailAddress, EmailAttachment, EmailContent
 from mailroom.tools import register_tools
@@ -15,7 +15,7 @@ from mailroom.tools import register_tools
 # Patch the get_client_from_context function to use our mock client
 @pytest.fixture(autouse=True)
 def patch_get_client():
-    with patch('mailroom.tools.get_client_from_context') as mock_get_client:
+    with patch("mailroom.tools.get_client_from_context") as mock_get_client:
         yield mock_get_client
 
 
@@ -34,7 +34,7 @@ def email_with_html_and_images():
     </body>
     </html>
     """
-    
+
     email = Email(
         uid=123,
         folder="INBOX",
@@ -79,7 +79,7 @@ def email_with_html_no_images():
     </body>
     </html>
     """
-    
+
     email = Email(
         uid=456,
         folder="INBOX",
@@ -136,8 +136,15 @@ class TestEmbedInlineImages:
         """Test embedding a single inline image."""
         email_obj = _make_email(
             '<img src="cid:test123" alt="Test">',
-            [EmailAttachment(filename="test.png", content_type="image/png",
-                             size=10, content_id="test123", content=b"TESTDATA")],
+            [
+                EmailAttachment(
+                    filename="test.png",
+                    content_type="image/png",
+                    size=10,
+                    content_id="test123",
+                    content=b"TESTDATA",
+                )
+            ],
         )
         result = email_obj.html_with_embedded_images()
         assert "cid:test123" not in result
@@ -149,10 +156,20 @@ class TestEmbedInlineImages:
         email_obj = _make_email(
             '<img src="cid:img1" alt="First"><img src="cid:img2" alt="Second">',
             [
-                EmailAttachment(filename="img1.png", content_type="image/png",
-                                size=5, content_id="img1", content=b"IMG1"),
-                EmailAttachment(filename="img2.jpg", content_type="image/jpeg",
-                                size=5, content_id="img2", content=b"IMG2"),
+                EmailAttachment(
+                    filename="img1.png",
+                    content_type="image/png",
+                    size=5,
+                    content_id="img1",
+                    content=b"IMG1",
+                ),
+                EmailAttachment(
+                    filename="img2.jpg",
+                    content_type="image/jpeg",
+                    size=5,
+                    content_id="img2",
+                    content=b"IMG2",
+                ),
             ],
         )
         result = email_obj.html_with_embedded_images()
@@ -165,8 +182,15 @@ class TestEmbedInlineImages:
         """Test embedding images when content_id has angle brackets."""
         email_obj = _make_email(
             '<img src="cid:test123" alt="Test">',
-            [EmailAttachment(filename="test.png", content_type="image/png",
-                             size=10, content_id="<test123>", content=b"TESTDATA")],
+            [
+                EmailAttachment(
+                    filename="test.png",
+                    content_type="image/png",
+                    size=10,
+                    content_id="<test123>",
+                    content=b"TESTDATA",
+                )
+            ],
         )
         result = email_obj.html_with_embedded_images()
         assert "cid:test123" not in result
@@ -176,8 +200,15 @@ class TestEmbedInlineImages:
         """Test embedding images with single-quoted src attributes."""
         email_obj = _make_email(
             "<img src='cid:test123' alt='Test'>",
-            [EmailAttachment(filename="test.png", content_type="image/png",
-                             size=10, content_id="test123", content=b"TESTDATA")],
+            [
+                EmailAttachment(
+                    filename="test.png",
+                    content_type="image/png",
+                    size=10,
+                    content_id="test123",
+                    content=b"TESTDATA",
+                )
+            ],
         )
         result = email_obj.html_with_embedded_images()
         assert "cid:test123" not in result
@@ -187,8 +218,15 @@ class TestEmbedInlineImages:
         """Test handling of missing attachment for cid reference."""
         email_obj = _make_email(
             '<img src="cid:missing" alt="Test">',
-            [EmailAttachment(filename="other.png", content_type="image/png",
-                             size=10, content_id="other", content=b"TESTDATA")],
+            [
+                EmailAttachment(
+                    filename="other.png",
+                    content_type="image/png",
+                    size=10,
+                    content_id="other",
+                    content=b"TESTDATA",
+                )
+            ],
         )
         result = email_obj.html_with_embedded_images()
         assert "cid:missing" in result
@@ -205,8 +243,15 @@ class TestEmbedInlineImages:
         html = '<img src="http://example.com/image.png" alt="Test">'
         email_obj = _make_email(
             html,
-            [EmailAttachment(filename="test.png", content_type="image/png",
-                             size=10, content_id="test123", content=b"TESTDATA")],
+            [
+                EmailAttachment(
+                    filename="test.png",
+                    content_type="image/png",
+                    size=10,
+                    content_id="test123",
+                    content=b"TESTDATA",
+                )
+            ],
         )
         result = email_obj.html_with_embedded_images()
         assert result == html
@@ -226,21 +271,22 @@ class TestExportEmailHtml:
         """Set up tools for testing."""
         # Create a mock MCP server
         mcp = MagicMock(spec=FastMCP)
-        
+
         # Make tool decorator store and return the decorated function
         stored_tools = {}
-        
+
         def mock_tool_decorator():
             def decorator(func):
                 stored_tools[func.__name__] = func
                 return func
+
             return decorator
-        
+
         mcp.tool = mock_tool_decorator
-        
+
         # Register tools with our mock
         register_tools(mcp, mock_client)
-        
+
         # Return the tools dictionary
         return stored_tools
 
@@ -263,7 +309,9 @@ class TestExportEmailHtml:
         export_tool = tools["export_email_html"]
 
         # Create a temporary file for testing
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".html") as tmp_file:
+        with tempfile.NamedTemporaryFile(
+            mode="w", delete=False, suffix=".html"
+        ) as tmp_file:
             tmp_path = tmp_file.name
 
         try:
@@ -283,15 +331,17 @@ class TestExportEmailHtml:
             # Verify file was written
             with open(tmp_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            
+
             # Check that cid: references were replaced with base64 data URIs
             assert "cid:image1@example.com" not in content
             assert "cid:image2@example.com" not in content
             assert "data:image/png;base64," in content
             assert "data:image/jpeg;base64," in content
-            
+
             # Check that original HTML structure is preserved
-            assert "<h1>Crypto got everything it wanted. Now it's sinking</h1>" in content
+            assert (
+                "<h1>Crypto got everything it wanted. Now it's sinking</h1>" in content
+            )
 
         finally:
             # Cleanup
@@ -310,7 +360,9 @@ class TestExportEmailHtml:
         export_tool = tools["export_email_html"]
 
         # Create a temporary file for testing
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".html") as tmp_file:
+        with tempfile.NamedTemporaryFile(
+            mode="w", delete=False, suffix=".html"
+        ) as tmp_file:
             tmp_path = tmp_file.name
 
         try:
@@ -328,7 +380,7 @@ class TestExportEmailHtml:
             # Verify file was written
             with open(tmp_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            
+
             # Check that HTML content is present
             assert "<h1>Newsletter</h1>" in content
             assert "simple HTML email" in content
@@ -362,9 +414,7 @@ class TestExportEmailHtml:
         assert "no HTML content" in result
 
     @pytest.mark.asyncio
-    async def test_export_email_not_found(
-        self, tools, mock_client, mock_context
-    ):
+    async def test_export_email_not_found(self, tools, mock_client, mock_context):
         """Test exporting non-existent email."""
         # Setup
         mock_client.fetch_email.return_value = None
@@ -416,9 +466,7 @@ class TestExportEmailHtml:
             assert not os.path.exists("/../evil.html")
 
     @pytest.mark.asyncio
-    async def test_export_with_exception(
-        self, tools, mock_client, mock_context
-    ):
+    async def test_export_with_exception(self, tools, mock_client, mock_context):
         """Test exporting when an exception occurs."""
         # Setup
         mock_client.fetch_email.side_effect = Exception("Connection error")
@@ -470,4 +518,3 @@ class TestExportEmailHtml:
             with open(nested_path, "r", encoding="utf-8") as f:
                 content = f.read()
             assert "<h1>Newsletter</h1>" in content
-

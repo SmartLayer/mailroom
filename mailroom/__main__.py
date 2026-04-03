@@ -44,7 +44,9 @@ def _global_options(
         "-a",
         help="Account name (for multi-account configs). Uses default if omitted.",
     ),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging."),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Enable verbose logging."
+    ),
 ) -> None:
     global _config_path, _account_name
     _config_path = config
@@ -89,24 +91,28 @@ def _out(data: object) -> None:
 # list-accounts
 # ---------------------------------------------------------------------------
 
+
 @app.command("list-accounts")
 def list_accounts() -> None:
     """List configured email accounts."""
     cfg = load_config(_config_path)
     accounts = []
     for name, acct in cfg.accounts.items():
-        accounts.append({
-            "name": name,
-            "default": name == cfg.default_account,
-            "user": acct.imap.username,
-            "host": acct.imap.host,
-        })
+        accounts.append(
+            {
+                "name": name,
+                "default": name == cfg.default_account,
+                "user": acct.imap.username,
+                "host": acct.imap.host,
+            }
+        )
     _out(accounts)
 
 
 # ---------------------------------------------------------------------------
 # server-status
 # ---------------------------------------------------------------------------
+
 
 @app.command("server-status")
 def server_status() -> None:
@@ -124,7 +130,9 @@ def server_status() -> None:
             "imap_port": acct.imap.port,
             "imap_user": acct.imap.username,
             "imap_ssl": acct.imap.use_ssl,
-            "allowed_folders": list(acct.allowed_folders) if acct.allowed_folders else "all",
+            "allowed_folders": (
+                list(acct.allowed_folders) if acct.allowed_folders else "all"
+            ),
         }
     _out(status)
 
@@ -133,15 +141,21 @@ def server_status() -> None:
 # search-emails
 # ---------------------------------------------------------------------------
 
+
 @app.command("search-emails")
 def search_emails(
-    query: str = typer.Argument("", help=(
-        "Gmail-style search query. Examples: "
-        "'from:alice subject:invoice', 'is:unread after:2025-03-01', "
-        "'meeting notes' (bare words search text), "
-        "'imap:OR TEXT foo SUBJECT bar' (raw IMAP)."
-    )),
-    folder: Optional[str] = typer.Option(None, "--folder", "-f", help="Folder to search (default: all)."),
+    query: str = typer.Argument(
+        "",
+        help=(
+            "Gmail-style search query. Examples: "
+            "'from:alice subject:invoice', 'is:unread after:2025-03-01', "
+            "'meeting notes' (bare words search text), "
+            "'imap:OR TEXT foo SUBJECT bar' (raw IMAP)."
+        ),
+    ),
+    folder: Optional[str] = typer.Option(
+        None, "--folder", "-f", help="Folder to search (default: all)."
+    ),
     limit: int = typer.Option(10, "--limit", "-n", help="Maximum number of results."),
 ) -> None:
     """Search for emails."""
@@ -160,6 +174,7 @@ def search_emails(
 # move-email
 # ---------------------------------------------------------------------------
 
+
 @app.command("move-email")
 def move_email(
     folder: str = typer.Argument(..., help="Source folder."),
@@ -170,7 +185,16 @@ def move_email(
     client = _make_client()
     try:
         success = client.move_email(uid, folder, target_folder)
-        _out({"success": success, "message": f"Moved from {folder} to {target_folder}" if success else "Failed to move email"})
+        _out(
+            {
+                "success": success,
+                "message": (
+                    f"Moved from {folder} to {target_folder}"
+                    if success
+                    else "Failed to move email"
+                ),
+            }
+        )
     finally:
         client.disconnect()
 
@@ -178,6 +202,7 @@ def move_email(
 # ---------------------------------------------------------------------------
 # mark-as-read / mark-as-unread
 # ---------------------------------------------------------------------------
+
 
 @app.command("mark-as-read")
 def mark_as_read(
@@ -211,11 +236,14 @@ def mark_as_unread(
 # flag-email
 # ---------------------------------------------------------------------------
 
+
 @app.command("flag-email")
 def flag_email(
     folder: str = typer.Argument(..., help="Folder name."),
     uid: int = typer.Argument(..., help="Email UID."),
-    unflag: bool = typer.Option(False, "--unflag", help="Remove the flag instead of setting it."),
+    unflag: bool = typer.Option(
+        False, "--unflag", help="Remove the flag instead of setting it."
+    ),
 ) -> None:
     """Flag (star) an email, or unflag it with --unflag."""
     client = _make_client()
@@ -229,6 +257,7 @@ def flag_email(
 # ---------------------------------------------------------------------------
 # delete-email
 # ---------------------------------------------------------------------------
+
 
 @app.command("delete-email")
 def delete_email(
@@ -248,12 +277,17 @@ def delete_email(
 # process-email
 # ---------------------------------------------------------------------------
 
+
 @app.command("process-email")
 def process_email(
     folder: str = typer.Argument(..., help="Folder name."),
     uid: int = typer.Argument(..., help="Email UID."),
-    action: str = typer.Argument(..., help="Action: move, read, unread, flag, unflag, delete."),
-    target_folder: Optional[str] = typer.Option(None, "--target-folder", "-t", help="Target folder (for move)."),
+    action: str = typer.Argument(
+        ..., help="Action: move, read, unread, flag, unflag, delete."
+    ),
+    target_folder: Optional[str] = typer.Option(
+        None, "--target-folder", "-t", help="Target folder (for move)."
+    ),
     notes: Optional[str] = typer.Option(None, "--notes", help="Optional notes."),
 ) -> None:
     """Process an email with a given action."""
@@ -264,7 +298,9 @@ def process_email(
             typer.echo(f"Email UID {uid} not found in {folder}", err=True)
             raise typer.Exit(1)
         try:
-            message = client.process_email_action(uid, folder, action, target_folder=target_folder)
+            message = client.process_email_action(
+                uid, folder, action, target_folder=target_folder
+            )
         except ValueError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(1)
@@ -276,6 +312,7 @@ def process_email(
 # ---------------------------------------------------------------------------
 # list-attachments
 # ---------------------------------------------------------------------------
+
 
 @app.command("list-attachments")
 def list_attachments(
@@ -291,7 +328,12 @@ def list_attachments(
             return
         result = []
         for i, att in enumerate(email_obj.attachments):
-            entry = {"index": i, "filename": att.filename, "size": att.size, "content_type": att.content_type}
+            entry = {
+                "index": i,
+                "filename": att.filename,
+                "size": att.size,
+                "content_type": att.content_type,
+            }
             if att.content_id:
                 entry["content_id"] = att.content_id
             result.append(entry)
@@ -303,6 +345,7 @@ def list_attachments(
 # ---------------------------------------------------------------------------
 # download-attachment
 # ---------------------------------------------------------------------------
+
 
 @app.command("download-attachment")
 def download_attachment(
@@ -331,6 +374,7 @@ def download_attachment(
 # export-email-html
 # ---------------------------------------------------------------------------
 
+
 @app.command("export-email-html")
 def export_email_html(
     folder: str = typer.Argument(..., help="Folder name."),
@@ -357,6 +401,7 @@ def export_email_html(
 # extract-email-links
 # ---------------------------------------------------------------------------
 
+
 @app.command("extract-email-links")
 def extract_email_links(
     folder: str = typer.Argument(..., help="Folder name."),
@@ -375,17 +420,32 @@ def extract_email_links(
 # draft-reply
 # ---------------------------------------------------------------------------
 
+
 @app.command("draft-reply")
 def draft_reply(
-    folder: str = typer.Option(..., "--folder", "-f", help="Folder containing the email."),
+    folder: str = typer.Option(
+        ..., "--folder", "-f", help="Folder containing the email."
+    ),
     uid: int = typer.Option(..., "--uid", help="Email UID to reply to."),
     body: str = typer.Option(..., "--body", "-b", help="Reply body text."),
-    reply_all: bool = typer.Option(False, "--reply-all", help="Reply to all recipients."),
+    reply_all: bool = typer.Option(
+        False, "--reply-all", help="Reply to all recipients."
+    ),
     cc: Optional[List[str]] = typer.Option(None, "--cc", help="CC recipients."),
-    bcc: Optional[List[str]] = typer.Option(None, "--bcc", help="BCC recipients (added to raw message; stripped by sending agents)."),
-    body_html: Optional[str] = typer.Option(None, "--body-html", help="HTML version of reply body."),
-    output: Optional[str] = typer.Option(None, "--output", "-o",
-        help="Output path for raw RFC 822 message. Use '-' for stdout (suitable for piping)."),
+    bcc: Optional[List[str]] = typer.Option(
+        None,
+        "--bcc",
+        help="BCC recipients (added to raw message; stripped by sending agents).",
+    ),
+    body_html: Optional[str] = typer.Option(
+        None, "--body-html", help="HTML version of reply body."
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output path for raw RFC 822 message. Use '-' for stdout (suitable for piping).",
+    ),
 ) -> None:
     """Draft a reply to an email.
 
@@ -396,8 +456,8 @@ def draft_reply(
     try:
         if output is not None:
             # --output path: build MIME locally and write raw bytes
-            from mailroom.smtp_client import create_reply_mime, _find_reply_from_address
             from mailroom.models import EmailAddress
+            from mailroom.smtp_client import _find_reply_from_address, create_reply_mime
 
             email_obj = client.fetch_email(uid, folder)
             if not email_obj:
@@ -427,7 +487,11 @@ def draft_reply(
                 sys.stdout.buffer.write(raw)
             else:
                 import os
-                os.makedirs(os.path.dirname(output) if os.path.dirname(output) else ".", exist_ok=True)
+
+                os.makedirs(
+                    os.path.dirname(output) if os.path.dirname(output) else ".",
+                    exist_ok=True,
+                )
                 with open(output, "wb") as fh:
                     fh.write(raw)
                 typer.echo(f"Wrote {len(raw)} bytes to {output}", err=True)
@@ -436,8 +500,14 @@ def draft_reply(
             from mailroom.smtp_client import compose_and_save_reply_draft
 
             result = compose_and_save_reply_draft(
-                client, folder, uid, body,
-                reply_all=reply_all, cc=cc, bcc=bcc, body_html=body_html,
+                client,
+                folder,
+                uid,
+                body,
+                reply_all=reply_all,
+                cc=cc,
+                bcc=bcc,
+                body_html=body_html,
             )
             if result["status"] == "success":
                 _out(result)
@@ -452,12 +522,15 @@ def draft_reply(
 # process-meeting-invite
 # ---------------------------------------------------------------------------
 
+
 @app.command("process-meeting-invite")
 def process_meeting_invite(
     folder: str = typer.Argument(..., help="Folder containing the invite email."),
     uid: int = typer.Argument(..., help="Email UID."),
     availability_mode: str = typer.Option(
-        "random", "--availability-mode", "-a",
+        "random",
+        "--availability-mode",
+        "-a",
         help="Availability mode: random, always_available, always_busy, business_hours, weekdays.",
     ),
 ) -> None:
@@ -476,10 +549,13 @@ def process_meeting_invite(
 # mcp (start MCP server)
 # ---------------------------------------------------------------------------
 
+
 @app.command("mcp")
 def mcp_serve(
     config: Optional[str] = typer.Option(
-        None, "--config", "-c",
+        None,
+        "--config",
+        "-c",
         help="Path to TOML configuration file.",
         envvar="MAILROOM_CONFIG",
     ),
@@ -492,6 +568,7 @@ def mcp_serve(
         print("Mailroom MCP server version 0.2.0")
         raise typer.Exit()
     from mailroom.mcp_server import create_server
+
     server = create_server(config, debug)
     server.run()
 
@@ -499,6 +576,7 @@ def mcp_serve(
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     app()

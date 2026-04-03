@@ -72,12 +72,16 @@ def test_example_queries():
     for test in test_cases:
         print(f"\n{test['name']}")
         print("-" * 80)
-        query_display = test["query"][:80] + "..." if len(test["query"]) > 80 else test["query"]
+        query_display = (
+            test["query"][:80] + "..." if len(test["query"]) > 80 else test["query"]
+        )
         print(f"Query: {query_display!r}")
 
         try:
             result = parse_query(test["query"])
-            result_display = str(result)[:100] + "..." if len(str(result)) > 100 else str(result)
+            result_display = (
+                str(result)[:100] + "..." if len(str(result)) > 100 else str(result)
+            )
             print(f"Result: {result_display}")
 
             if "expected_type" in test:
@@ -85,7 +89,9 @@ def test_example_queries():
                     print("PASS - Correct type")
                     passed += 1
                 else:
-                    print(f"FAIL - Expected type {test['expected_type']}, got {type(result)}")
+                    print(
+                        f"FAIL - Expected type {test['expected_type']}, got {type(result)}"
+                    )
                     failed += 1
             elif "expected" in test:
                 if result == test["expected"]:
@@ -100,7 +106,9 @@ def test_example_queries():
                     passed += 1
                 else:
                     actual = len(result) if isinstance(result, list) else "not a list"
-                    print(f"FAIL - Expected length {test['expected_length']}, got {actual}")
+                    print(
+                        f"FAIL - Expected length {test['expected_length']}, got {actual}"
+                    )
                     failed += 1
         except Exception as e:
             print(f"ERROR - {e}")

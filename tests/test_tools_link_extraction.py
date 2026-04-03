@@ -1,8 +1,9 @@
 """Tests for link extraction from email HTML."""
 
 import json
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 from mailroom.models import Email, EmailAddress, EmailContent
 
@@ -36,12 +37,12 @@ class TestExtractLinksFromHtml:
         assert links[0] == {
             "url": "https://example.com",
             "anchor": "Example Site",
-            "position": 1
+            "position": 1,
         }
         assert links[1] == {
             "url": "https://google.com",
             "anchor": "Google",
-            "position": 2
+            "position": 2,
         }
 
     def test_extract_multiline_link(self):
@@ -200,9 +201,10 @@ class TestExtractEmailLinksTool:
 
     async def test_extract_links_from_email(self, mock_context):
         """Test extracting links from an email with HTML content."""
-        from mailroom.tools import register_tools
         from mcp.server.fastmcp import FastMCP
-        
+
+        from mailroom.tools import register_tools
+
         # Create mock email with HTML content
         html_content = """
         <html>
@@ -214,42 +216,39 @@ class TestExtractEmailLinksTool:
             </body>
         </html>
         """
-        
+
         mock_email = Email(
             message_id="<test@example.com>",
             subject="Test Email",
             from_=EmailAddress("sender@example.com", "Sender"),
             to=[EmailAddress("recipient@example.com", "Recipient")],
-            content=EmailContent(
-                text="Plain text version",
-                html=html_content
-            )
+            content=EmailContent(text="Plain text version", html=html_content),
         )
-        
+
         # Set up mock client
         mock_client = MagicMock()
         mock_client.fetch_email.return_value = mock_email
         mock_context.request_context.lifespan_context = {"imap_client": mock_client}
-        
+
         # Create MCP server and register tools
         mcp = FastMCP("test")
         register_tools(mcp, mock_client)
-        
+
         # Get the tool function
         extract_tool = None
         for tool_func in mcp._tool_manager._tools.values():
             if tool_func.fn.__name__ == "extract_email_links":
                 extract_tool = tool_func.fn
                 break
-        
+
         assert extract_tool is not None, "extract_email_links tool not found"
-        
+
         # Call the tool with a list of UIDs
         result = await extract_tool("INBOX", [123], mock_context)
-        
+
         # Parse result
         results = json.loads(result)
-        
+
         assert len(results) == 1
         assert results[0]["uid"] == 123
         assert len(results[0]["links"]) == 2
@@ -260,60 +259,62 @@ class TestExtractEmailLinksTool:
 
     async def test_extract_links_multiple_emails(self, mock_context):
         """Test extracting links from multiple emails."""
-        from mailroom.tools import register_tools
         from mcp.server.fastmcp import FastMCP
-        
+
+        from mailroom.tools import register_tools
+
         # Create two mock emails
         html1 = '<html><body><a href="https://example.com">Link 1</a></body></html>'
         html2 = '<html><body><a href="https://test.com">Link 2</a></body></html>'
-        
+
         email1 = Email(
             message_id="<test1@example.com>",
             subject="Email 1",
             from_=EmailAddress("sender@example.com", "Sender"),
             to=[EmailAddress("recipient@example.com", "Recipient")],
-            content=EmailContent(html=html1)
+            content=EmailContent(html=html1),
         )
-        
+
         email2 = Email(
             message_id="<test2@example.com>",
             subject="Email 2",
             from_=EmailAddress("sender@example.com", "Sender"),
             to=[EmailAddress("recipient@example.com", "Recipient")],
-            content=EmailContent(html=html2)
+            content=EmailContent(html=html2),
         )
-        
+
         # Set up mock client to return different emails for different UIDs
         mock_client = MagicMock()
+
         def fetch_side_effect(uid, folder):
             if uid == 100:
                 return email1
             elif uid == 200:
                 return email2
             return None
-        
+
         mock_client.fetch_email.side_effect = fetch_side_effect
         mock_context.request_context.lifespan_context = {"imap_client": mock_client}
-        
+
         # Create MCP server and register tools
         mcp = FastMCP("test")
         register_tools(mcp, mock_client)
-        
+
         # Get the tool function
         extract_tool = None
         for tool_func in mcp._tool_manager._tools.values():
             if tool_func.fn.__name__ == "extract_email_links":
                 extract_tool = tool_func.fn
                 break
-        
+
         assert extract_tool is not None
-        
+
         # Call the tool with multiple UIDs
         result = await extract_tool("INBOX", [100, 200], mock_context)
-        
+
         # Parse result
         results = json.loads(result)
-        
+
         assert len(results) == 2
         assert results[0]["uid"] == 100
         assert len(results[0]["links"]) == 1
@@ -324,30 +325,31 @@ class TestExtractEmailLinksTool:
 
     async def test_extract_links_email_not_found(self, mock_context):
         """Test error when email is not found."""
-        from mailroom.tools import register_tools
         from mcp.server.fastmcp import FastMCP
-        
+
+        from mailroom.tools import register_tools
+
         # Set up mock client that returns None
         mock_client = MagicMock()
         mock_client.fetch_email.return_value = None
         mock_context.request_context.lifespan_context = {"imap_client": mock_client}
-        
+
         # Create MCP server and register tools
         mcp = FastMCP("test")
         register_tools(mcp, mock_client)
-        
+
         # Get the tool function
         extract_tool = None
         for tool_func in mcp._tool_manager._tools.values():
             if tool_func.fn.__name__ == "extract_email_links":
                 extract_tool = tool_func.fn
                 break
-        
+
         assert extract_tool is not None
-        
+
         # Call the tool
         result = await extract_tool("INBOX", [999], mock_context)
-        
+
         # Parse result
         results = json.loads(result)
         assert len(results) == 1
@@ -357,41 +359,40 @@ class TestExtractEmailLinksTool:
 
     async def test_extract_links_no_html_content(self, mock_context):
         """Test error when email has no HTML content."""
-        from mailroom.tools import register_tools
         from mcp.server.fastmcp import FastMCP
-        
+
+        from mailroom.tools import register_tools
+
         # Create mock email with only plain text
         mock_email = Email(
             message_id="<test@example.com>",
             subject="Test Email",
             from_=EmailAddress("sender@example.com", "Sender"),
             to=[EmailAddress("recipient@example.com", "Recipient")],
-            content=EmailContent(
-                text="Plain text only, no HTML"
-            )
+            content=EmailContent(text="Plain text only, no HTML"),
         )
-        
+
         # Set up mock client
         mock_client = MagicMock()
         mock_client.fetch_email.return_value = mock_email
         mock_context.request_context.lifespan_context = {"imap_client": mock_client}
-        
+
         # Create MCP server and register tools
         mcp = FastMCP("test")
         register_tools(mcp, mock_client)
-        
+
         # Get the tool function
         extract_tool = None
         for tool_func in mcp._tool_manager._tools.values():
             if tool_func.fn.__name__ == "extract_email_links":
                 extract_tool = tool_func.fn
                 break
-        
+
         assert extract_tool is not None
-        
+
         # Call the tool
         result = await extract_tool("INBOX", [123], mock_context)
-        
+
         # Parse result
         results = json.loads(result)
         assert len(results) == 1
@@ -401,9 +402,10 @@ class TestExtractEmailLinksTool:
 
     async def test_extract_links_html_with_no_links(self, mock_context):
         """Test with HTML content that has no links."""
-        from mailroom.tools import register_tools
         from mcp.server.fastmcp import FastMCP
-        
+
+        from mailroom.tools import register_tools
+
         # Create mock email with HTML but no links
         mock_email = Email(
             message_id="<test@example.com>",
@@ -412,31 +414,31 @@ class TestExtractEmailLinksTool:
             to=[EmailAddress("recipient@example.com", "Recipient")],
             content=EmailContent(
                 text="Plain text",
-                html="<html><body><p>Just plain text, no links.</p></body></html>"
-            )
+                html="<html><body><p>Just plain text, no links.</p></body></html>",
+            ),
         )
-        
+
         # Set up mock client
         mock_client = MagicMock()
         mock_client.fetch_email.return_value = mock_email
         mock_context.request_context.lifespan_context = {"imap_client": mock_client}
-        
+
         # Create MCP server and register tools
         mcp = FastMCP("test")
         register_tools(mcp, mock_client)
-        
+
         # Get the tool function
         extract_tool = None
         for tool_func in mcp._tool_manager._tools.values():
             if tool_func.fn.__name__ == "extract_email_links":
                 extract_tool = tool_func.fn
                 break
-        
+
         assert extract_tool is not None
-        
+
         # Call the tool
         result = await extract_tool("INBOX", [123], mock_context)
-        
+
         # Parse result
         results = json.loads(result)
         assert len(results) == 1
@@ -445,9 +447,10 @@ class TestExtractEmailLinksTool:
 
     async def test_extract_links_deduplication(self, mock_context):
         """Test that duplicate URLs are deduplicated per email."""
-        from mailroom.tools import register_tools
         from mcp.server.fastmcp import FastMCP
-        
+
+        from mailroom.tools import register_tools
+
         # Create mock email with duplicate links
         html_content = """
         <html>
@@ -458,39 +461,39 @@ class TestExtractEmailLinksTool:
             </body>
         </html>
         """
-        
+
         mock_email = Email(
             message_id="<test@example.com>",
             subject="Test Email",
             from_=EmailAddress("sender@example.com", "Sender"),
             to=[EmailAddress("recipient@example.com", "Recipient")],
-            content=EmailContent(html=html_content)
+            content=EmailContent(html=html_content),
         )
-        
+
         # Set up mock client
         mock_client = MagicMock()
         mock_client.fetch_email.return_value = mock_email
         mock_context.request_context.lifespan_context = {"imap_client": mock_client}
-        
+
         # Create MCP server and register tools
         mcp = FastMCP("test")
         register_tools(mcp, mock_client)
-        
+
         # Get the tool function
         extract_tool = None
         for tool_func in mcp._tool_manager._tools.values():
             if tool_func.fn.__name__ == "extract_email_links":
                 extract_tool = tool_func.fn
                 break
-        
+
         assert extract_tool is not None
-        
+
         # Call the tool
         result = await extract_tool("INBOX", [123], mock_context)
-        
+
         # Parse result
         results = json.loads(result)
-        
+
         # Should only have 2 unique URLs
         assert len(results) == 1
         assert results[0]["uid"] == 123
@@ -507,6 +510,3 @@ def mock_context():
     context.request_context = MagicMock()
     context.request_context.lifespan_context = {}
     return context
-
-
-

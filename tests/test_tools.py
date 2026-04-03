@@ -1,11 +1,11 @@
 """Tests for MCP tools implementation."""
 
 import json
-import pytest
-from unittest.mock import MagicMock, patch
 from datetime import datetime
+from unittest.mock import MagicMock, patch
 
-from mcp.server.fastmcp import FastMCP, Context
+import pytest
+from mcp.server.fastmcp import Context, FastMCP
 
 from mailroom.imap_client import ImapClient
 from mailroom.models import Email, EmailAddress, EmailContent
@@ -16,7 +16,7 @@ from mailroom.tools import register_tools
 # Patch the get_client_from_context function to use our mock client
 @pytest.fixture(autouse=True)
 def patch_get_client():
-    with patch('mailroom.tools.get_client_from_context') as mock_get_client:
+    with patch("mailroom.tools.get_client_from_context") as mock_get_client:
         yield mock_get_client
 
 
@@ -39,7 +39,7 @@ class TestTools:
             flags=["\\Seen"],
             headers={},
             folder="INBOX",
-            uid=1
+            uid=1,
         )
         return email
 
@@ -62,21 +62,22 @@ class TestTools:
         """Set up tools for testing."""
         # Create a mock MCP server
         mcp = MagicMock(spec=FastMCP)
-        
+
         # Make tool decorator store and return the decorated function
         stored_tools = {}
-        
+
         def mock_tool_decorator():
             def decorator(func):
                 stored_tools[func.__name__] = func
                 return func
+
             return decorator
-        
+
         mcp.tool = mock_tool_decorator
-        
+
         # Register tools with our mock
         register_tools(mcp, mock_client)
-        
+
         # Return the tools dictionary
         return stored_tools
 
@@ -92,13 +93,13 @@ class TestTools:
         """Test moving an email from one folder to another."""
         # Get the move_email function
         move_email = tools["move_email"]
-        
+
         # Call the move_email function
         result = await move_email("INBOX", 123, "Archive", mock_context)
-        
+
         # Check the client was called correctly
         mock_client.move_email.assert_called_once_with(123, "INBOX", "Archive")
-        
+
         # Check the result
         assert "Email moved from INBOX to Archive" in result
 
@@ -112,16 +113,16 @@ class TestTools:
         """Test marking an email as read."""
         # Get the mark_as_read function
         mark_as_read = tools["mark_as_read"]
-        
+
         # Call the function
         result = await mark_as_read("INBOX", 123, mock_context)
-        
+
         # Check the client was called correctly
         mock_client.mark_email.assert_called_once_with(123, "INBOX", "\\Seen", True)
-        
+
         # Check the result
         assert "Email marked as read" in result
-        
+
         # Test failure case
         mock_client.mark_email.return_value = False
         result = await mark_as_read("INBOX", 123, mock_context)
@@ -132,20 +133,20 @@ class TestTools:
         """Test marking an email as unread."""
         # Get the mark_as_unread function
         mark_as_unread = tools["mark_as_unread"]
-        
+
         # Reset mock for this test
         mock_client.mark_email.reset_mock()
         mock_client.mark_email.return_value = True
-        
+
         # Call the function
         result = await mark_as_unread("INBOX", 123, mock_context)
-        
+
         # Check the client was called correctly
         mock_client.mark_email.assert_called_once_with(123, "INBOX", "\\Seen", False)
-        
+
         # Check the result
         assert "Email marked as unread" in result
-        
+
         # Test error handling
         mock_client.mark_email.side_effect = Exception("Server error")
         result = await mark_as_unread("INBOX", 123, mock_context)
@@ -156,19 +157,19 @@ class TestTools:
         """Test flagging and unflagging an email."""
         # Get the flag_email function
         flag_email = tools["flag_email"]
-        
+
         # Reset mock for this test
         mock_client.mark_email.reset_mock()
         mock_client.mark_email.return_value = True
-        
+
         # Test flagging
         result = await flag_email("INBOX", 123, mock_context, True)
         mock_client.mark_email.assert_called_once_with(123, "INBOX", "\\Flagged", True)
         assert "Email flagged" in result
-        
+
         # Reset mock
         mock_client.mark_email.reset_mock()
-        
+
         # Test unflagging
         result = await flag_email("INBOX", 123, mock_context, False)
         mock_client.mark_email.assert_called_once_with(123, "INBOX", "\\Flagged", False)
@@ -179,21 +180,21 @@ class TestTools:
         """Test deleting an email."""
         # Get the delete_email function
         delete_email = tools["delete_email"]
-        
+
         # Call the function
         result = await delete_email("INBOX", 123, mock_context)
-        
+
         # Check the client was called correctly
         mock_client.delete_email.assert_called_once_with(123, "INBOX")
-        
+
         # Check the result
         assert "Email deleted" in result
-        
+
         # Test failure case
         mock_client.delete_email.return_value = False
         result = await delete_email("INBOX", 123, mock_context)
         assert "Failed to delete" in result
-        
+
         # Test error handling
         mock_client.delete_email.side_effect = Exception("Permission denied")
         result = await delete_email("INBOX", 123, mock_context)
@@ -206,10 +207,16 @@ class TestTools:
 
         # Configure client.search_emails to return sample results
         sample_results = [
-            {"uid": 1, "folder": "INBOX", "from": "sender@example.com",
-             "to": ["recipient@example.com"], "subject": "Test Email",
-             "date": "2025-04-01T10:00:00", "flags": ["\\Seen"],
-             "has_attachments": False},
+            {
+                "uid": 1,
+                "folder": "INBOX",
+                "from": "sender@example.com",
+                "to": ["recipient@example.com"],
+                "subject": "Test Email",
+                "date": "2025-04-01T10:00:00",
+                "flags": ["\\Seen"],
+                "has_attachments": False,
+            },
         ]
         mock_client.search_emails.return_value = sample_results
 
@@ -220,19 +227,27 @@ class TestTools:
         assert len(result_data) == 1
         assert result_data[0]["subject"] == "Test Email"
         mock_client.search_emails.assert_called_once_with(
-            "test query", folder=None, limit=10,
+            "test query",
+            folder=None,
+            limit=10,
         )
 
         # Test with specific folder and Gmail-style query
         mock_client.search_emails.reset_mock()
-        result = await search_emails("from:sender@example.com", mock_context, folder="INBOX")
+        result = await search_emails(
+            "from:sender@example.com", mock_context, folder="INBOX"
+        )
         mock_client.search_emails.assert_called_once_with(
-            "from:sender@example.com", folder="INBOX", limit=10,
+            "from:sender@example.com",
+            folder="INBOX",
+            limit=10,
         )
 
         # Test with invalid query — client.search_emails raises ValueError
         mock_client.search_emails.reset_mock()
-        mock_client.search_emails.side_effect = ValueError("Unknown is: keyword: 'bogus'")
+        mock_client.search_emails.side_effect = ValueError(
+            "Unknown is: keyword: 'bogus'"
+        )
         result = await search_emails("is:bogus", mock_context)
         assert "Unknown is: keyword" in result
         mock_client.search_emails.side_effect = None
@@ -242,26 +257,41 @@ class TestTools:
         mock_client.search_emails.return_value = sample_results
         result = await search_emails(69172700, mock_context, folder="INBOX")
         mock_client.search_emails.assert_called_once_with(
-            "69172700", folder="INBOX", limit=10,
+            "69172700",
+            folder="INBOX",
+            limit=10,
         )
 
     @pytest.mark.asyncio
-    async def test_search_emails_raw_imap(self, tools, mock_client, mock_context, mock_email):
+    async def test_search_emails_raw_imap(
+        self, tools, mock_client, mock_context, mock_email
+    ):
         """Test searching with raw IMAP via imap: prefix delegates to client.search_emails."""
         search_emails = tools["search_emails"]
 
         sample_results = [
-            {"uid": 1, "folder": "INBOX", "from": "sender@example.com",
-             "to": ["recipient@example.com"], "subject": "Edinburgh trip",
-             "date": "2025-04-01T10:00:00", "flags": [], "has_attachments": False},
+            {
+                "uid": 1,
+                "folder": "INBOX",
+                "from": "sender@example.com",
+                "to": ["recipient@example.com"],
+                "subject": "Edinburgh trip",
+                "date": "2025-04-01T10:00:00",
+                "flags": [],
+                "has_attachments": False,
+            },
         ]
         mock_client.search_emails.return_value = sample_results
 
-        result = await search_emails("imap:TEXT Edinburgh", mock_context, folder="INBOX")
+        result = await search_emails(
+            "imap:TEXT Edinburgh", mock_context, folder="INBOX"
+        )
         result_data = json.loads(result)
         assert isinstance(result_data, list)
         mock_client.search_emails.assert_called_once_with(
-            "imap:TEXT Edinburgh", folder="INBOX", limit=10,
+            "imap:TEXT Edinburgh",
+            folder="INBOX",
+            limit=10,
         )
 
     @pytest.mark.asyncio
@@ -270,7 +300,9 @@ class TestTools:
         process_email = tools["process_email"]
 
         # Test move action — delegates to process_email_action
-        mock_client.process_email_action.return_value = "Email moved from INBOX to Archive"
+        mock_client.process_email_action.return_value = (
+            "Email moved from INBOX to Archive"
+        )
         result = await process_email(
             "INBOX", 123, "move", mock_context, target_folder="Archive"
         )
@@ -315,17 +347,17 @@ class TestTools:
         move_email = tools["move_email"]
         mark_as_read = tools["mark_as_read"]
         search_emails = tools["search_emails"]
-        
+
         # Test move_email error handling
         mock_client.move_email.side_effect = Exception("Network error")
         result = await move_email("INBOX", 123, "Archive", mock_context)
         assert "Error" in result
-        
+
         # Test mark_as_read error handling
         mock_client.mark_email.side_effect = Exception("Server timeout")
         result = await mark_as_read("INBOX", 123, mock_context)
         assert "Error" in result
-        
+
         # Test search_emails error handling — client.search_emails raises ValueError
         mock_client.search_emails.side_effect = ValueError("Search failed")
         result = await search_emails("test", mock_context)
@@ -338,21 +370,29 @@ class TestTools:
         # Get tools to test
         search_emails = tools["search_emails"]
         process_email = tools["process_email"]
-        
+
         # Test search_emails with invalid query — client raises ValueError
-        mock_client.search_emails.side_effect = ValueError("Unknown is: keyword: 'bogus'")
+        mock_client.search_emails.side_effect = ValueError(
+            "Unknown is: keyword: 'bogus'"
+        )
         result = await search_emails("is:bogus", mock_context)
         assert "Unknown is: keyword" in result
         mock_client.search_emails.side_effect = None
-        
+
         # Test process_email with missing target folder for move action
-        mock_client.process_email_action.side_effect = ValueError("target_folder is required for move action")
+        mock_client.process_email_action.side_effect = ValueError(
+            "target_folder is required for move action"
+        )
         result = await process_email("INBOX", 123, "move", ctx=mock_context)
         assert "target_folder" in result
 
         # Test process_email with invalid action
-        mock_client.process_email_action.side_effect = ValueError("Unknown action 'nonexistent_action'")
-        result = await process_email("INBOX", 123, "nonexistent_action", ctx=mock_context)
+        mock_client.process_email_action.side_effect = ValueError(
+            "Unknown action 'nonexistent_action'"
+        )
+        result = await process_email(
+            "INBOX", 123, "nonexistent_action", ctx=mock_context
+        )
         assert "Unknown action" in result
         mock_client.process_email_action.side_effect = None
 
@@ -382,7 +422,16 @@ class TestRawImapPassthrough:
     def test_parse_nested_or_expression(self):
         """Test parsing nested OR expressions."""
         result = parse_query('imap:OR TEXT "Edinburgh" OR TEXT "Berlin" TEXT "Munich"')
-        assert result == ["OR", "TEXT", "Edinburgh", "OR", "TEXT", "Berlin", "TEXT", "Munich"]
+        assert result == [
+            "OR",
+            "TEXT",
+            "Edinburgh",
+            "OR",
+            "TEXT",
+            "Berlin",
+            "TEXT",
+            "Munich",
+        ]
 
     def test_parse_complex_travel_query(self):
         """Test parsing the complex travel booking query."""

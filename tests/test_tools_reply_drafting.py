@@ -1,11 +1,12 @@
 """Tests for compose_and_save_reply_draft in smtp_client."""
 
-import pytest
-from unittest.mock import MagicMock
 from datetime import datetime
+from unittest.mock import MagicMock
+
+import pytest
 
 from mailroom.models import Email, EmailAddress, EmailContent
-from mailroom.smtp_client import compose_and_save_reply_draft, _find_reply_from_address
+from mailroom.smtp_client import _find_reply_from_address, compose_and_save_reply_draft
 
 
 class TestFindReplyFromAddress:
@@ -85,7 +86,10 @@ class TestComposeAndSaveReplyDraft:
         mock_client.fetch_email.return_value = original_email
 
         result = compose_and_save_reply_draft(
-            mock_client, "INBOX", 1, "Thanks!",
+            mock_client,
+            "INBOX",
+            1,
+            "Thanks!",
         )
 
         assert result["status"] == "success"
@@ -97,7 +101,10 @@ class TestComposeAndSaveReplyDraft:
         mock_client.fetch_email.return_value = None
 
         result = compose_and_save_reply_draft(
-            mock_client, "INBOX", 999, "Reply",
+            mock_client,
+            "INBOX",
+            999,
+            "Reply",
         )
 
         assert result["status"] == "error"
@@ -108,7 +115,10 @@ class TestComposeAndSaveReplyDraft:
         mock_client.save_draft_mime.return_value = None
 
         result = compose_and_save_reply_draft(
-            mock_client, "INBOX", 1, "Reply",
+            mock_client,
+            "INBOX",
+            1,
+            "Reply",
         )
 
         assert result["status"] == "error"
@@ -118,8 +128,12 @@ class TestComposeAndSaveReplyDraft:
         mock_client.fetch_email.return_value = original_email
 
         result = compose_and_save_reply_draft(
-            mock_client, "INBOX", 1, "Reply",
-            cc=["cc@example.com"], bcc=["bcc@example.com"],
+            mock_client,
+            "INBOX",
+            1,
+            "Reply",
+            cc=["cc@example.com"],
+            bcc=["bcc@example.com"],
         )
 
         assert result["status"] == "success"

@@ -10,9 +10,9 @@ from mcp.server.fastmcp import FastMCP
 
 from mailroom.config import MultiAccountConfig, load_config
 from mailroom.imap_client import ImapClient
+from mailroom.mcp_protocol import extend_server
 from mailroom.resources import register_resources
 from mailroom.tools import register_tools
-from mailroom.mcp_protocol import extend_server
 
 # Set up logging
 logging.basicConfig(
@@ -101,7 +101,9 @@ def create_server(config_path: Optional[str] = None, debug: bool = False) -> Fas
             f"accounts: {', '.join(config.accounts.keys())}",
         ]
         for name, acct in config.accounts.items():
-            lines.append(f"  [{name}] {acct.imap.username}@{acct.imap.host}:{acct.imap.port}")
+            lines.append(
+                f"  [{name}] {acct.imap.username}@{acct.imap.host}:{acct.imap.port}"
+            )
             if acct.allowed_folders:
                 lines.append(f"    allowed_folders: {acct.allowed_folders}")
         return "\n".join(lines)
@@ -115,18 +117,18 @@ def main() -> None:
     """Run the Mailroom MCP server."""
     parser = argparse.ArgumentParser(description="Mailroom MCP Server")
     parser.add_argument(
-        "--config", 
+        "--config",
         help="Path to configuration file",
         default=os.environ.get("MAILROOM_CONFIG"),
     )
     parser.add_argument(
-        "--dev", 
-        action="store_true", 
+        "--dev",
+        action="store_true",
         help="Enable development mode",
     )
     parser.add_argument(
-        "--debug", 
-        action="store_true", 
+        "--debug",
+        action="store_true",
         help="Enable debug logging",
     )
     parser.add_argument(
@@ -135,20 +137,22 @@ def main() -> None:
         help="Show version information and exit",
     )
     args = parser.parse_args()
-    
+
     if args.version:
         print("Mailroom MCP server version 0.2.0")
         return
-    
+
     if args.debug:
         logger.setLevel(logging.DEBUG)
-    
+
     server = create_server(args.config, args.debug)
-    
+
     # Start the server
-    logger.info("Starting server{}...".format(" in development mode" if args.dev else ""))
+    logger.info(
+        "Starting server{}...".format(" in development mode" if args.dev else "")
+    )
     server.run()
-    
-    
+
+
 if __name__ == "__main__":
     main()

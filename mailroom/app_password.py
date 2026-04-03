@@ -78,6 +78,7 @@ def main():
     password = args.password
     if not password:
         import getpass
+
         password = getpass.getpass("Enter your Gmail app password: ").strip()
         if not password:
             print("Error: App password is required")

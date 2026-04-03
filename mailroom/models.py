@@ -36,16 +36,16 @@ def sanitize_and_save(content: bytes | str, save_path: str, mode: str = "wb") ->
 
 def decode_mime_header(header_value: Optional[str]) -> str:
     """Decode a MIME header value.
-    
+
     Args:
         header_value: MIME header value
-        
+
     Returns:
         Decoded header value
     """
     if not header_value:
         return ""
-    
+
     decoded_parts = []
     for part, encoding in decode_header(header_value):
         if isinstance(part, bytes):
@@ -59,40 +59,40 @@ def decode_mime_header(header_value: Optional[str]) -> str:
                 decoded_parts.append(part.decode("utf-8", errors="replace"))
         else:
             decoded_parts.append(part)
-    
+
     return "".join(decoded_parts)
 
 
 @dataclass
 class EmailAddress:
     """Email address representation."""
-    
+
     name: str
     address: str
-    
+
     @classmethod
     def parse(cls, address_str: str) -> "EmailAddress":
         """Parse email address string.
-        
+
         Args:
             address_str: Email address string (e.g., "John Doe <john@example.com>")
-            
+
         Returns:
             EmailAddress object
         """
         # For the special case of just an email address without brackets
-        if '@' in address_str and '<' not in address_str:
+        if "@" in address_str and "<" not in address_str:
             return cls(name="", address=address_str.strip())
-            
+
         # Extract name and address with angle brackets
         match = re.match(r'"?([^"<]*)"?\s*<([^>]*)>', address_str.strip())
         if match:
             name, address = match.groups()
             return cls(name=name.strip(), address=address.strip())
-            
+
         # Fallback: treat the whole string as an address
         return cls(name="", address=address_str.strip())
-    
+
     def __str__(self) -> str:
         """Return string representation."""
         if self.name:
@@ -103,20 +103,20 @@ class EmailAddress:
 @dataclass
 class EmailAttachment:
     """Email attachment representation."""
-    
+
     filename: str
     content_type: str
     size: int
     content_id: Optional[str] = None
     content: Optional[bytes] = None
-    
+
     @classmethod
     def from_part(cls, part: Message) -> "EmailAttachment":
         """Create attachment from email part.
-        
+
         Args:
             part: Email message part
-            
+
         Returns:
             EmailAttachment object
         """
@@ -125,15 +125,15 @@ class EmailAttachment:
             # Generate a filename based on content type
             ext = part.get_content_type().split("/")[-1]
             filename = f"attachment.{ext}"
-        
+
         content = part.get_payload(decode=True)
         content_type = part.get_content_type()
-        
+
         # Extract Content-ID properly, removing angle brackets if present
         content_id = part.get("Content-ID")
         if content_id:
             content_id = content_id.strip("<>")
-        
+
         # If there's no Content-ID but there is a Content-Disposition with filename,
         # the attachment might be referenced in HTML via the filename
         if not content_id and filename:
@@ -141,7 +141,7 @@ class EmailAttachment:
             if "inline" in cdisp and filename:
                 # Some clients use the filename as a reference
                 content_id = filename
-        
+
         return cls(
             filename=decode_mime_header(filename),
             content_type=content_type,
@@ -154,10 +154,10 @@ class EmailAttachment:
 @dataclass
 class EmailContent:
     """Email content representation."""
-    
+
     text: Optional[str] = None
     html: Optional[str] = None
-    
+
     def get_best_content(self) -> str:
         """Return the best available content."""
         if self.text:
@@ -172,7 +172,7 @@ class EmailContent:
 @dataclass
 class Email:
     """Email message representation."""
-    
+
     message_id: str
     subject: str
     from_: EmailAddress
@@ -188,18 +188,18 @@ class Email:
     uid: Optional[int] = None
     in_reply_to: Optional[str] = None
     references: List[str] = field(default_factory=list)
-    
+
     @classmethod
     def from_message(
         cls, message: Message, uid: Optional[int] = None, folder: Optional[str] = None
     ) -> "Email":
         """Create email from email.message.Message.
-        
+
         Args:
             message: Email message
             uid: IMAP UID
             folder: IMAP folder
-            
+
         Returns:
             Email object
         """
@@ -213,24 +213,36 @@ class Email:
         message_id = message.get("Message-ID", "")
         if message_id:
             message_id = message_id.strip()
-        
+
         # Get thread-related headers
         in_reply_to = message.get("In-Reply-To", "")
         if in_reply_to:
             in_reply_to = in_reply_to.strip()
-        
+
         references_str = message.get("References", "")
         references = []
         if references_str:
             # Extract all message IDs from References header
-            references = [ref.strip() for ref in re.findall(r'<[^>]+>', references_str)]
-        
+            references = [ref.strip() for ref in re.findall(r"<[^>]+>", references_str)]
+
         # Parse addresses
         from_ = EmailAddress.parse(from_str)
-        to = [EmailAddress.parse(addr.strip()) for addr in to_str.split(",") if addr.strip()]
-        cc = [EmailAddress.parse(addr.strip()) for addr in cc_str.split(",") if addr.strip()]
-        bcc = [EmailAddress.parse(addr.strip()) for addr in bcc_str.split(",") if addr.strip()]
-        
+        to = [
+            EmailAddress.parse(addr.strip())
+            for addr in to_str.split(",")
+            if addr.strip()
+        ]
+        cc = [
+            EmailAddress.parse(addr.strip())
+            for addr in cc_str.split(",")
+            if addr.strip()
+        ]
+        bcc = [
+            EmailAddress.parse(addr.strip())
+            for addr in bcc_str.split(",")
+            if addr.strip()
+        ]
+
         # Parse date
         date = None
         if date_str:
@@ -238,16 +250,16 @@ class Email:
                 date = email.utils.parsedate_to_datetime(date_str)
             except (ValueError, TypeError):
                 pass
-        
+
         # Build headers dictionary
         headers = {}
         for name, value in message.items():
             headers[name] = decode_mime_header(value)
-        
+
         # Parse content and attachments
         content = EmailContent()
         attachments = []
-        
+
         # Process the email body
         if message.is_multipart():
             # Create a recursive function to handle nested multipart messages
@@ -259,14 +271,16 @@ class Email:
                 else:
                     content_type = part.get_content_type()
                     content_disposition = part.get("Content-Disposition", "")
-                    
+
                     # Handle attachments (both explicit and inline)
-                    if ("attachment" in content_disposition or 
-                        "inline" in content_disposition or
-                        content_type.startswith("image/") or
-                        content_type.startswith("application/") or
-                        "name=" in part.get("Content-Type", "")):
-                        
+                    if (
+                        "attachment" in content_disposition
+                        or "inline" in content_disposition
+                        or content_type.startswith("image/")
+                        or content_type.startswith("application/")
+                        or "name=" in part.get("Content-Type", "")
+                    ):
+
                         attachments.append(EmailAttachment.from_part(part))
                     # Handle text content
                     elif content_type == "text/plain":
@@ -274,43 +288,53 @@ class Email:
                         if not content.text:
                             try:
                                 charset = part.get_content_charset() or "utf-8"
-                                text = part.get_payload(decode=True).decode(charset, errors="replace")
+                                text = part.get_payload(decode=True).decode(
+                                    charset, errors="replace"
+                                )
                                 content.text = text
                             except Exception as e:
-                                content.text = f"[Error decoding plain text content: {e}]"
+                                content.text = (
+                                    f"[Error decoding plain text content: {e}]"
+                                )
                     # Handle HTML content
                     elif content_type == "text/html":
                         # Only replace existing HTML if it's empty
                         if not content.html:
                             try:
                                 charset = part.get_content_charset() or "utf-8"
-                                html_content = part.get_payload(decode=True).decode(charset, errors="replace")
+                                html_content = part.get_payload(decode=True).decode(
+                                    charset, errors="replace"
+                                )
                                 content.html = html_content
                             except Exception as e:
                                 content.html = f"[Error decoding HTML content: {e}]"
-            
+
             # Start processing parts
             process_part(message, content, attachments)
         else:
             # Single part message
             content_type = message.get_content_type()
-            
+
             if content_type == "text/plain":
                 try:
                     charset = message.get_content_charset() or "utf-8"
-                    content.text = message.get_payload(decode=True).decode(charset, errors="replace")
+                    content.text = message.get_payload(decode=True).decode(
+                        charset, errors="replace"
+                    )
                 except Exception as e:
                     content.text = f"[Error decoding plain text content: {e}]"
             elif content_type == "text/html":
                 try:
                     charset = message.get_content_charset() or "utf-8"
-                    content.html = message.get_payload(decode=True).decode(charset, errors="replace")
+                    content.html = message.get_payload(decode=True).decode(
+                        charset, errors="replace"
+                    )
                 except Exception as e:
                     content.html = f"[Error decoding HTML content: {e}]"
             else:
                 # If not plain text or HTML, treat as attachment
                 attachments.append(EmailAttachment.from_part(message))
-        
+
         return cls(
             message_id=message_id,
             subject=subject,
@@ -327,17 +351,18 @@ class Email:
             in_reply_to=in_reply_to,
             references=references,
         )
-    
+
     def summary(self) -> str:
         """Return a summary of the email."""
         date_str = f"{self.date:%Y-%m-%d %H:%M:%S}" if self.date else "Unknown date"
         thread_info = ""
         if self.in_reply_to or self.references:
             thread_info = "\nThread: " + (
-                f"Reply to {self.in_reply_to}" if self.in_reply_to else 
-                f"References {len(self.references)} previous messages"
+                f"Reply to {self.in_reply_to}"
+                if self.in_reply_to
+                else f"References {len(self.references)} previous messages"
             )
-        
+
         return (
             f"From: {self.from_}\n"
             f"To: {', '.join(str(a) for a in self.to)}\n"
@@ -375,7 +400,7 @@ class Email:
                 att = cid_map[cid]
                 b64 = base64.b64encode(att.content).decode("ascii")
                 data_uri = f"data:{att.content_type};base64,{b64}"
-                return f'src={quote}{data_uri}{quote}'
+                return f"src={quote}{data_uri}{quote}"
             logger.warning(f"Inline image CID not found: {cid}")
             return match.group(0)
 
@@ -425,7 +450,11 @@ class Email:
         if attachment.content is None:
             raise ValueError(f"Attachment '{attachment.filename}' has no content")
         saved = sanitize_and_save(attachment.content, save_path, mode="wb")
-        return {"filename": attachment.filename, "size": attachment.size, "saved": saved}
+        return {
+            "filename": attachment.filename,
+            "size": attachment.size,
+            "saved": saved,
+        }
 
     def export_html_to_file(self, save_path: str) -> Dict[str, Any]:
         """Export HTML with embedded images to a file.
@@ -491,9 +520,9 @@ class Email:
             seen_urls.add(url)
 
             anchor_html = match.group(3)
-            anchor_text = re.sub(r'<[^>]+>', '', anchor_html, flags=re.DOTALL)
+            anchor_text = re.sub(r"<[^>]+>", "", anchor_html, flags=re.DOTALL)
             anchor_text = html.unescape(anchor_text)
-            anchor_text = re.sub(r'\s+', ' ', anchor_text).strip()
+            anchor_text = re.sub(r"\s+", " ", anchor_text).strip()
 
             links.append({"url": url, "anchor": anchor_text, "position": position})
             position += 1
@@ -502,7 +531,9 @@ class Email:
 
 
 def extract_links_batch(
-    fetch_fn, folder: str, uids: List[int],
+    fetch_fn,
+    folder: str,
+    uids: List[int],
 ) -> List[Dict[str, Any]]:
     """Extract links from multiple emails, collecting per-UID errors.
 
@@ -521,14 +552,24 @@ def extract_links_batch(
         try:
             email_obj = fetch_fn(uid, folder)
             if not email_obj:
-                results.append({"uid": uid, "error": f"Email with UID {uid} not found in folder {folder}", "links": []})
+                results.append(
+                    {
+                        "uid": uid,
+                        "error": f"Email with UID {uid} not found in folder {folder}",
+                        "links": [],
+                    }
+                )
                 continue
             if not email_obj.content.html:
-                results.append({"uid": uid, "error": "Email has no HTML content", "links": []})
+                results.append(
+                    {"uid": uid, "error": "Email has no HTML content", "links": []}
+                )
                 continue
             links = email_obj.extract_links()
             results.append({"uid": uid, "links": links})
-            logger.info(f"Extracted {len(links)} unique links from email UID {uid} in folder {folder}")
+            logger.info(
+                f"Extracted {len(links)} unique links from email UID {uid} in folder {folder}"
+            )
         except Exception as e:
             logger.error(f"Error extracting links from UID {uid}: {e}")
             results.append({"uid": uid, "error": str(e), "links": []})

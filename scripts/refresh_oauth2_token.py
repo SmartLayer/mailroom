@@ -25,12 +25,13 @@ from typing import Dict
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 # Configure logging
-logging.basicConfig(level=logging.INFO,
-                   format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 # Gmail OAuth2 scopes
-SCOPES = ['https://mail.google.com/']
+SCOPES = ["https://mail.google.com/"]
 
 
 def load_config(config_path: str) -> Dict:
@@ -43,7 +44,7 @@ def load_config(config_path: str) -> Dict:
         Dictionary with configuration
     """
     try:
-        with open(config_path, 'rb') as file:
+        with open(config_path, "rb") as file:
             return tomllib.load(file)
     except Exception as e:
         logger.error(f"Failed to load config from {config_path}: {e}")
@@ -59,20 +60,17 @@ def extract_oauth2_credentials(config: Dict) -> Dict:
     Returns:
         Dictionary with client_id and client_secret
     """
-    imap_config = config.get('imap', {})
-    oauth2_config = imap_config.get('oauth2', {})
+    imap_config = config.get("imap", {})
+    oauth2_config = imap_config.get("oauth2", {})
 
-    client_id = oauth2_config.get('client_id')
-    client_secret = oauth2_config.get('client_secret')
+    client_id = oauth2_config.get("client_id")
+    client_secret = oauth2_config.get("client_secret")
 
     if not client_id or not client_secret:
         logger.error("OAuth2 credentials not found in config")
         sys.exit(1)
 
-    return {
-        'client_id': client_id,
-        'client_secret': client_secret
-    }
+    return {"client_id": client_id, "client_secret": client_secret}
 
 
 def refresh_token(credentials: Dict) -> Dict:
@@ -85,26 +83,23 @@ def refresh_token(credentials: Dict) -> Dict:
         Dictionary with new tokens
     """
     client_config = {
-        'installed': {
-            'client_id': credentials['client_id'],
-            'client_secret': credentials['client_secret'],
-            'auth_uri': 'https://accounts.google.com/o/oauth2/auth',
-            'token_uri': 'https://oauth2.googleapis.com/token',
-            'redirect_uris': ['urn:ietf:wg:oauth:2.0:oob', 'http://localhost']
+        "installed": {
+            "client_id": credentials["client_id"],
+            "client_secret": credentials["client_secret"],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob", "http://localhost"],
         }
     }
 
     try:
         flow = InstalledAppFlow.from_client_config(
-            client_config,
-            scopes=SCOPES,
-            redirect_uri='http://localhost:8080'
+            client_config, scopes=SCOPES, redirect_uri="http://localhost:8080"
         )
 
         flow.oauth2session.scope = SCOPES
         authorization_url, _ = flow.authorization_url(
-            access_type='offline',
-            prompt='consent'
+            access_type="offline", prompt="consent"
         )
 
         logger.info("Opening browser for authentication...")
@@ -114,11 +109,11 @@ def refresh_token(credentials: Dict) -> Dict:
 
         creds = flow.credentials
         return {
-            'client_id': creds.client_id,
-            'client_secret': creds.client_secret,
-            'refresh_token': creds.refresh_token,
-            'access_token': creds.token,
-            'token_expiry': creds.expiry.isoformat() if creds.expiry else None
+            "client_id": creds.client_id,
+            "client_secret": creds.client_secret,
+            "refresh_token": creds.refresh_token,
+            "access_token": creds.token,
+            "token_expiry": creds.expiry.isoformat() if creds.expiry else None,
         }
     except Exception as e:
         logger.error(f"Failed to refresh token: {e}")
@@ -127,9 +122,15 @@ def refresh_token(credentials: Dict) -> Dict:
 
 def main():
     """Main function to refresh OAuth2 token."""
-    parser = argparse.ArgumentParser(description='Refresh Gmail OAuth2 tokens for integration testing')
-    parser.add_argument('--config', type=str, default='config.toml',
-                        help='Path to config.toml file (default: config.toml)')
+    parser = argparse.ArgumentParser(
+        description="Refresh Gmail OAuth2 tokens for integration testing"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="config.toml",
+        help="Path to config.toml file (default: config.toml)",
+    )
     args = parser.parse_args()
 
     logger.info(f"Loading configuration from {args.config}")
@@ -142,7 +143,9 @@ def main():
     new_tokens = refresh_token(credentials)
 
     logger.info("New OAuth2 tokens obtained:")
-    logger.info(f"Refresh Token: {new_tokens['refresh_token'][:10]}...{new_tokens['refresh_token'][-10:]}")
+    logger.info(
+        f"Refresh Token: {new_tokens['refresh_token'][:10]}...{new_tokens['refresh_token'][-10:]}"
+    )
 
     print("\nUpdate your config.toml [imap.oauth2] section with:\n")
     print(f'refresh_token = "{new_tokens["refresh_token"]}"')

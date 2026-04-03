@@ -34,10 +34,15 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
 
     @mcp.tool()
     async def draft_reply_tool(
-        folder: str, uid: int, reply_body: str, ctx: Context,
-        reply_all: bool = False, cc: Optional[List[str]] = None,
+        folder: str,
+        uid: int,
+        reply_body: str,
+        ctx: Context,
+        reply_all: bool = False,
+        cc: Optional[List[str]] = None,
         bcc: Optional[List[str]] = None,
-        body_html: Optional[str] = None, account: Optional[str] = None,
+        body_html: Optional[str] = None,
+        account: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Creates a draft reply to an email and saves it to the drafts folder.
 
@@ -59,13 +64,22 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
 
         client = get_client_from_context(ctx, account)
         return compose_and_save_reply_draft(
-            client, folder, uid, reply_body,
-            reply_all=reply_all, cc=cc, bcc=bcc, body_html=body_html,
+            client,
+            folder,
+            uid,
+            reply_body,
+            reply_all=reply_all,
+            cc=cc,
+            bcc=bcc,
+            body_html=body_html,
         )
 
     @mcp.tool()
     async def move_email(
-        folder: str, uid: int, target_folder: str, ctx: Context,
+        folder: str,
+        uid: int,
+        target_folder: str,
+        ctx: Context,
         account: Optional[str] = None,
     ) -> str:
         """Move email to another folder.
@@ -83,14 +97,20 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         client = get_client_from_context(ctx, account)
         try:
             success = client.move_email(uid, folder, target_folder)
-            return f"Email moved from {folder} to {target_folder}" if success else "Failed to move email"
+            return (
+                f"Email moved from {folder} to {target_folder}"
+                if success
+                else "Failed to move email"
+            )
         except Exception as e:
             logger.error(f"Error moving email: {e}")
             return f"Error: {e}"
 
     @mcp.tool()
     async def mark_as_read(
-        folder: str, uid: int, ctx: Context,
+        folder: str,
+        uid: int,
+        ctx: Context,
         account: Optional[str] = None,
     ) -> str:
         """Mark email as read.
@@ -114,7 +134,9 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
 
     @mcp.tool()
     async def mark_as_unread(
-        folder: str, uid: int, ctx: Context,
+        folder: str,
+        uid: int,
+        ctx: Context,
         account: Optional[str] = None,
     ) -> str:
         """Mark email as unread.
@@ -131,15 +153,22 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         client = get_client_from_context(ctx, account)
         try:
             success = client.mark_email(uid, folder, r"\Seen", False)
-            return "Email marked as unread" if success else "Failed to mark email as unread"
+            return (
+                "Email marked as unread"
+                if success
+                else "Failed to mark email as unread"
+            )
         except Exception as e:
             logger.error(f"Error marking email as unread: {e}")
             return f"Error: {e}"
 
     @mcp.tool()
     async def flag_email(
-        folder: str, uid: int, ctx: Context,
-        flag: bool = True, account: Optional[str] = None,
+        folder: str,
+        uid: int,
+        ctx: Context,
+        flag: bool = True,
+        account: Optional[str] = None,
     ) -> str:
         """Flag or unflag email.
 
@@ -157,14 +186,20 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         try:
             success = client.mark_email(uid, folder, r"\Flagged", flag)
             action = "flagged" if flag else "unflagged"
-            return f"Email {action}" if success else f"Failed to {action.replace('ged','g').replace('ed','')} email"
+            return (
+                f"Email {action}"
+                if success
+                else f"Failed to {action.replace('ged','g').replace('ed','')} email"
+            )
         except Exception as e:
             logger.error(f"Error flagging email: {e}")
             return f"Error: {e}"
 
     @mcp.tool()
     async def delete_email(
-        folder: str, uid: int, ctx: Context,
+        folder: str,
+        uid: int,
+        ctx: Context,
         account: Optional[str] = None,
     ) -> str:
         """Delete email.
@@ -191,7 +226,8 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         query: Union[str, int] = "",
         ctx: Context = None,
         folder: Optional[str] = None,
-        limit: int = 10, account: Optional[str] = None,
+        limit: int = 10,
+        account: Optional[str] = None,
     ) -> str:
         """Search for emails using Gmail-style query syntax.
 
@@ -217,8 +253,10 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         try:
             results = await asyncio.wait_for(
                 asyncio.to_thread(
-                    client.search_emails, str(query),
-                    folder=folder, limit=limit,
+                    client.search_emails,
+                    str(query),
+                    folder=folder,
+                    limit=limit,
                 ),
                 timeout=30.0,
             )
@@ -232,8 +270,12 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
 
     @mcp.tool()
     async def process_email(
-        folder: str, uid: int, action: str, ctx: Context,
-        notes: Optional[str] = None, target_folder: Optional[str] = None,
+        folder: str,
+        uid: int,
+        action: str,
+        ctx: Context,
+        notes: Optional[str] = None,
+        target_folder: Optional[str] = None,
         account: Optional[str] = None,
     ) -> str:
         """Process an email with specified action.
@@ -258,7 +300,9 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         if not email_obj:
             return f"Email with UID {uid} not found in folder {folder}"
         try:
-            return client.process_email_action(uid, folder, action, target_folder=target_folder)
+            return client.process_email_action(
+                uid, folder, action, target_folder=target_folder
+            )
         except ValueError as e:
             return str(e)
         except Exception as e:
@@ -267,8 +311,11 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
 
     @mcp.tool()
     async def process_meeting_invite(
-        folder: str, uid: int, ctx: Context,
-        availability_mode: str = "random", account: Optional[str] = None,
+        folder: str,
+        uid: int,
+        ctx: Context,
+        availability_mode: str = "random",
+        account: Optional[str] = None,
     ) -> dict:
         """Process a meeting invite email and create a draft reply.
 
@@ -296,7 +343,9 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
 
     @mcp.tool()
     async def list_attachments(
-        folder: str, uid: int, ctx: Context,
+        folder: str,
+        uid: int,
+        ctx: Context,
         account: Optional[str] = None,
     ) -> str:
         """List attachments for a specific email.
@@ -314,7 +363,9 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         try:
             email_obj = client.fetch_email(uid, folder)
             if not email_obj:
-                return json.dumps({"error": f"Email with UID {uid} not found in folder {folder}"})
+                return json.dumps(
+                    {"error": f"Email with UID {uid} not found in folder {folder}"}
+                )
             return json.dumps(email_obj.attachment_summaries(), indent=2)
         except Exception as e:
             logger.error(f"Error listing attachments: {e}")
@@ -322,7 +373,11 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
 
     @mcp.tool()
     async def download_attachment(
-        folder: str, uid: int, identifier: str, save_path: str, ctx: Context,
+        folder: str,
+        uid: int,
+        identifier: str,
+        save_path: str,
+        ctx: Context,
         account: Optional[str] = None,
     ) -> str:
         """Download an attachment by filename or index.
@@ -344,7 +399,9 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             if not email_obj:
                 return f"Error: Email with UID {uid} not found in folder {folder}"
             result = email_obj.save_attachment(identifier, save_path)
-            logger.info(f"Saved attachment '{result['filename']}' ({result['size']} bytes) to {result['saved']}")
+            logger.info(
+                f"Saved attachment '{result['filename']}' ({result['size']} bytes) to {result['saved']}"
+            )
             return f"Success: Saved '{result['filename']}' ({result['size']} bytes) to {result['saved']}"
         except ValueError as e:
             return f"Error: {e}"
@@ -354,7 +411,10 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
 
     @mcp.tool()
     async def export_email_html(
-        folder: str, uid: int, save_path: str, ctx: Context,
+        folder: str,
+        uid: int,
+        save_path: str,
+        ctx: Context,
         account: Optional[str] = None,
     ) -> str:
         """Export email HTML content to a standalone file with embedded images.
@@ -375,7 +435,9 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             if not email_obj:
                 return f"Error: Email with UID {uid} not found in folder {folder}"
             result = email_obj.export_html_to_file(save_path)
-            logger.info(f"Exported HTML content ({result['size']} bytes) to {result['saved']}")
+            logger.info(
+                f"Exported HTML content ({result['size']} bytes) to {result['saved']}"
+            )
             return f"Success: Exported HTML content ({result['size']} bytes) to {result['saved']}"
         except ValueError as e:
             return f"Error: {e}"
@@ -385,7 +447,9 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
 
     @mcp.tool()
     async def extract_email_links(
-        folder: str, uids: List[int], ctx: Context,
+        folder: str,
+        uids: List[int],
+        ctx: Context,
         account: Optional[str] = None,
     ) -> str:
         """Extract all links from email HTML content for multiple emails.

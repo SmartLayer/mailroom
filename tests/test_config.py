@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from mailroom.config import ImapConfig, MultiAccountConfig, AccountConfig, load_config
+from mailroom.config import AccountConfig, ImapConfig, MultiAccountConfig, load_config
 
 
 class TestImapConfig:
@@ -18,7 +18,7 @@ class TestImapConfig:
             host="imap.example.com",
             port=993,
             username="test@example.com",
-            password="password"
+            password="password",
         )
 
         assert config.host == "imap.example.com"
@@ -32,7 +32,7 @@ class TestImapConfig:
             port=143,
             username="test@example.com",
             password="password",
-            use_ssl=False
+            use_ssl=False,
         )
         assert config.use_ssl is False
 
@@ -43,7 +43,7 @@ class TestImapConfig:
             "port": 993,
             "username": "test@example.com",
             "password": "password",
-            "use_ssl": True
+            "use_ssl": True,
         }
 
         config = ImapConfig.from_dict(data)
@@ -74,7 +74,12 @@ class TestImapConfig:
         ssl_data = {"host": "imap.example.com", "username": "u", "password": "p"}
         assert ImapConfig.from_dict(ssl_data).port == 993
 
-        non_ssl_data = {"host": "imap.example.com", "username": "u", "password": "p", "use_ssl": False}
+        non_ssl_data = {
+            "host": "imap.example.com",
+            "username": "u",
+            "password": "p",
+            "use_ssl": False,
+        }
         assert ImapConfig.from_dict(non_ssl_data).port == 143
 
     def test_from_dict_global_defaults(self):
@@ -88,7 +93,12 @@ class TestImapConfig:
 
     def test_from_dict_account_overrides_global(self):
         """Test that per-account values override global defaults."""
-        data = {"host": "imap.example.com", "username": "u", "password": "p", "idle_timeout": 60}
+        data = {
+            "host": "imap.example.com",
+            "username": "u",
+            "password": "p",
+            "idle_timeout": 60,
+        }
         defaults = {"idle_timeout": 600}
 
         config = ImapConfig.from_dict(data, defaults)
@@ -102,7 +112,11 @@ class TestImapConfig:
         config = ImapConfig.from_dict(data)
         assert config.password == "env_password"
 
-        data_with_password = {"host": "imap.example.com", "username": "test@example.com", "password": "dict_password"}
+        data_with_password = {
+            "host": "imap.example.com",
+            "username": "test@example.com",
+            "password": "dict_password",
+        }
         config = ImapConfig.from_dict(data_with_password)
         assert config.password == "dict_password"
 
@@ -118,7 +132,9 @@ class TestImapConfig:
     def test_from_dict_missing_required_fields(self):
         """Test error when required fields are missing."""
         with pytest.raises(KeyError):
-            ImapConfig.from_dict({"username": "test@example.com", "password": "password"})
+            ImapConfig.from_dict(
+                {"username": "test@example.com", "password": "password"}
+            )
 
         with pytest.raises(KeyError):
             ImapConfig.from_dict({"host": "imap.example.com", "password": "password"})
@@ -222,8 +238,14 @@ password = "p"
 
     def test_load_from_default_locations(self, monkeypatch, tmp_path):
         """Test loading configuration from default locations."""
-        for env_var in ["IMAP_HOST", "IMAP_PORT", "IMAP_USERNAME", "IMAP_PASSWORD",
-                        "IMAP_USE_SSL", "IMAP_ALLOWED_FOLDERS"]:
+        for env_var in [
+            "IMAP_HOST",
+            "IMAP_PORT",
+            "IMAP_USERNAME",
+            "IMAP_PASSWORD",
+            "IMAP_USE_SSL",
+            "IMAP_ALLOWED_FOLDERS",
+        ]:
             monkeypatch.delenv(env_var, raising=False)
 
         toml_content = """\
@@ -238,6 +260,7 @@ password = "password"
         temp_file.write_bytes(toml_content.encode())
 
         original_expanduser = Path.expanduser
+
         def mock_expanduser(self):
             if str(self) == "~/.config/mailroom/config.toml":
                 return temp_file
@@ -263,6 +286,7 @@ password = "password"
         monkeypatch.setenv("IMAP_ALLOWED_FOLDERS", "INBOX,Sent,Archive")
 
         original_open = open
+
         def mock_open(*args, **kwargs):
             if args[0] == "nonexistent_file.toml":
                 raise FileNotFoundError(f"No such file: {args[0]}")
@@ -281,6 +305,7 @@ password = "password"
         monkeypatch.delenv("IMAP_HOST", raising=False)
 
         original_open = open
+
         def mock_open(*args, **kwargs):
             if args[0] == "nonexistent_file.toml":
                 raise FileNotFoundError(f"No such file: {args[0]}")

@@ -1,8 +1,9 @@
 """Tests for the meeting invite orchestration workflow."""
 
-import pytest
-from unittest.mock import MagicMock
 from datetime import datetime
+from unittest.mock import MagicMock
+
+import pytest
 
 from mailroom.models import Email, EmailAddress, EmailContent
 from mailroom.workflows.meeting_reply import process_meeting_invite_workflow
@@ -32,7 +33,7 @@ class TestMeetingInviteWorkflow:
             date=datetime(2025, 4, 1, 10, 0, 0),
             content=EmailContent(
                 text="You are invited to a team sync meeting.\n"
-                     "When: Tuesday, April 1, 2025 10:00 AM - 11:00 AM"
+                "When: Tuesday, April 1, 2025 10:00 AM - 11:00 AM"
             ),
             headers={"Content-Type": "text/calendar; method=REQUEST"},
         )
@@ -54,7 +55,10 @@ class TestMeetingInviteWorkflow:
         mock_client.fetch_email.return_value = invite_email
 
         result = process_meeting_invite_workflow(
-            mock_client, "INBOX", 456, availability_mode="always_available",
+            mock_client,
+            "INBOX",
+            456,
+            availability_mode="always_available",
         )
 
         assert result["status"] == "success"
@@ -68,7 +72,10 @@ class TestMeetingInviteWorkflow:
         mock_client.fetch_email.return_value = invite_email
 
         result = process_meeting_invite_workflow(
-            mock_client, "INBOX", 456, availability_mode="always_busy",
+            mock_client,
+            "INBOX",
+            456,
+            availability_mode="always_busy",
         )
 
         assert result["status"] == "success"
@@ -96,7 +103,10 @@ class TestMeetingInviteWorkflow:
         mock_client.save_draft_mime.return_value = None
 
         result = process_meeting_invite_workflow(
-            mock_client, "INBOX", 456, availability_mode="always_available",
+            mock_client,
+            "INBOX",
+            456,
+            availability_mode="always_available",
         )
 
         assert result["status"] == "error"

@@ -23,7 +23,7 @@ def create_reply_mime(
     html_body: Optional[str] = None,
 ) -> EmailMessage:
     """Create a MIME message for replying to an email.
-    
+
     Args:
         original_email: Original email to reply to
         reply_to: Address to send the reply from
@@ -32,7 +32,7 @@ def create_reply_mime(
         cc: List of CC recipients (default: none)
         reply_all: Whether to reply to all recipients (default: False)
         html_body: Optional HTML version of the body
-        
+
     Returns:
         MIME message ready for sending
     """
@@ -41,34 +41,40 @@ def create_reply_mime(
         message = MIMEMultipart("mixed")
     else:
         message = EmailMessage()
-    
+
     # Set the From header
     message["From"] = str(reply_to)
-    
+
     # Set the To header
     to_recipients = [original_email.from_]
     if reply_all and original_email.to:
         # Add original recipients excluding the sender
-        to_recipients.extend([
-            recipient for recipient in original_email.to 
-            if recipient.address != reply_to.address
-        ])
-    
+        to_recipients.extend(
+            [
+                recipient
+                for recipient in original_email.to
+                if recipient.address != reply_to.address
+            ]
+        )
+
     message["To"] = ", ".join(str(recipient) for recipient in to_recipients)
-    
+
     # Set the CC header if applicable
     cc_recipients = []
     if cc:
         cc_recipients.extend(cc)
     elif reply_all and original_email.cc:
-        cc_recipients.extend([
-            recipient for recipient in original_email.cc 
-            if recipient.address != reply_to.address
-        ])
-    
+        cc_recipients.extend(
+            [
+                recipient
+                for recipient in original_email.cc
+                if recipient.address != reply_to.address
+            ]
+        )
+
     if cc_recipients:
         message["Cc"] = ", ".join(str(recipient) for recipient in cc_recipients)
-    
+
     # Set the subject
     if subject:
         message["Subject"] = subject
@@ -80,7 +86,7 @@ def create_reply_mime(
             message["Subject"] = f"Re: {original_subject}"
         else:
             message["Subject"] = original_subject
-    
+
     # Set references for threading
     references = []
     if "References" in original_email.headers:
@@ -93,56 +99,62 @@ def create_reply_mime(
 
     if references:
         message["References"] = " ".join(references)
-    
+
     # Set In-Reply-To header
     if original_email.message_id:
         message["In-Reply-To"] = " ".join(original_email.message_id.split())
-    
+
     # Prepare content
     if html_body:
         # Create multipart/alternative for text and HTML
         alternative = MIMEMultipart("alternative")
-        
+
         # Add plain text part
         plain_text = body
         if original_email.content.text:
             # Quote original plain text
-            quoted_original = "\n".join(f"> {line}" for line in original_email.content.text.split("\n"))
+            quoted_original = "\n".join(
+                f"> {line}" for line in original_email.content.text.split("\n")
+            )
             plain_text += f"\n\nOn {email.utils.format_datetime(original_email.date or datetime.now())}, {original_email.from_} wrote:\n{quoted_original}"
-        
+
         text_part = MIMEText(plain_text, "plain", "utf-8")
         alternative.attach(text_part)
-        
+
         # Add HTML part
         html_content = html_body
         if original_email.content.html:
             # Add original HTML with a divider
             html_content += (
                 f'\n<div style="border-top: 1px solid #ccc; margin-top: 20px; padding-top: 10px;">'
-                f'\n<p>On {email.utils.format_datetime(original_email.date or datetime.now())}, {original_email.from_} wrote:</p>'
+                f"\n<p>On {email.utils.format_datetime(original_email.date or datetime.now())}, {original_email.from_} wrote:</p>"
                 f'\n<blockquote style="margin: 0 0 0 .8ex; border-left: 1px solid #ccc; padding-left: 1ex;">'
-                f'\n{original_email.content.html}'
-                f'\n</blockquote>'
-                f'\n</div>'
+                f"\n{original_email.content.html}"
+                f"\n</blockquote>"
+                f"\n</div>"
             )
         else:
             # Convert plain text to HTML for quoting
             original_text = original_email.content.get_best_content()
             if original_text:
-                escaped_text = original_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                escaped_text = (
+                    original_text.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                )
                 escaped_text = escaped_text.replace("\n", "<br>")
                 html_content += (
                     f'\n<div style="border-top: 1px solid #ccc; margin-top: 20px; padding-top: 10px;">'
-                    f'\n<p>On {email.utils.format_datetime(original_email.date or datetime.now())}, {original_email.from_} wrote:</p>'
+                    f"\n<p>On {email.utils.format_datetime(original_email.date or datetime.now())}, {original_email.from_} wrote:</p>"
                     f'\n<blockquote style="margin: 0 0 0 .8ex; border-left: 1px solid #ccc; padding-left: 1ex;">'
-                    f'\n{escaped_text}'
-                    f'\n</blockquote>'
-                    f'\n</div>'
+                    f"\n{escaped_text}"
+                    f"\n</blockquote>"
+                    f"\n</div>"
                 )
-        
+
         html_part = MIMEText(html_content, "html", "utf-8")
         alternative.attach(html_part)
-        
+
         # Attach the alternative part to the message
         message.attach(alternative)
     else:
@@ -150,11 +162,13 @@ def create_reply_mime(
         plain_text = body
         if original_email.content.text:
             # Quote original plain text
-            quoted_original = "\n".join(f"> {line}" for line in original_email.content.text.split("\n"))
+            quoted_original = "\n".join(
+                f"> {line}" for line in original_email.content.text.split("\n")
+            )
             plain_text += f"\n\nOn {email.utils.format_datetime(original_email.date or datetime.now())}, {original_email.from_} wrote:\n{quoted_original}"
-        
+
         message.set_content(plain_text)
-    
+
     # Add Date header
     message["Date"] = email.utils.formatdate(localtime=True)
 

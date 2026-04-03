@@ -11,7 +11,7 @@ from mailroom.models import Email, EmailAddress, EmailContent
 
 def example_fraud_detection():
     """Example: Extract links from a phishing email for analysis."""
-    
+
     # Simulated phishing email HTML
     phishing_html = """
     <html>
@@ -37,55 +37,54 @@ def example_fraud_detection():
         </body>
     </html>
     """
-    
+
     # Extract all links
     email_obj = Email(
-        message_id="<phish@example.com>", subject="Verify",
+        message_id="<phish@example.com>",
+        subject="Verify",
         from_=EmailAddress(name="", address="noreply@fake.com"),
         to=[EmailAddress(name="", address="victim@example.com")],
         content=EmailContent(html=phishing_html),
     )
     links = email_obj.extract_links()
-    
+
     print("Extracted Links for Analysis:")
     print("=" * 60)
     print(json.dumps(links, indent=2))
-    
+
     # Fraud detection analysis
     print("\n\nFraud Detection Analysis:")
     print("=" * 60)
-    
+
     suspicious_indicators = []
-    
+
     for link in links:
         url = link["url"]
         anchor = link["anchor"]
-        
+
         # Check for suspicious patterns
         if "verify" in url.lower() and "suspicious-domain" in url:
-            suspicious_indicators.append(
-                f"⚠️  Suspicious verification link: {url}"
-            )
-        
+            suspicious_indicators.append(f"⚠️  Suspicious verification link: {url}")
+
         if anchor == "" and "tracking" in url:
             suspicious_indicators.append(
                 f"🔍 Hidden tracking link (no anchor text): {url}"
             )
-        
+
         if "mailto:" not in url and "legitimate-bank.com" in url:
             print(f"✅ Legitimate domain link: {url}")
-    
+
     if suspicious_indicators:
         print("\n⚠️  POTENTIAL PHISHING INDICATORS DETECTED:")
         for indicator in suspicious_indicators:
             print(f"   {indicator}")
-    
+
     return links
 
 
 def example_multiline_links():
     """Example: Handle multi-line anchor tags (as per user requirement)."""
-    
+
     html_with_multiline = """
     <div>
         <a 
@@ -100,15 +99,16 @@ def example_multiline_links():
         </a>
     </div>
     """
-    
+
     email_obj = Email(
-        message_id="<multi@example.com>", subject="Offer",
+        message_id="<multi@example.com>",
+        subject="Offer",
         from_=EmailAddress(name="", address="noreply@example.com"),
         to=[EmailAddress(name="", address="user@example.com")],
         content=EmailContent(html=html_with_multiline),
     )
     links = email_obj.extract_links()
-    
+
     print("\nMulti-line Link Extraction:")
     print("=" * 60)
     print(json.dumps(links, indent=2))
@@ -119,6 +119,3 @@ if __name__ == "__main__":
     example_fraud_detection()
     print("\n" + "=" * 60 + "\n")
     example_multiline_links()
-
-
-

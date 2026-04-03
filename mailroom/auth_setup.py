@@ -6,9 +6,9 @@ import os
 import sys
 from typing import Any, Dict, Optional
 
-from mailroom.config import OAuth2Config
 from mailroom.browser_auth import load_client_credentials
-from mailroom.oauth2 import get_authorization_url, exchange_code_for_tokens
+from mailroom.config import OAuth2Config
+from mailroom.oauth2 import exchange_code_for_tokens, get_authorization_url
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -44,7 +44,9 @@ def setup_gmail_oauth2(
         logger.error("Client ID and Client Secret are required")
         print("\nYou must provide either:")
         print("  1. Client ID and Client Secret directly, or")
-        print("  2. Path to the credentials JSON file downloaded from Google Cloud Console")
+        print(
+            "  2. Path to the credentials JSON file downloaded from Google Cloud Console"
+        )
         sys.exit(1)
 
     # Create temporary OAuth2 config
@@ -65,7 +67,9 @@ def setup_gmail_oauth2(
 
     # Exchange authorization code for tokens
     try:
-        access_token, refresh_token, expiry = exchange_code_for_tokens(oauth2_config, auth_code)
+        access_token, refresh_token, expiry = exchange_code_for_tokens(
+            oauth2_config, auth_code
+        )
         logger.info("Successfully obtained access and refresh tokens")
     except Exception as e:
         logger.error(f"Failed to obtain tokens: {e}")
@@ -95,7 +99,9 @@ def setup_gmail_oauth2(
 
 def main() -> None:
     """Run the OAuth2 setup tool."""
-    parser = argparse.ArgumentParser(description="Set up OAuth2 authentication for Gmail")
+    parser = argparse.ArgumentParser(
+        description="Set up OAuth2 authentication for Gmail"
+    )
     parser.add_argument(
         "--client-id",
         help="Google API client ID (optional if credentials file is provided)",

@@ -644,18 +644,3 @@ class TestDownloadAttachment:
         # Assertions
         assert "Error" in result
         assert "Connection error" in result
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

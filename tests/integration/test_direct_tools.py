@@ -7,14 +7,15 @@ to focus on testing the core email search functionality.
 
 import json
 import logging
+
 import pytest
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from mailroom.imap_client import ImapClient  # noqa: E402
 from mailroom.config import load_config  # noqa: E402
+from mailroom.imap_client import ImapClient  # noqa: E402
 
 # Mark all tests in this file as integration tests
 pytestmark = pytest.mark.integration
@@ -27,7 +28,7 @@ except ImportError:
 
 class TestDirectToolsIntegration:
     """Test direct usage of Mailroom tools without going through the server or CLI."""
-    
+
     @pytest.fixture(scope="class")
     async def imap_client(self):
         """Create and yield an IMAP client connected to Gmail."""
@@ -39,30 +40,26 @@ class TestDirectToolsIntegration:
             yield client
         finally:
             client.disconnect()
-    
+
     @pytest.mark.asyncio
     async def test_list_folders(self, imap_client):
         """Test listing folders directly from the IMAP client."""
         # Get list of folders
         folders = imap_client.list_folders()
-        
+
         # Check that we got some folders
         assert len(folders) > 0, "No folders returned from IMAP server"
-        
+
         # Check that INBOX is present
         assert "INBOX" in folders, "INBOX not found in folder list"
-        
+
         # Log the folders for reference
         logger.info(f"Found {len(folders)} folders: {folders}")
-    
+
     @pytest.mark.asyncio
     async def test_search_unread_emails(self, imap_client):
         """Test searching for unread emails using the search_emails tool directly."""
-        results = await search_emails_tool(
-            query="is:unread",
-            folder="INBOX",
-            limit=10
-        )
+        results = await search_emails_tool(query="is:unread", folder="INBOX", limit=10)
 
         try:
             results_dict = json.loads(results)
@@ -75,9 +72,13 @@ class TestDirectToolsIntegration:
                 first_email = results_dict[0]
                 expected_fields = ["uid", "folder", "from", "subject", "date"]
                 for field in expected_fields:
-                    assert field in first_email, f"Field '{field}' missing from email result"
+                    assert (
+                        field in first_email
+                    ), f"Field '{field}' missing from email result"
 
-                assert "\\Seen" not in first_email.get("flags", []), "Email should be unread (no \\Seen flag)"
+                assert "\\Seen" not in first_email.get(
+                    "flags", []
+                ), "Email should be unread (no \\Seen flag)"
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse search results: {e}")
@@ -96,21 +97,22 @@ class TestDirectToolsIntegration:
         for query, description in test_cases:
             logger.info(f"Testing search for {description}")
 
-            results = await search_emails_tool(
-                query=query,
-                folder="INBOX",
-                limit=5
-            )
+            results = await search_emails_tool(query=query, folder="INBOX", limit=5)
 
             try:
                 results_dict = json.loads(results)
                 logger.info(f"Found {len(results_dict)} {description}")
-                assert isinstance(results_dict, list), f"Expected list of results for {description}"
+                assert isinstance(
+                    results_dict, list
+                ), f"Expected list of results for {description}"
 
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse search results for {description}: {e}")
                 logger.error(f"Raw results: {results}")
-                pytest.fail(f"Invalid JSON returned from search_emails tool for {description}: {e}")
+                pytest.fail(
+                    f"Invalid JSON returned from search_emails tool for {description}: {e}"
+                )
+
 
 if __name__ == "__main__":
     # Enable running the tests directly

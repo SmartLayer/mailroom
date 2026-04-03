@@ -38,7 +38,9 @@ class TestSetupAppPassword:
 class TestMain:
     """Tests for the main function."""
 
-    @pytest.mark.skip(reason="Test interrupts automated execution to ask for password in command line")
+    @pytest.mark.skip(
+        reason="Test interrupts automated execution to ask for password in command line"
+    )
     def test_main_success(self):
         """Test successful execution of main function."""
         pass
