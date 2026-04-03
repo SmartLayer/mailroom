@@ -10,8 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
-    {name = "GitHub user", email = "example@example.com"}
+    {name = "Weiwu Zhang"}
 ]
+keywords = ["email", "imap", "mcp", "ai", "cli", "gmail", "automation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -48,6 +49,7 @@ mailroom = "mailroom.__main__:main"
 [project.urls]
 Homepage = "https://github.com/SmartLayer/mailroom"
 Issues = "https://github.com/SmartLayer/mailroom/issues"
+Author = "https://www.linkedin.com/in/weiwuzhang/"
 
 [tool.setuptools]
 packages = ["mailroom"]
