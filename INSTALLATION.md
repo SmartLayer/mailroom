@@ -4,7 +4,7 @@ This document provides detailed instructions for installing and setting up the M
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.11 or higher
 - An IMAP-enabled email account
 - [uv](https://docs.astral.sh/uv/) - Python package installer (required for installation)
 - Claude Desktop or another MCP-compatible client
@@ -38,36 +38,21 @@ pip install -e ".[dev]"
 ### 4. Create a configuration file
 
 ```bash
-cp examples/config.yaml.example config.yaml
+cp config.sample.toml config.toml
 ```
 
-Edit the `config.yaml` file with your email settings:
+Edit the `config.toml` file with your email settings:
 
-```yaml
-# IMAP server configuration
-imap:
-  # IMAP server address
-  host: imap.example.com
-  
-  # IMAP port (default: 993 for SSL, 143 for non-SSL)
-  port: 993
-  
-  # IMAP username (often your email address)
-  username: your.email@example.com
-  
-  # IMAP password (or set IMAP_PASSWORD environment variable)
-  # password: your_password
-  
-  # Use SSL connection (default: true)
-  use_ssl: true
+```toml
+[imap]
+host = "imap.example.com"
+port = 993
+username = "your.email@example.com"
+# password = "your_password"  # or set IMAP_PASSWORD environment variable
+use_ssl = true
 
-# Optional: Restrict access to specific folders
-# If not specified, all folders will be accessible
-# allowed_folders:
-#   - INBOX
-#   - Sent
-#   - Archive
-#   - Important
+# Optional: restrict access to specific folders
+# allowed_folders = ["INBOX", "Sent", "Archive", "Important"]
 ```
 
 For security, it's recommended to use environment variables for sensitive information:
@@ -87,19 +72,19 @@ mailroom mcp
 #### With specific config file:
 
 ```bash
-mailroom mcp --config /path/to/config.yaml
+mailroom mcp --config /path/to/config.toml
 ```
 
 #### For development mode (with inspector):
 
 ```bash
-mailroom mcp --config /path/to/config.yaml --dev
+mailroom mcp --config /path/to/config.toml --dev
 ```
 
 #### For debugging:
 
 ```bash
-mailroom mcp --config /path/to/config.yaml --debug
+mailroom mcp --config /path/to/config.toml --debug
 ```
 
 ## Integrating with Claude Desktop
@@ -111,7 +96,7 @@ Add the following to your Claude Desktop configuration:
   "mcpServers": {
     "mailroom": {
       "command": "mailroom",
-      "args": ["mcp", "--config", "/path/to/config.yaml"],
+      "args": ["mcp", "--config", "/path/to/config.toml"],
       "env": {
         "IMAP_PASSWORD": "your_secure_password"
       }

@@ -19,32 +19,33 @@ Mailroom lets AI assistants search, read, download, reply to, and organize email
 Copy the sample and fill in your credentials:
 
 ```bash
-cp config.sample.yaml config.yaml
+cp config.sample.toml config.toml
 ```
 
 For Gmail with OAuth2:
 
-```yaml
-imap:
-  host: imap.gmail.com
-  port: 993
-  username: your-email@gmail.com
-  use_ssl: true
-  oauth2:
-    client_id: YOUR_CLIENT_ID
-    client_secret: YOUR_CLIENT_SECRET
-    refresh_token: YOUR_REFRESH_TOKEN
+```toml
+[imap]
+host = "imap.gmail.com"
+port = 993
+username = "your-email@gmail.com"
+use_ssl = true
+
+[imap.oauth2]
+client_id = "YOUR_CLIENT_ID"
+client_secret = "YOUR_CLIENT_SECRET"
+refresh_token = "YOUR_REFRESH_TOKEN"
 ```
 
 For other providers, use a password or app-specific password:
 
-```yaml
-imap:
-  host: imap.your-provider.com
-  port: 993
-  username: your-email@provider.com
-  use_ssl: true
-  password: YOUR_APP_PASSWORD
+```toml
+[imap]
+host = "imap.your-provider.com"
+port = 993
+username = "your-email@provider.com"
+use_ssl = true
+password = "YOUR_APP_PASSWORD"
 ```
 
 Gmail OAuth2 setup requires a Google Cloud project with the Gmail API enabled. See [GMAIL_SETUP.md](GMAIL_SETUP.md) for the full walkthrough.
@@ -54,7 +55,7 @@ Gmail OAuth2 setup requires a Google Cloud project with the Gmail API enabled. S
 With uv (any platform):
 
 ```bash
-uvx mailroom --config config.yaml search-emails "invoice" --criteria subject
+uvx mailroom --config config.toml search-emails "invoice" --criteria subject
 ```
 
 No installation step — `uvx` runs it directly. To install permanently:
@@ -66,12 +67,12 @@ uv tool install mailroom
 On Ubuntu 25.10 or later, the CLI dependencies are in the standard repositories. Install them, then run directly from a clone:
 
 ```bash
-sudo apt-get install python3-typer python3-yaml python3-dotenv python3-imapclient python3-requests
+sudo apt-get install python3-typer python3-dotenv python3-imapclient python3-requests
 ```
 Then you can run it directly without uv
 
 ```bash
-python3 -m mailroom --config config.yaml search-emails "invoice" --criteria subject
+python3 -m mailroom --config config.toml search-emails "invoice" --criteria subject
 ```
 
 The MCP server (`mailroom mcp`) requires the `mcp` Python package, which is not in apt. Use `uv` or `pip` for that. Manuy people prefer to use cli instead of mcp as the latter loads 80+ tools into every conversation, in that case no need to install mcp package.
@@ -82,28 +83,28 @@ Every command outputs JSON to stdout. Errors go to stderr. This makes Mailroom c
 
 ```bash
 # What's unread?
-mailroom -c config.yaml search-emails "" --criteria unseen --folder INBOX --limit 10
+mailroom -c config.toml search-emails "" --criteria unseen --folder INBOX --limit 10
 
 # Search by subject across all folders
-mailroom -c config.yaml search-emails "hotel booking" --criteria subject
+mailroom -c config.toml search-emails "hotel booking" --criteria subject
 
 # Read an email's attachments, then download one
-mailroom -c config.yaml list-attachments INBOX 4523
-mailroom -c config.yaml download-attachment INBOX 4523 itinerary.pdf /tmp/itinerary.pdf
+mailroom -c config.toml list-attachments INBOX 4523
+mailroom -c config.toml download-attachment INBOX 4523 itinerary.pdf /tmp/itinerary.pdf
 
 # Export an HTML email as a standalone file (images embedded)
-mailroom -c config.yaml export-email-html INBOX 4523 /tmp/email.html
+mailroom -c config.toml export-email-html INBOX 4523 /tmp/email.html
 
 # Extract all links from several emails (useful for phishing checks)
-mailroom -c config.yaml extract-email-links INBOX 4523 4524 4525
+mailroom -c config.toml extract-email-links INBOX 4523 4524 4525
 
 # Draft a threaded reply
-mailroom -c config.yaml draft-reply INBOX 4523 "Thanks, confirmed."
+mailroom -c config.toml draft-reply INBOX 4523 "Thanks, confirmed."
 
 # Organize
-mailroom -c config.yaml move-email INBOX 4523 Archive
-mailroom -c config.yaml mark-as-read INBOX 4524
-mailroom -c config.yaml flag-email INBOX 4525
+mailroom -c config.toml move-email INBOX 4523 Archive
+mailroom -c config.toml mark-as-read INBOX 4524
+mailroom -c config.toml flag-email INBOX 4525
 ```
 
 Run `mailroom --help` for the full command list.
@@ -113,7 +114,7 @@ Run `mailroom --help` for the full command list.
 For AI environments that cannot run shell commands (Claude web, Cursor, or any MCP client):
 
 ```bash
-mailroom mcp --config config.yaml
+mailroom mcp --config config.toml
 ```
 
 This starts an MCP server exposing the same operations as tools. The MCP package is only imported when this subcommand runs, so the CLI stays lightweight.
@@ -124,12 +125,12 @@ Because every command returns JSON and uses non-zero exit codes on failure, Mail
 
 ```bash
 # Forward all unread emails from a sender to another address
-mailroom -c config.yaml search-emails "sender@example.com" --criteria from --folder INBOX \
+mailroom -c config.toml search-emails "sender@example.com" --criteria from --folder INBOX \
   | jq -r '.[].uid' \
-  | xargs -I{} mailroom -c config.yaml move-email INBOX {} Forwarded
+  | xargs -I{} mailroom -c config.toml move-email INBOX {} Forwarded
 
 # Daily digest: save today's unread subjects to a file
-mailroom -c config.yaml search-emails "" --criteria unseen --folder INBOX \
+mailroom -c config.toml search-emails "" --criteria unseen --folder INBOX \
   | jq -r '.[].subject' > ~/daily-digest.txt
 ```
 
@@ -139,23 +140,22 @@ AI agents with skill/hook systems can call Mailroom the same way — define a sk
 
 A single config file can hold multiple accounts:
 
-```yaml
-default_account: personal
-accounts:
-  personal:
-    imap:
-      host: imap.gmail.com
-      # ...
-  work:
-    imap:
-      host: outlook.office365.com
-      # ...
+```toml
+default_account = "personal"
+
+[accounts.personal.imap]
+host = "imap.gmail.com"
+# ...
+
+[accounts.work.imap]
+host = "outlook.office365.com"
+# ...
 ```
 
 Select an account with `-a`:
 
 ```bash
-mailroom -c config.yaml -a work search-emails "" --criteria unseen
+mailroom -c config.toml -a work search-emails "" --criteria unseen
 ```
 
 ## Connection handling

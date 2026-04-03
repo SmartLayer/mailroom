@@ -20,9 +20,9 @@
 - Run all tests: `uv run pytest`
 - Run single test: `uv run pytest tests/test_file.py::TestClass::test_function -v`
 - Run with coverage: `uv run pytest --cov`
-- Run MCP server: `mailroom mcp --config /path/to/config.yaml`
-- Development mode: `mailroom mcp --config /path/to/config.yaml --dev`
-- One-line execution with dependencies: `uvx mailroom mcp --config /path/to/config.yaml`
+- Run MCP server: `mailroom mcp --config /path/to/config.toml`
+- Development mode: `mailroom mcp --config /path/to/config.toml --dev`
+- One-line execution with dependencies: `uvx mailroom mcp --config /path/to/config.toml`
 
 ## Code Style Guidelines
 - Use Black with 88 character line length
@@ -127,17 +127,17 @@ OAuth2 tokens expire periodically. If integration tests fail with authentication
 
 1. **Check if token refresh is needed**:
    ```bash
-   uv run python -m mailroom.oauth2 check-token --config config.yaml
+   uv run python -m mailroom.oauth2 check-token --config config.toml
    ```
 
 2. **Refresh the token if expired**:
    ```bash
-   uv run python -m mailroom.auth_setup refresh-token --config config.yaml
+   uv run python -m mailroom.auth_setup refresh-token --config config.toml
    ```
 
 3. **Generate a new token if refresh fails**:
    ```bash
-   uv run python -m mailroom.auth_setup generate-token --config config.yaml
+   uv run python -m mailroom.auth_setup generate-token --config config.toml
    ```
 
 ### Running Integration Tests

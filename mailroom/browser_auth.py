@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 from urllib.parse import urlencode, urlparse, parse_qs
 
-import yaml
 from flask import Flask, request, redirect, url_for
 
 logger = logging.getLogger(__name__)
@@ -280,20 +279,17 @@ def perform_oauth_flow(
     client_secret: Optional[str] = None,
     credentials_file: Optional[str] = None,
     port: int = DEFAULT_CALLBACK_PORT,
-    config_path: Optional[str] = None,
-    config_output: Optional[str] = None,
 ) -> Dict:
     """Run the OAuth flow to get Gmail access and refresh tokens.
-    
+
     Args:
         client_id: OAuth2 client ID (optional, will prompt if not provided)
         client_secret: OAuth2 client secret (optional, will prompt if not provided)
+        credentials_file: Path to Google credentials JSON file
         port: Port for the local server
-        config_path: Path to existing config file to update (optional)
-        config_output: Path to save the updated config file (optional)
-        
+
     Returns:
-        Updated configuration dictionary
+        OAuth2 data dictionary
     """
     # Try to load credentials from file first if provided
     if credentials_file and not (client_id and client_secret):
@@ -305,22 +301,22 @@ def perform_oauth_flow(
             logger.info("Successfully loaded credentials from file")
         except Exception as e:
             logger.warning(f"Failed to load credentials from file: {e}")
-    
+
     # Use environment variables if not provided
     client_id = client_id or os.environ.get("GMAIL_CLIENT_ID")
     client_secret = client_secret or os.environ.get("GMAIL_CLIENT_SECRET")
-    
+
     # Prompt for client_id and client_secret if not provided
     if not client_id:
         client_id = input("Enter your Google OAuth2 client ID: ").strip()
-    
+
     if not client_secret:
         client_secret = input("Enter your Google OAuth2 client secret: ").strip()
-    
+
     if not client_id or not client_secret:
         print("Error: Client ID and secret are required.")
         sys.exit(1)
-    
+
     # Run the OAuth flow
     print("Starting OAuth2 authentication flow...")
     access_token, refresh_token, expiry = run_local_server(
@@ -328,14 +324,13 @@ def perform_oauth_flow(
         client_secret=client_secret,
         port=port,
     )
-    
+
     if not access_token or not refresh_token:
         print("Error: Failed to obtain OAuth2 tokens.")
         sys.exit(1)
-    
+
     print("Authentication successful!")
-    
-    # Build OAuth2 configuration
+
     oauth2_data = {
         "client_id": client_id,
         "client_secret": client_secret,
@@ -343,55 +338,33 @@ def perform_oauth_flow(
         "access_token": access_token,
         "token_expiry": expiry,
     }
-    
-    # Load existing config if specified
-    config_data = {}
-    if config_path:
-        config_file = Path(config_path)
-        if config_file.exists():
-            with open(config_file, "r") as f:
-                config_data = yaml.safe_load(f) or {}
-                logger.info(f"Loaded existing configuration from {config_path}")
-    
-    # Update config with OAuth2 data
-    if "imap" not in config_data:
-        config_data["imap"] = {}
-    
-    config_data["imap"]["oauth2"] = oauth2_data
-    
-    # Save updated config if output path specified
-    if config_output:
-        output_file = Path(config_output)
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        with open(output_file, "w") as f:
-            yaml.dump(config_data, f, default_flow_style=False)
-            logger.info(f"Saved updated configuration to {config_output}")
-    
-    print("\nOAuth2 configuration:")
-    print(json.dumps(oauth2_data, indent=2, default=str))
-    
-    print("\nTo use these credentials, add them to your config.yaml file under the imap.oauth2 key.")
-    print("Alternatively, you can set the following environment variables:")
+
+    print("\nAdd the following to your config.toml:\n")
+    print("[imap.oauth2]")
+    print(f'client_id = "{client_id}"')
+    print(f'client_secret = "{client_secret}"')
+    print(f'refresh_token = "{refresh_token}"')
+    print()
+    print("Or set environment variables:")
     print(f"  GMAIL_CLIENT_ID={client_id}")
     print(f"  GMAIL_CLIENT_SECRET={client_secret}")
     print(f"  GMAIL_REFRESH_TOKEN={refresh_token}")
-    
-    return config_data
+
+    return oauth2_data
 
 
 def main():
     """Run the browser-based OAuth2 setup tool."""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Browser-based OAuth2 authentication for Gmail")
     parser.add_argument(
-        "--client-id", 
+        "--client-id",
         help="Google OAuth2 client ID",
         default=os.environ.get("GMAIL_CLIENT_ID"),
     )
     parser.add_argument(
-        "--client-secret", 
+        "--client-secret",
         help="Google OAuth2 client secret",
         default=os.environ.get("GMAIL_CLIENT_SECRET"),
     )
@@ -401,28 +374,16 @@ def main():
         help="Port for the local callback server",
         default=DEFAULT_CALLBACK_PORT,
     )
-    parser.add_argument(
-        "--config", 
-        help="Path to existing config file to update",
-        default=None,
-    )
-    parser.add_argument(
-        "--output", 
-        help="Path to save the updated config file",
-        default="config.yaml",
-    )
-    
+
     args = parser.parse_args()
-    
+
     # Configure logging
     logging.basicConfig(level=logging.INFO)
-    
+
     perform_oauth_flow(
         client_id=args.client_id,
         client_secret=args.client_secret,
         port=args.port,
-        config_path=args.config,
-        config_output=args.output,
     )
 
 

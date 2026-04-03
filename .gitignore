@@ -55,7 +55,7 @@ credentials.json
 *.credentials.json
 
 # Configuration
-config.yaml*
+config.toml
 
 # Resources 
 # Exclude all files in resources by default

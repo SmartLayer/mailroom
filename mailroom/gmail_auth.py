@@ -2,7 +2,6 @@
 
 import argparse
 import logging
-import os
 import sys
 
 from mailroom.browser_auth import perform_oauth_flow
@@ -16,11 +15,11 @@ def main():
     """Run the Gmail authentication tool."""
     parser = argparse.ArgumentParser(description="Gmail authentication setup tool")
     parser.add_argument(
-        "--client-id", 
+        "--client-id",
         help="OAuth2 client ID (optional, will be loaded from credentials file if provided)",
     )
     parser.add_argument(
-        "--client-secret", 
+        "--client-secret",
         help="OAuth2 client secret (optional, will be loaded from credentials file if provided)",
     )
     parser.add_argument(
@@ -33,27 +32,15 @@ def main():
         default=8080,
         help="Port for the callback server (default: 8080)",
     )
-    parser.add_argument(
-        "--config", 
-        help="Path to existing config file to update",
-    )
-    parser.add_argument(
-        "--output", 
-        help="Path to save the updated config file (default: config.yaml)",
-        default="config.yaml",
-    )
-    
+
     args = parser.parse_args()
-    
+
     try:
-        # Run the OAuth flow
         perform_oauth_flow(
             client_id=args.client_id,
             client_secret=args.client_secret,
             credentials_file=args.credentials_file,
             port=args.port,
-            config_path=args.config,
-            config_output=args.output,
         )
         logger.info("Gmail authentication setup completed successfully")
     except KeyboardInterrupt:

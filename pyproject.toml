@@ -7,7 +7,7 @@ name = "mailroom"
 version = "1.0.0"
 description = "Email toolkit for AI assistants and command-line scripting"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "GitHub user", email = "example@example.com"}
@@ -17,14 +17,12 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "imapclient>=3.0.0",
-    "pyyaml>=6.0",
     "python-dotenv>=1.0.0",
     "requests>=2.32.0",
     "typer>=0.15.0",
@@ -54,12 +52,9 @@ Issues = "https://github.com/SmartLayer/mailroom/issues"
 [tool.setuptools]
 packages = ["mailroom"]
 
-[project.scripts]
-imap-mcp = "imap_mcp.server:main"
-
 [tool.black]
 line-length = 88
-target-version = ["py310"]
+target-version = ["py311"]
 include = '\.pyi?$'
 
 [tool.isort]
@@ -67,7 +62,7 @@ profile = "black"
 line_length = 88
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

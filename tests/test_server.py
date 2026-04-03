@@ -57,7 +57,7 @@ class TestServer:
 
     def test_create_server_with_config_path(self):
         """Test server creation with a specific config path."""
-        config_path = "test_config.yaml"
+        config_path = "test_config.toml"
         
         with mock.patch("mailroom.mcp_server.load_config") as mock_load_config:
             create_server(config_path=config_path)
@@ -143,13 +143,13 @@ class TestServer:
     
     def test_main_function(self):
         """Test the main function."""
-        test_args = ["--config", "test_config.yaml", "--debug", "--dev"]
+        test_args = ["--config", "test_config.toml", "--debug", "--dev"]
 
         with mock.patch("sys.argv", ["server.py"] + test_args):
             with mock.patch("mailroom.mcp_server.create_server") as mock_create_server:
                 with mock.patch("mailroom.mcp_server.argparse.ArgumentParser.parse_args") as mock_parse_args:
                     mock_args = argparse.Namespace(
-                        config="test_config.yaml",
+                        config="test_config.toml",
                         debug=True,
                         dev=True,
                         version=False,
@@ -162,19 +162,19 @@ class TestServer:
                     with mock.patch("mailroom.mcp_server.logger") as mock_logger:
                         main()
 
-                        mock_create_server.assert_called_once_with("test_config.yaml", True)
+                        mock_create_server.assert_called_once_with("test_config.toml", True)
                         mock_server.run.assert_called_once()
                         mock_logger.setLevel.assert_called_with(logging.DEBUG)
     
     def test_main_env_config(self, monkeypatch):
         """Test main function with config from environment variable."""
-        monkeypatch.setenv("MAILROOM_CONFIG", "env_config.yaml")
+        monkeypatch.setenv("MAILROOM_CONFIG", "env_config.toml")
 
         with mock.patch("sys.argv", ["server.py"]):
             with mock.patch("mailroom.mcp_server.create_server") as mock_create_server:
                 with mock.patch("mailroom.mcp_server.argparse.ArgumentParser.parse_args") as mock_parse_args:
                     mock_args = argparse.Namespace(
-                        config="env_config.yaml",
+                        config="env_config.toml",
                         debug=False,
                         dev=False,
                         version=False,
@@ -182,4 +182,4 @@ class TestServer:
                     mock_parse_args.return_value = mock_args
 
                     main()
-                    mock_create_server.assert_called_once_with("env_config.yaml", False)
+                    mock_create_server.assert_called_once_with("env_config.toml", False)

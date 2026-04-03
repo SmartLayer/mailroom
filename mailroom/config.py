@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import yaml
+import tomllib
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -182,17 +182,16 @@ def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
         ValueError: If no configuration source is available
     """
     default_locations = [
-        Path("config.yaml"),
-        Path("config.yml"),
-        Path("~/.config/mailroom/config.yaml"),
-        Path("/etc/mailroom/config.yaml"),
+        Path("config.toml"),
+        Path("~/.config/mailroom/config.toml"),
+        Path("/etc/mailroom/config.toml"),
     ]
 
     config_data: Dict[str, Any] = {}
     if config_path:
         try:
-            with open(config_path, "r") as f:
-                config_data = yaml.safe_load(f) or {}
+            with open(config_path, "rb") as f:
+                config_data = tomllib.load(f)
             logger.info(f"Loaded configuration from {config_path}")
         except FileNotFoundError:
             logger.warning(f"Configuration file not found: {config_path}")
@@ -200,8 +199,8 @@ def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
         for path in default_locations:
             expanded_path = path.expanduser()
             if expanded_path.exists():
-                with open(expanded_path, "r") as f:
-                    config_data = yaml.safe_load(f) or {}
+                with open(expanded_path, "rb") as f:
+                    config_data = tomllib.load(f)
                 logger.info(f"Loaded configuration from {expanded_path}")
                 break
 

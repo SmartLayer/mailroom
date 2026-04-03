@@ -36,7 +36,7 @@ def _global_options(
         None,
         "--config",
         "-c",
-        help="Path to YAML configuration file.",
+        help="Path to TOML configuration file.",
         envvar="MAILROOM_CONFIG",
     ),
     account: Optional[str] = typer.Option(
@@ -478,7 +478,7 @@ def process_meeting_invite(
 def mcp_serve(
     config: Optional[str] = typer.Option(
         None, "--config", "-c",
-        help="Path to YAML configuration file.",
+        help="Path to TOML configuration file.",
         envvar="MAILROOM_CONFIG",
     ),
     debug: bool = typer.Option(False, "--debug", help="Enable debug logging."),

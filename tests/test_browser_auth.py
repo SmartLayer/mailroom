@@ -169,7 +169,7 @@ class TestPerformOauthFlow:
         result = perform_oauth_flow(
             credentials_file=sample_credentials_file,
             port=8080,
-            config_output="output.yaml"
+            config_output="output.toml"
         )
         
         # Verify the credentials were loaded

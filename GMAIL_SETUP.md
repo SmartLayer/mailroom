@@ -40,19 +40,19 @@ Common options include:
 - `--username`: Your Gmail address
 - `--password`: Your app password (will prompt securely if not provided)
 - `--config`: Path to existing config file to update
-- `--output`: Path to save the updated config file (default: config.yaml)
+- `--output`: Path to save the updated config file (default: config.toml)
 
 ## Manual Configuration with App Password
 
-After setting up with an app password, your `config.yaml` file will look like this:
+After setting up with an app password, your `config.toml` file will look like this:
 
-```yaml
-imap:
-  host: imap.gmail.com
-  port: 993
-  username: your-email@gmail.com
-  password: your-16-character-app-password
-  use_ssl: true
+```toml
+[imap]
+host = "imap.gmail.com"
+port = 993
+username = "your-email@gmail.com"
+password = "your-16-character-app-password"
+use_ssl = true
 ```
 
 You can also set the following environment variables:
@@ -75,15 +75,15 @@ If you prefer not to use OAuth2, you can still use Gmail with an app-specific pa
 
 1. Enable 2-Step Verification for your Google account
 2. Generate an app-specific password in your Google account security settings
-3. Use this password in your `config.yaml` file:
+3. Use this password in your `config.toml` file:
 
-```yaml
-imap:
-  host: imap.gmail.com
-  port: 993
-  username: your-email@gmail.com
-  password: your-app-specific-password
-  use_ssl: true
+```toml
+[imap]
+host = "imap.gmail.com"
+port = 993
+username = "your-email@gmail.com"
+password = "your-app-specific-password"
+use_ssl = true
 ```
 
 Or set the `IMAP_PASSWORD` environment variable to your app-specific password.

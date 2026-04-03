@@ -230,7 +230,7 @@ class TestDraftReplyCLI:
             with patch("mailroom.smtp_client.create_reply_mime") as mock_create:
                 mock_create.return_value = MagicMock()
                 result = runner.invoke(app, [
-                    "--config", "dummy.yaml",
+                    "--config", "dummy.toml",
                     "draft-reply",
                     "-f", "INBOX", "--uid", "42", "--body", "Thanks",
                 ])
@@ -255,7 +255,7 @@ class TestDraftReplyCLI:
         with patch("mailroom.__main__._make_client", return_value=mock_client):
             with patch("mailroom.smtp_client.create_reply_mime", return_value=mime_msg):
                 result = runner.invoke(app, [
-                    "--config", "dummy.yaml",
+                    "--config", "dummy.toml",
                     "draft-reply",
                     "-f", "INBOX", "--uid", "42", "--body", "Hello",
                     "-o", out_path,
@@ -280,7 +280,7 @@ class TestDraftReplyCLI:
         with patch("mailroom.__main__._make_client", return_value=mock_client):
             with patch("mailroom.smtp_client.create_reply_mime", return_value=mime_msg):
                 result = runner.invoke(app, [
-                    "--config", "dummy.yaml",
+                    "--config", "dummy.toml",
                     "draft-reply",
                     "-f", "INBOX", "--uid", "42", "--body", "Stdout body",
                     "-o", "-",
@@ -305,7 +305,7 @@ class TestDraftReplyCLI:
         with patch("mailroom.__main__._make_client", return_value=mock_client):
             with patch("mailroom.smtp_client.create_reply_mime", return_value=mime_msg):
                 result = runner.invoke(app, [
-                    "--config", "dummy.yaml",
+                    "--config", "dummy.toml",
                     "draft-reply",
                     "-f", "INBOX", "--uid", "42", "--body", "Body",
                     "--bcc", "copy@example.com",
@@ -326,7 +326,7 @@ class TestDraftReplyCLI:
 
         with patch("mailroom.__main__._make_client", return_value=client):
             result = runner.invoke(app, [
-                "--config", "dummy.yaml",
+                "--config", "dummy.toml",
                 "draft-reply",
                 "-f", "INBOX", "--uid", "999", "--body", "Hi",
             ])
