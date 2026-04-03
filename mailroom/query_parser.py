@@ -90,7 +90,10 @@ def parse_query(query: str) -> Union[str, List]:
 
     # Standalone keyword (entire query is one word).
     if stripped.lower() in _STANDALONE_KEYWORDS:
-        return _STANDALONE_KEYWORDS[stripped.lower()]()
+        result = _STANDALONE_KEYWORDS[stripped.lower()]()
+        if isinstance(result, str):
+            return result
+        return list(result)
 
     tokens = _tokenize(stripped)
     return _build_criteria(tokens)
@@ -209,7 +212,7 @@ def _build_criteria(tokens: List[str]) -> Union[str, List]:
     bare_words: List[str] = []
     i = 0
 
-    def _flush_bare_words():
+    def _flush_bare_words() -> None:
         if bare_words:
             clauses.append(["TEXT", " ".join(bare_words)])
             bare_words.clear()

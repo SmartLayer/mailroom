@@ -6,7 +6,7 @@ from datetime import datetime
 from email.message import EmailMessage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from mailroom.models import Email, EmailAddress
 
@@ -21,7 +21,7 @@ def create_reply_mime(
     cc: Optional[List[EmailAddress]] = None,
     reply_all: bool = False,
     html_body: Optional[str] = None,
-) -> EmailMessage:
+) -> Union[EmailMessage, MIMEMultipart]:
     """Create a MIME message for replying to an email.
 
     Args:
@@ -37,13 +37,14 @@ def create_reply_mime(
         MIME message ready for sending
     """
     # Start with a multipart/mixed message
+    msg: Union[EmailMessage, MIMEMultipart]
     if html_body:
-        message = MIMEMultipart("mixed")
+        msg = MIMEMultipart("mixed")
     else:
-        message = EmailMessage()
+        msg = EmailMessage()
 
     # Set the From header
-    message["From"] = str(reply_to)
+    msg["From"] = str(reply_to)
 
     # Set the To header
     to_recipients = [original_email.from_]
@@ -57,7 +58,7 @@ def create_reply_mime(
             ]
         )
 
-    message["To"] = ", ".join(str(recipient) for recipient in to_recipients)
+    msg["To"] = ", ".join(str(recipient) for recipient in to_recipients)
 
     # Set the CC header if applicable
     cc_recipients = []
@@ -73,19 +74,19 @@ def create_reply_mime(
         )
 
     if cc_recipients:
-        message["Cc"] = ", ".join(str(recipient) for recipient in cc_recipients)
+        msg["Cc"] = ", ".join(str(recipient) for recipient in cc_recipients)
 
     # Set the subject
     if subject:
-        message["Subject"] = subject
+        msg["Subject"] = subject
     else:
         # Add "Re: " prefix if not already present
         # Unfold any MIME-folded subject (strip CR/LF and collapse whitespace)
         original_subject = " ".join(original_email.subject.split())
         if not original_subject.startswith("Re:"):
-            message["Subject"] = f"Re: {original_subject}"
+            msg["Subject"] = f"Re: {original_subject}"
         else:
-            message["Subject"] = original_subject
+            msg["Subject"] = original_subject
 
     # Set references for threading
     references = []
@@ -98,11 +99,11 @@ def create_reply_mime(
         references.append(msg_id)
 
     if references:
-        message["References"] = " ".join(references)
+        msg["References"] = " ".join(references)
 
     # Set In-Reply-To header
     if original_email.message_id:
-        message["In-Reply-To"] = " ".join(original_email.message_id.split())
+        msg["In-Reply-To"] = " ".join(original_email.message_id.split())
 
     # Prepare content
     if html_body:
@@ -156,7 +157,8 @@ def create_reply_mime(
         alternative.attach(html_part)
 
         # Attach the alternative part to the message
-        message.attach(alternative)
+        assert isinstance(msg, MIMEMultipart)
+        msg.attach(alternative)
     else:
         # Plain text only
         plain_text = body
@@ -167,12 +169,13 @@ def create_reply_mime(
             )
             plain_text += f"\n\nOn {email.utils.format_datetime(original_email.date or datetime.now())}, {original_email.from_} wrote:\n{quoted_original}"
 
-        message.set_content(plain_text)
+        assert isinstance(msg, EmailMessage)
+        msg.set_content(plain_text)
 
     # Add Date header
-    message["Date"] = email.utils.formatdate(localtime=True)
+    msg["Date"] = email.utils.formatdate(localtime=True)
 
-    return message
+    return msg
 
 
 def _find_reply_from_address(email_obj: Email, my_address: str) -> EmailAddress:
@@ -192,7 +195,7 @@ def _find_reply_from_address(email_obj: Email, my_address: str) -> EmailAddress:
 
 
 def compose_and_save_reply_draft(
-    client,
+    client: Any,
     folder: str,
     uid: int,
     reply_body: str,

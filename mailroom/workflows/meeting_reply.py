@@ -180,7 +180,7 @@ def _generate_decline_reply(
 
 
 def process_meeting_invite_workflow(
-    client,
+    client: Any,
     folder: str,
     uid: int,
     availability_mode: str = "random",

@@ -35,11 +35,13 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict]:
     Yields:
         Context dictionary with ``imap_clients`` dict and ``default_account``
     """
-    config: MultiAccountConfig = getattr(server, "_config", None)
-    if not config:
+    config_attr = getattr(server, "_config", None)
+    config: MultiAccountConfig
+    if config_attr is None:
         config = load_config()
-
-    if not isinstance(config, MultiAccountConfig):
+    elif isinstance(config_attr, MultiAccountConfig):
+        config = config_attr
+    else:
         raise TypeError("Invalid server configuration")
 
     clients: Dict[str, ImapClient] = {}
@@ -82,7 +84,7 @@ def create_server(config_path: Optional[str] = None, debug: bool = False) -> Fas
     )
 
     # Store config for access in the lifespan
-    server._config = config
+    server._config = config  # type: ignore[attr-defined]
 
     # Create a throwaway client for tool/resource registration (not used at runtime)
     first_acct = config.accounts[config.default_account]

@@ -224,7 +224,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
     @mcp.tool()
     async def search_emails(
         query: Union[str, int] = "",
-        ctx: Context = None,
+        ctx: Optional[Context] = None,
         folder: Optional[str] = None,
         limit: int = 10,
         account: Optional[str] = None,
@@ -249,6 +249,8 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         Returns:
             JSON-formatted list of search results
         """
+        if ctx is None:
+            return json.dumps({"error": "No MCP context available"})
         client = get_client_from_context(ctx, account)
         try:
             results = await asyncio.wait_for(

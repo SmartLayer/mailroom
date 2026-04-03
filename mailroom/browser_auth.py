@@ -8,7 +8,7 @@ import sys
 import time
 import webbrowser
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlencode
 
 from flask import Flask, redirect, request, url_for
@@ -39,7 +39,7 @@ def create_oauth_app() -> Flask:
     app = Flask(__name__)
 
     @app.route(CALLBACK_PATH)
-    def oauth2callback():
+    def oauth2callback() -> Any:
         # Get authorization code from query parameters
         code = request.args.get("code")
         if not code:
@@ -82,7 +82,7 @@ def create_oauth_app() -> Flask:
             return f"Error: Failed to exchange authorization code: {e}", 500
 
     @app.route(SUCCESS_PATH)
-    def success():
+    def success() -> str:
         """Success page shown after successful authentication."""
         return """
         <html>
@@ -178,7 +178,7 @@ def run_local_server(
     # Flag to signal when the server should stop
     server_should_stop = threading.Event()
 
-    def run_server():
+    def run_server() -> None:
         """Run the Flask server until stopped."""
         # Create a custom server that can be stopped
         from werkzeug.serving import make_server
@@ -360,7 +360,7 @@ def perform_oauth_flow(
     return oauth2_data
 
 
-def main():
+def main() -> None:
     """Run the browser-based OAuth2 setup tool."""
     import argparse
 

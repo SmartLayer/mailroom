@@ -129,7 +129,7 @@ def _extract_meeting_details(email_obj: Email) -> Dict[str, Any]:
     Returns:
         Dictionary with meeting details
     """
-    details = {
+    details: Dict[str, Any] = {
         "subject": _extract_meeting_subject(email_obj),
         "organizer": _extract_organizer(email_obj),
         "location": _extract_location(email_obj),
@@ -217,16 +217,18 @@ def _extract_meeting_times(
             # This is a simple approach - a more robust solution would parse the full date from the when_text
             try:
                 # Parse time strings and combine with email date
-                start_hour, start_minute = map(
-                    int, re.search(r"(\d{1,2})[:](\d{2})", start_time_str).groups()
-                )
+                start_match = re.search(r"(\d{1,2})[:](\d{2})", start_time_str)
+                if not start_match:
+                    raise ValueError(f"No time found in: {start_time_str}")
+                start_hour, start_minute = map(int, start_match.groups())
                 is_start_pm = "PM" in start_time_str.upper() and start_hour < 12
                 if is_start_pm:
                     start_hour += 12
 
-                end_hour, end_minute = map(
-                    int, re.search(r"(\d{1,2})[:](\d{2})", end_time_str).groups()
-                )
+                end_match = re.search(r"(\d{1,2})[:](\d{2})", end_time_str)
+                if not end_match:
+                    raise ValueError(f"No time found in: {end_time_str}")
+                end_hour, end_minute = map(int, end_match.groups())
                 is_end_pm = "PM" in end_time_str.upper() and end_hour < 12
                 if is_end_pm:
                     end_hour += 12

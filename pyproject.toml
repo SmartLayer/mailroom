@@ -75,3 +75,8 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_functions = "test_*"
 python_classes = "Test*"
+
+[dependency-groups]
+dev = [
+    "types-requests>=2.33.0.20260402",
+]

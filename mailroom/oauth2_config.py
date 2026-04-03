@@ -42,7 +42,7 @@ class OAuth2Config:
         self.scopes = scopes
         self._client_id = client_id
         self._client_secret = client_secret
-        self._client_config = None
+        self._client_config: Optional[Dict[str, Any]] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "OAuth2Config":
@@ -153,8 +153,9 @@ class OAuth2Config:
 
         try:
             with open(credentials_path) as f:
-                self._client_config = json.load(f)
-            return self._client_config
+                config: Dict[str, Any] = json.load(f)
+            self._client_config = config
+            return config
         except json.JSONDecodeError:
             raise ValueError(f"Invalid credentials file: {self.credentials_file}")
 
@@ -165,7 +166,7 @@ class OAuth2Config:
             return self._client_id
 
         config = self.load_client_config()
-        return config.get("installed", {}).get("client_id", "")
+        return str(config.get("installed", {}).get("client_id", ""))
 
     @property
     def client_secret(self) -> str:
@@ -174,4 +175,4 @@ class OAuth2Config:
             return self._client_secret
 
         config = self.load_client_config()
-        return config.get("installed", {}).get("client_secret", "")
+        return str(config.get("installed", {}).get("client_secret", ""))

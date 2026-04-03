@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import imapclient
+import imapclient  # type: ignore[import-untyped]
 
 from mailroom.config import ImapConfig
 from mailroom.models import Email
@@ -28,17 +28,25 @@ class ImapClient:
         """
         self.config = config
         self.allowed_folders = set(allowed_folders) if allowed_folders else None
-        self.client = None
+        self.client: Optional[imapclient.IMAPClient] = None
         self.folder_cache: Dict[str, List[str]] = {}
         self.connected = False
         self.count_cache: Dict[str, Dict[str, Tuple[int, datetime]]] = (
             {}
         )  # Cache for message counts
-        self.current_folder = None  # Store the currently selected folder
-        self.folder_message_counts = {}  # Cache for folder message counts
+        self.current_folder: Optional[str] = None  # Store the currently selected folder
+        self.folder_message_counts: Dict[str, int] = (
+            {}
+        )  # Cache for folder message counts
         self.last_activity: Optional[datetime] = (
             None  # Track last successful IMAP operation
         )
+
+    def _client_or_raise(self) -> imapclient.IMAPClient:
+        """Return the underlying IMAPClient, raising if not connected."""
+        if self.client is None:
+            raise ConnectionError("Not connected to IMAP server")
+        return self.client
 
     def connect(self) -> None:
         """Connect to IMAP server.
@@ -191,7 +199,7 @@ class ImapClient:
             ConnectionError: If not connected and connection fails
         """
         self.ensure_connected()
-        raw_capabilities = self.client.capabilities()
+        raw_capabilities = self._client_or_raise().capabilities()
 
         # Convert byte strings to regular strings and normalize case
         capabilities = []
@@ -223,7 +231,7 @@ class ImapClient:
 
         # Get folders from server
         folders = []
-        for flags, delimiter, name in self.client.list_folders():
+        for flags, delimiter, name in self._client_or_raise().list_folders():
             if isinstance(name, bytes):
                 # Convert bytes to string if necessary
                 name = name.decode("utf-8")
@@ -276,7 +284,9 @@ class ImapClient:
         self.ensure_connected()
 
         try:
-            result = self.client.select_folder(folder, readonly=readonly)
+            result: Dict[Any, Any] = self._client_or_raise().select_folder(
+                folder, readonly=readonly
+            )
             self.current_folder = folder
             self._update_activity()
             logger.debug(f"Selected folder '{folder}'")
@@ -287,7 +297,7 @@ class ImapClient:
 
     def search(
         self,
-        criteria: Union[str, List, Tuple],
+        criteria: Union[str, List[Any], Tuple[Any, ...]],
         folder: str = "INBOX",
         charset: Optional[str] = None,
     ) -> List[int]:
@@ -307,9 +317,10 @@ class ImapClient:
         self.ensure_connected()
         self.select_folder(folder, readonly=True)
 
+        resolved_criteria: Union[str, List[Any], Tuple[Any, ...]] = criteria
         if isinstance(criteria, str):
             # Predefined criteria strings
-            criteria_map = {
+            criteria_map: Dict[str, Union[str, List[Any]]] = {
                 "all": "ALL",
                 "unseen": "UNSEEN",
                 "seen": "SEEN",
@@ -332,9 +343,9 @@ class ImapClient:
             }
 
             if criteria.lower() in criteria_map:
-                criteria = criteria_map[criteria.lower()]
+                resolved_criteria = criteria_map[criteria.lower()]
 
-        results = self.client.search(criteria, charset=charset)
+        results = self._client_or_raise().search(resolved_criteria, charset=charset)
         self._update_activity()
         logger.debug(f"Search returned {len(results)} results")
         return list(results)
@@ -357,7 +368,7 @@ class ImapClient:
 
         # Fetch message data with BODY.PEEK[] to get all parts including headers
         # Using BODY.PEEK[] instead of RFC822 to avoid setting the \Seen flag
-        result = self.client.fetch([uid], ["BODY.PEEK[]", "FLAGS"])
+        result = self._client_or_raise().fetch([uid], ["BODY.PEEK[]", "FLAGS"])
 
         if not result or uid not in result:
             logger.warning(f"Message with UID {uid} not found in folder {folder}")
@@ -410,7 +421,7 @@ class ImapClient:
             return {}
 
         # Use BODY.PEEK[] to get full message including all parts and headers
-        result = self.client.fetch(uids, ["BODY.PEEK[]", "FLAGS"])
+        result = self._client_or_raise().fetch(uids, ["BODY.PEEK[]", "FLAGS"])
 
         # Parse emails
         emails = {}
@@ -588,11 +599,12 @@ class ImapClient:
         self.select_folder(folder)
 
         try:
+            client = self._client_or_raise()
             if value:
-                self.client.add_flags([uid], flag)
+                client.add_flags([uid], flag)
                 logger.debug(f"Added flag {flag} to message {uid}")
             else:
-                self.client.remove_flags([uid], flag)
+                client.remove_flags([uid], flag)
                 logger.debug(f"Removed flag {flag} from message {uid}")
             self._update_activity()
             return True
@@ -629,9 +641,10 @@ class ImapClient:
 
         try:
             # Move email (copy + delete)
-            self.client.copy([uid], target_folder)
-            self.client.add_flags([uid], r"\Deleted")
-            self.client.expunge()
+            client = self._client_or_raise()
+            client.copy([uid], target_folder)
+            client.add_flags([uid], r"\Deleted")
+            client.expunge()
             self._update_activity()
             logger.debug(f"Moved message {uid} from {source_folder} to {target_folder}")
             return True
@@ -656,8 +669,9 @@ class ImapClient:
         self.select_folder(folder)
 
         try:
-            self.client.add_flags([uid], r"\Deleted")
-            self.client.expunge()
+            client = self._client_or_raise()
+            client.add_flags([uid], r"\Deleted")
+            client.expunge()
             self._update_activity()
             logger.debug(f"Deleted message {uid} from {folder}")
             return True
@@ -746,7 +760,7 @@ class ImapClient:
         logger.warning("No drafts folder found, using INBOX as fallback")
         return "INBOX"
 
-    def save_draft_mime(self, message) -> Optional[int]:
+    def save_draft_mime(self, message: Any) -> Optional[int]:
         """Save a MIME message as a draft.
 
         Args:
@@ -771,7 +785,7 @@ class ImapClient:
                 message_bytes = message.as_string().encode("utf-8")
 
             # Save the draft with Draft flag
-            response = self.client.append(
+            response = self._client_or_raise().append(
                 drafts_folder, message_bytes, flags=(r"\Draft",)
             )
 
@@ -838,7 +852,7 @@ class ImapClient:
                 if not uids:
                     continue
                 self.select_folder(current_folder, readonly=True)
-                date_data = self.client.fetch(uids, ["INTERNALDATE"])
+                date_data = self._client_or_raise().fetch(uids, ["INTERNALDATE"])
                 for uid, data in date_data.items():
                     dt = data.get(b"INTERNALDATE")
                     iso = dt.isoformat() if dt else "0"

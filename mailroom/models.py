@@ -2,6 +2,7 @@
 
 import base64
 import email
+import email.utils
 import html
 import logging
 import os
@@ -10,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from email.header import decode_header
 from email.message import Message
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +127,10 @@ class EmailAttachment:
             ext = part.get_content_type().split("/")[-1]
             filename = f"attachment.{ext}"
 
-        content = part.get_payload(decode=True)
+        raw_payload = part.get_payload(decode=True)
+        content: Optional[bytes] = (
+            raw_payload if isinstance(raw_payload, bytes) else None
+        )
         content_type = part.get_content_type()
 
         # Extract Content-ID properly, removing angle brackets if present
@@ -258,16 +262,21 @@ class Email:
 
         # Parse content and attachments
         content = EmailContent()
-        attachments = []
+        attachments: List[EmailAttachment] = []
 
         # Process the email body
         if message.is_multipart():
             # Create a recursive function to handle nested multipart messages
-            def process_part(part, content, attachments):
+            def process_part(
+                part: Message,
+                content: EmailContent,
+                attachments: List[EmailAttachment],
+            ) -> None:
                 if part.is_multipart():
                     # Recursively process each subpart
                     for subpart in part.get_payload():
-                        process_part(subpart, content, attachments)
+                        if isinstance(subpart, Message):
+                            process_part(subpart, content, attachments)
                 else:
                     content_type = part.get_content_type()
                     content_disposition = part.get("Content-Disposition", "")
@@ -288,10 +297,11 @@ class Email:
                         if not content.text:
                             try:
                                 charset = part.get_content_charset() or "utf-8"
-                                text = part.get_payload(decode=True).decode(
-                                    charset, errors="replace"
-                                )
-                                content.text = text
+                                payload = part.get_payload(decode=True)
+                                if isinstance(payload, bytes):
+                                    content.text = payload.decode(
+                                        charset, errors="replace"
+                                    )
                             except Exception as e:
                                 content.text = (
                                     f"[Error decoding plain text content: {e}]"
@@ -302,10 +312,11 @@ class Email:
                         if not content.html:
                             try:
                                 charset = part.get_content_charset() or "utf-8"
-                                html_content = part.get_payload(decode=True).decode(
-                                    charset, errors="replace"
-                                )
-                                content.html = html_content
+                                payload = part.get_payload(decode=True)
+                                if isinstance(payload, bytes):
+                                    content.html = payload.decode(
+                                        charset, errors="replace"
+                                    )
                             except Exception as e:
                                 content.html = f"[Error decoding HTML content: {e}]"
 
@@ -318,17 +329,17 @@ class Email:
             if content_type == "text/plain":
                 try:
                     charset = message.get_content_charset() or "utf-8"
-                    content.text = message.get_payload(decode=True).decode(
-                        charset, errors="replace"
-                    )
+                    payload = message.get_payload(decode=True)
+                    if isinstance(payload, bytes):
+                        content.text = payload.decode(charset, errors="replace")
                 except Exception as e:
                     content.text = f"[Error decoding plain text content: {e}]"
             elif content_type == "text/html":
                 try:
                     charset = message.get_content_charset() or "utf-8"
-                    content.html = message.get_payload(decode=True).decode(
-                        charset, errors="replace"
-                    )
+                    payload = message.get_payload(decode=True)
+                    if isinstance(payload, bytes):
+                        content.html = payload.decode(charset, errors="replace")
                 except Exception as e:
                     content.html = f"[Error decoding HTML content: {e}]"
             else:
@@ -393,16 +404,17 @@ class Email:
         if not cid_map:
             return html_str
 
-        def replace_cid(match: re.Match) -> str:
+        def replace_cid(match: re.Match[str]) -> str:
             quote = match.group(1)
             cid = match.group(2)
             if cid in cid_map:
                 att = cid_map[cid]
+                assert att.content is not None  # guarded by cid_map construction
                 b64 = base64.b64encode(att.content).decode("ascii")
                 data_uri = f"data:{att.content_type};base64,{b64}"
                 return f"src={quote}{data_uri}{quote}"
             logger.warning(f"Inline image CID not found: {cid}")
-            return match.group(0)
+            return str(match.group(0))
 
         return re.sub(r'src=(["\'])cid:([^"\']+)\1', replace_cid, html_str)
 
@@ -531,7 +543,7 @@ class Email:
 
 
 def extract_links_batch(
-    fetch_fn,
+    fetch_fn: Callable[[int, str], Optional["Email"]],
     folder: str,
     uids: List[int],
 ) -> List[Dict[str, Any]]:

@@ -8,7 +8,7 @@ importing the mcp package.
 import json
 import logging
 import sys
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import typer
 
@@ -118,11 +118,12 @@ def list_accounts() -> None:
 def server_status() -> None:
     """Show IMAP server status and configuration."""
     cfg = load_config(_config_path)
-    status = {
+    accounts_map: Dict[str, Any] = {}
+    status: Dict[str, Any] = {
         "server": "Mailroom",
         "version": "0.2.0",
         "default_account": cfg.default_account,
-        "accounts": {},
+        "accounts": accounts_map,
     }
     for name, acct in cfg.accounts.items():
         status["accounts"][name] = {

@@ -252,10 +252,11 @@ def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
             }
         }
 
-        if os.environ.get("IMAP_ALLOWED_FOLDERS"):
-            config_data["accounts"]["default"]["allowed_folders"] = os.environ.get(
-                "IMAP_ALLOWED_FOLDERS"
-            ).split(",")
+        allowed_folders_env = os.environ.get("IMAP_ALLOWED_FOLDERS")
+        if allowed_folders_env:
+            config_data["accounts"]["default"]["allowed_folders"] = (
+                allowed_folders_env.split(",")
+            )
 
     return config_data
 

@@ -45,7 +45,7 @@ def setup_app_password(
     return config_data
 
 
-def main():
+def main() -> None:
     """Run the Gmail app password setup tool."""
     import argparse
 

@@ -2,11 +2,10 @@
 
 import json
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from mcp.server.fastmcp import Context, FastMCP
 
-import mailroom.smtp_client as smtp_client
 from mailroom.imap_client import ImapClient
 from mailroom.query_parser import parse_query
 
@@ -26,7 +25,7 @@ def get_client_from_context(ctx: Context, account: Optional[str] = None) -> Imap
     Raises:
         RuntimeError: If IMAP client is not available or account is unknown
     """
-    lc = ctx.request_context.lifespan_context
+    lc: Any = ctx.request_context.lifespan_context
 
     # Multi-account path
     clients = lc.get("imap_clients")
@@ -36,16 +35,18 @@ def get_client_from_context(ctx: Context, account: Optional[str] = None) -> Imap
         if key not in clients:
             available = list(clients.keys())
             raise RuntimeError(f"Unknown account '{key}'. Available: {available}")
-        return clients[key]
+        client: ImapClient = clients[key]
+        return client
 
     # Legacy single-client path (kept for tests that inject "imap_client" directly)
-    client = lc.get("imap_client")
-    if not client:
+    legacy_client = lc.get("imap_client")
+    if not legacy_client:
         raise RuntimeError("IMAP client not available")
-    return client
+    result: ImapClient = legacy_client
+    return result
 
 
-def get_smtp_client_from_context(ctx: Context) -> smtp_client:
+def get_smtp_client_from_context(ctx: Context) -> Any:
     """Get SMTP client from context.
 
     Args:
@@ -57,7 +58,8 @@ def get_smtp_client_from_context(ctx: Context) -> smtp_client:
     Raises:
         RuntimeError: If SMTP client is not available
     """
-    client = ctx.request_context.lifespan_context.get("smtp_client")
+    lc: Any = ctx.request_context.lifespan_context
+    client = lc.get("smtp_client")
     if not client:
         raise RuntimeError("SMTP client not available")
     return client
@@ -168,7 +170,7 @@ def register_resources(mcp: FastMCP, imap_client: ImapClient) -> None:
             except Exception as e:
                 logger.warning(f"Error searching folder {folder}: {e}")
 
-        results.sort(key=lambda x: x.get("date") or "0", reverse=True)
+        results.sort(key=lambda x: str(x.get("date") or "0"), reverse=True)
         return json.dumps(results, indent=2)
 
     # Get a specific email by UID
