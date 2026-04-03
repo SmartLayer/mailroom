@@ -54,6 +54,9 @@ Issues = "https://github.com/SmartLayer/mailroom/issues"
 [tool.setuptools]
 packages = ["mailroom"]
 
+[project.scripts]
+imap-mcp = "imap_mcp.server:main"
+
 [tool.black]
 line-length = 88
 target-version = ["py310"]
