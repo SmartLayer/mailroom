@@ -570,7 +570,7 @@ def test_gmail_invalid_folder(gmail_client: ImapClient):
 @pytest.mark.gmail
 @pytest.mark.oauth2
 def test_gmail_invalid_search(gmail_client: ImapClient):
-    """Test handling of invalid search criteria."""
+    """Test handling of invalid IMAP search commands."""
     gmail_client.select_folder("INBOX")
     
     invalid_search = "INVALID_CRITERION"

@@ -55,7 +55,7 @@ Gmail OAuth2 setup requires a Google Cloud project with the Gmail API enabled. S
 With uv (any platform):
 
 ```bash
-uvx mailroom search-emails "invoice" --criteria subject
+uvx mailroom search-emails "subject:invoice"
 ```
 
 No installation step — `uvx` runs it directly. To install permanently:
@@ -72,7 +72,7 @@ sudo apt-get install python3-typer python3-dotenv python3-imapclient python3-req
 Then you can run it directly without uv
 
 ```bash
-python3 -m mailroom search-emails "invoice" --criteria subject
+python3 -m mailroom search-emails "subject:invoice"
 ```
 
 Mailroom looks for a config file automatically in these locations (in order):
@@ -90,10 +90,10 @@ Every command outputs JSON to stdout. Errors go to stderr. This makes Mailroom c
 
 ```bash
 # What's unread?
-mailroom search-emails --criteria unseen --folder INBOX --limit 10
+mailroom search-emails "is:unread" --folder INBOX --limit 10
 
 # Search by subject across all folders
-mailroom search-emails "hotel booking" --criteria subject
+mailroom search-emails 'subject:"hotel booking"'
 
 # Read an email's attachments, then download one
 mailroom list-attachments INBOX 4523
@@ -131,13 +131,13 @@ This starts an MCP server exposing the same operations as tools. The MCP package
 Because every command returns JSON and uses non-zero exit codes on failure, Mailroom works as a building block in pipelines and cron jobs. A few patterns:
 
 ```bash
-# Forward all unread emails from a sender to another address
-mailroom search-emails "sender@example.com" --criteria from --folder INBOX \
+# Forward all emails from a sender to another folder
+mailroom search-emails "from:sender@example.com" --folder INBOX \
   | jq -r '.[].uid' \
   | xargs -I{} mailroom move-email INBOX {} Forwarded
 
 # Daily digest: save today's unread subjects to a file
-mailroom search-emails --criteria unseen --folder INBOX \
+mailroom search-emails "is:unread" --folder INBOX \
   | jq -r '.[].subject' > ~/daily-digest.txt
 ```
 
@@ -166,7 +166,7 @@ password = "YOUR_APP_PASSWORD"
 Select an account with `-a`:
 
 ```bash
-mailroom -a work search-emails --criteria unseen
+mailroom -a work search-emails "is:unread"
 ```
 
 ## Connection handling

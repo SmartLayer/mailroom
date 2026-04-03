@@ -189,17 +189,22 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
     @mcp.tool()
     async def search_emails(
         query: Union[str, int], ctx: Context,
-        folder: Optional[str] = None, criteria: str = "text",
+        folder: Optional[str] = None,
         limit: int = 10, account: Optional[str] = None,
     ) -> str:
-        """Search for emails.
+        """Search for emails using Gmail-style query syntax.
 
         Args:
-            query: Search query (numeric IDs are converted to strings).
-                   For 'raw' criteria, provide the complete IMAP search expression.
+            query: Gmail-style search query (numeric IDs are converted to strings).
+                   Prefixes: from: to: cc: subject: body:
+                   Flags: is:unread is:read is:flagged is:starred is:answered
+                   Dates: after:YYYY-MM-DD before:YYYY-MM-DD on:YYYY-MM-DD
+                   Relative: newer:3d older:7d newer:2w older:1m
+                   Bare words search message text.
+                   Boolean: 'or' between terms, '-' or 'not' for negation.
+                   Raw IMAP: prefix with 'imap:' (e.g. 'imap:OR TEXT foo SUBJECT bar').
+                   Keywords: all, today, yesterday, week, month.
             folder: Folder to search in (None for all folders)
-            criteria: Search criteria (text, from, to, subject, all, unseen, seen, raw).
-                     Use 'raw' for complex IMAP expressions with OR/AND/NOT operators.
             limit: Maximum number of results
             ctx: MCP context
             account: Account name (None for default account)
@@ -211,14 +216,14 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         try:
             results = await asyncio.wait_for(
                 asyncio.to_thread(
-                    client.search_emails, str(query), criteria,
+                    client.search_emails, str(query),
                     folder=folder, limit=limit,
                 ),
                 timeout=30.0,
             )
             return json.dumps(results, indent=2, default=str)
         except asyncio.TimeoutError:
-            error_msg = f"Email search timed out after 30 seconds (query={query}, criteria={criteria}, folder={folder})"
+            error_msg = f"Email search timed out after 30 seconds (query={query}, folder={folder})"
             logger.error(error_msg)
             return json.dumps({"error": error_msg, "results": []})
         except ValueError as e:

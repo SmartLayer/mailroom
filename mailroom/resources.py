@@ -8,6 +8,7 @@ from mcp.server.fastmcp import FastMCP, Context
 
 from mailroom.imap_client import ImapClient
 from mailroom.models import Email
+from mailroom.query_parser import parse_query
 import mailroom.smtp_client as smtp_client
 
 logger = logging.getLogger(__name__)
@@ -125,36 +126,26 @@ def register_resources(mcp: FastMCP, imap_client: ImapClient) -> None:
     # Search emails across folders
     @mcp.resource("email://search/{query}")
     async def search_emails(query: str) -> str:
-        """Search for emails across folders.
-        
+        """Search for emails across folders using Gmail-style query syntax.
+
         Args:
-            query: Search query (format depends on search mode)
-            
+            query: Gmail-style search query (e.g. ``from:alice``,
+                   ``is:unread``, ``meeting notes``).
+
         Returns:
             JSON-formatted list of email summaries
         """
-        # Get all folders
+        search_spec = parse_query(query)
         folders = imap_client.list_folders()
         results = []
-        
+
         for folder in folders:
             try:
-                # Customize the search criteria based on the query
-                if query.lower() in ["all", "unseen", "seen", "today", "week", "month"]:
-                    # Predefined searches
-                    uids = imap_client.search(query, folder=folder)
-                else:
-                    # Text search
-                    uids = imap_client.search(["TEXT", query], folder=folder)
-                
-                # Limit results per folder
+                uids = imap_client.search(search_spec, folder=folder)
                 uids = sorted(uids, reverse=True)[:10]
-                
+
                 if uids:
-                    # Fetch emails
                     emails = imap_client.fetch_emails(uids, folder=folder)
-                    
-                    # Create summaries
                     for uid, email_obj in emails.items():
                         results.append({
                             "uid": uid,
@@ -168,13 +159,8 @@ def register_resources(mcp: FastMCP, imap_client: ImapClient) -> None:
                         })
             except Exception as e:
                 logger.warning(f"Error searching folder {folder}: {e}")
-        
-        # Sort results by date (newest first)
-        results.sort(
-            key=lambda x: x.get("date") or "0", 
-            reverse=True
-        )
-        
+
+        results.sort(key=lambda x: x.get("date") or "0", reverse=True)
         return json.dumps(results, indent=2)
     
     # Get a specific email by UID

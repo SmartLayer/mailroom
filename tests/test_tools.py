@@ -9,6 +9,7 @@ from mcp.server.fastmcp import FastMCP, Context
 
 from mailroom.imap_client import ImapClient
 from mailroom.models import Email, EmailAddress, EmailContent
+from mailroom.query_parser import parse_query
 from mailroom.tools import register_tools
 
 
@@ -212,28 +213,28 @@ class TestTools:
         ]
         mock_client.search_emails.return_value = sample_results
 
-        # Test default parameters
+        # Test default parameters — bare words become TEXT search
         result = await search_emails("test query", mock_context)
         result_data = json.loads(result)
         assert isinstance(result_data, list)
         assert len(result_data) == 1
         assert result_data[0]["subject"] == "Test Email"
         mock_client.search_emails.assert_called_once_with(
-            "test query", "text", folder=None, limit=10,
+            "test query", folder=None, limit=10,
         )
 
-        # Test with specific folder and criteria
+        # Test with specific folder and Gmail-style query
         mock_client.search_emails.reset_mock()
-        result = await search_emails("test query", mock_context, folder="INBOX", criteria="from")
+        result = await search_emails("from:sender@example.com", mock_context, folder="INBOX")
         mock_client.search_emails.assert_called_once_with(
-            "test query", "from", folder="INBOX", limit=10,
+            "from:sender@example.com", folder="INBOX", limit=10,
         )
 
-        # Test with invalid criteria — client.search_emails raises ValueError
+        # Test with invalid query — client.search_emails raises ValueError
         mock_client.search_emails.reset_mock()
-        mock_client.search_emails.side_effect = ValueError("Invalid search criteria: invalid")
-        result = await search_emails("test query", mock_context, criteria="invalid")
-        assert "Invalid search criteria" in result
+        mock_client.search_emails.side_effect = ValueError("Unknown is: keyword: 'bogus'")
+        result = await search_emails("is:bogus", mock_context)
+        assert "Unknown is: keyword" in result
         mock_client.search_emails.side_effect = None
 
         # Test numeric query is coerced to string
@@ -241,12 +242,12 @@ class TestTools:
         mock_client.search_emails.return_value = sample_results
         result = await search_emails(69172700, mock_context, folder="INBOX")
         mock_client.search_emails.assert_called_once_with(
-            "69172700", "text", folder="INBOX", limit=10,
+            "69172700", folder="INBOX", limit=10,
         )
 
     @pytest.mark.asyncio
-    async def test_search_emails_raw_criteria(self, tools, mock_client, mock_context, mock_email):
-        """Test searching with raw IMAP criteria delegates to client.search_emails."""
+    async def test_search_emails_raw_imap(self, tools, mock_client, mock_context, mock_email):
+        """Test searching with raw IMAP via imap: prefix delegates to client.search_emails."""
         search_emails = tools["search_emails"]
 
         sample_results = [
@@ -256,11 +257,11 @@ class TestTools:
         ]
         mock_client.search_emails.return_value = sample_results
 
-        result = await search_emails("TEXT Edinburgh", mock_context, folder="INBOX", criteria="raw")
+        result = await search_emails("imap:TEXT Edinburgh", mock_context, folder="INBOX")
         result_data = json.loads(result)
         assert isinstance(result_data, list)
         mock_client.search_emails.assert_called_once_with(
-            "TEXT Edinburgh", "raw", folder="INBOX", limit=10,
+            "imap:TEXT Edinburgh", folder="INBOX", limit=10,
         )
 
     @pytest.mark.asyncio
@@ -338,10 +339,10 @@ class TestTools:
         search_emails = tools["search_emails"]
         process_email = tools["process_email"]
         
-        # Test search_emails with invalid criteria — client raises ValueError
-        mock_client.search_emails.side_effect = ValueError("Invalid search criteria: invalid_criteria")
-        result = await search_emails("test", mock_context, criteria="invalid_criteria")
-        assert "Invalid search criteria" in result
+        # Test search_emails with invalid query — client raises ValueError
+        mock_client.search_emails.side_effect = ValueError("Unknown is: keyword: 'bogus'")
+        result = await search_emails("is:bogus", mock_context)
+        assert "Unknown is: keyword" in result
         mock_client.search_emails.side_effect = None
         
         # Test process_email with missing target folder for move action
@@ -356,58 +357,55 @@ class TestTools:
         mock_client.process_email_action.side_effect = None
 
 
-class TestRawImapCriteriaParsing:
-    """Test the ImapClient.parse_raw_criteria helper function."""
-    
+class TestRawImapPassthrough:
+    """Test the imap: escape hatch via parse_query."""
+
     def test_parse_simple_single_keyword(self):
         """Test parsing simple single-keyword queries."""
-        assert ImapClient.parse_raw_criteria("ALL") == "ALL"
-        assert ImapClient.parse_raw_criteria("UNSEEN") == "UNSEEN"
-        assert ImapClient.parse_raw_criteria("SEEN") == "SEEN"
-    
+        assert parse_query("imap:ALL") == "ALL"
+        assert parse_query("imap:UNSEEN") == "UNSEEN"
+        assert parse_query("imap:SEEN") == "SEEN"
+
     def test_parse_simple_text_search(self):
         """Test parsing simple TEXT searches."""
-        result = ImapClient.parse_raw_criteria("TEXT Edinburgh")
+        result = parse_query("imap:TEXT Edinburgh")
         assert result == ["TEXT", "Edinburgh"]
-        
-        result = ImapClient.parse_raw_criteria('TEXT "booking confirmation"')
+
+        result = parse_query('imap:TEXT "booking confirmation"')
         assert result == ["TEXT", "booking confirmation"]
-    
+
     def test_parse_simple_or_expression(self):
         """Test parsing simple OR expressions."""
-        result = ImapClient.parse_raw_criteria('OR TEXT "Edinburgh" TEXT "Berlin"')
+        result = parse_query('imap:OR TEXT "Edinburgh" TEXT "Berlin"')
         assert result == ["OR", "TEXT", "Edinburgh", "TEXT", "Berlin"]
-    
+
     def test_parse_nested_or_expression(self):
         """Test parsing nested OR expressions."""
-        result = ImapClient.parse_raw_criteria('OR TEXT "Edinburgh" OR TEXT "Berlin" TEXT "Munich"')
+        result = parse_query('imap:OR TEXT "Edinburgh" OR TEXT "Berlin" TEXT "Munich"')
         assert result == ["OR", "TEXT", "Edinburgh", "OR", "TEXT", "Berlin", "TEXT", "Munich"]
-    
+
     def test_parse_complex_travel_query(self):
-        """Test parsing the complex travel booking query from the example."""
-        query = 'OR TEXT "Edinburgh" OR TEXT "Berlin" OR TEXT "Munich" OR TEXT "Vienna" OR TEXT "Warsaw" OR TEXT "itinerary" OR TEXT "booking confirmation" OR TEXT "e-ticket" OR TEXT "reservation" OR TEXT "receipt" OR TEXT "ticket" TEXT "order"'
-        result = ImapClient.parse_raw_criteria(query)
-        
-        # Verify it's a list
+        """Test parsing the complex travel booking query."""
+        query = 'imap:OR TEXT "Edinburgh" OR TEXT "Berlin" OR TEXT "Munich" OR TEXT "Vienna" OR TEXT "Warsaw" OR TEXT "itinerary" OR TEXT "booking confirmation" OR TEXT "e-ticket" OR TEXT "reservation" OR TEXT "receipt" OR TEXT "ticket" TEXT "order"'
+        result = parse_query(query)
+
         assert isinstance(result, list)
-        
-        # Verify key elements are present
         assert "OR" in result
         assert "TEXT" in result
         assert "Edinburgh" in result
         assert "Berlin" in result
         assert "booking confirmation" in result
         assert "order" in result
-    
-    def test_parse_from_subject_criteria(self):
-        """Test parsing FROM and SUBJECT criteria."""
-        result = ImapClient.parse_raw_criteria('FROM "john@example.com"')
+
+    def test_parse_from_subject(self):
+        """Test parsing FROM and SUBJECT via raw passthrough."""
+        result = parse_query('imap:FROM "john@example.com"')
         assert result == ["FROM", "john@example.com"]
-        
-        result = ImapClient.parse_raw_criteria('SUBJECT "meeting"')
+
+        result = parse_query('imap:SUBJECT "meeting"')
         assert result == ["SUBJECT", "meeting"]
-    
-    def test_parse_combined_criteria(self):
+
+    def test_parse_combined(self):
         """Test parsing combined criteria without OR."""
-        result = ImapClient.parse_raw_criteria('SEEN FROM gmail')
+        result = parse_query("imap:SEEN FROM gmail")
         assert result == ["SEEN", "FROM", "gmail"]

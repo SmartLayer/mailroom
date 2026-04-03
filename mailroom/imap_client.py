@@ -3,7 +3,6 @@
 import email
 import logging
 import re
-import shlex
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -12,6 +11,7 @@ import imapclient
 from mailroom.config import ImapConfig
 from mailroom.models import Email
 from mailroom.oauth2 import get_access_token
+from mailroom.query_parser import parse_query
 
 logger = logging.getLogger(__name__)
 
@@ -36,29 +36,6 @@ class ImapClient:
         self.folder_message_counts = {}  # Cache for folder message counts
         self.last_activity: Optional[datetime] = None  # Track last successful IMAP operation
     
-    @staticmethod
-    def parse_raw_criteria(raw_query: str) -> Union[str, List]:
-        """Parse a raw IMAP search query string into imapclient format.
-
-        Converts e.g. ``"OR TEXT 'foo' SUBJECT 'bar'"`` into
-        ``['OR', 'TEXT', 'foo', 'SUBJECT', 'bar']``.
-
-        Returns a plain string for single-keyword queries (``"ALL"``),
-        or a list for multi-token queries.
-        """
-        try:
-            tokens = shlex.split(raw_query)
-        except ValueError as e:
-            logger.warning(
-                f"Failed to parse raw IMAP query with shlex: {e}. "
-                "Falling back to simple split."
-            )
-            tokens = raw_query.split()
-
-        if len(tokens) == 1:
-            return tokens[0]
-        return tokens
-
     def connect(self) -> None:
         """Connect to IMAP server.
 
@@ -812,17 +789,19 @@ class ImapClient:
     def search_emails(
         self,
         query: str,
-        criteria: str = "text",
         folder: Optional[str] = None,
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
         """High-level email search across one or all folders.
 
+        Uses Gmail-style query syntax::
+
+            from:alice subject:invoice is:unread after:2025-03-01
+            meeting notes                     # bare words → TEXT search
+            imap:OR TEXT foo SUBJECT bar       # raw IMAP passthrough
+
         Args:
-            query: Search query string. For ``raw`` criteria this is the full
-                   IMAP search expression.
-            criteria: One of text, from, to, subject, all, unseen, seen,
-                      today, week, month, raw.
+            query: Gmail-style search query string.
             folder: Folder to search (``None`` searches all folders).
             limit: Maximum number of results.
 
@@ -831,33 +810,9 @@ class ImapClient:
             uid, folder, from, to, subject, date, flags, has_attachments.
 
         Raises:
-            ValueError: If *criteria* is not recognised.
+            ValueError: On malformed queries.
         """
-        criteria_map = {
-            "text": ["TEXT", query],
-            "from": ["FROM", query],
-            "to": ["TO", query],
-            "subject": ["SUBJECT", query],
-            "all": "ALL",
-            "unseen": "UNSEEN",
-            "seen": "SEEN",
-            "today": "today",
-            "week": "week",
-            "month": "month",
-            "raw": "raw",
-        }
-
-        key = criteria.lower()
-        if key not in criteria_map:
-            raise ValueError(
-                f"Invalid search criteria: {criteria}. "
-                f"Valid options: {', '.join(criteria_map)}"
-            )
-
-        if key == "raw":
-            search_spec = self.parse_raw_criteria(query)
-        else:
-            search_spec = criteria_map[key]
+        search_spec = parse_query(query)
 
         folders_to_search = [folder] if folder else self.list_folders()
         results: List[Dict[str, Any]] = []

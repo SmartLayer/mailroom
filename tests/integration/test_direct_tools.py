@@ -62,68 +62,55 @@ class TestDirectToolsIntegration:
     @pytest.mark.asyncio
     async def test_search_unread_emails(self, imap_client):
         """Test searching for unread emails using the search_emails tool directly."""
-        # Search for unread emails in INBOX
         results = await search_emails_tool(
-            query="",
+            query="is:unread",
             folder="INBOX",
-            criteria="unseen",
             limit=10
         )
-        
-        # Parse the JSON result
+
         try:
             results_dict = json.loads(results)
             logger.info(f"Search results: {json.dumps(results_dict, indent=2)}")
-            
-            # Verify the result structure
+
             assert isinstance(results_dict, list), "Expected list of results"
-            
-            # Log the number of unread emails found
             logger.info(f"Found {len(results_dict)} unread emails in INBOX")
-            
-            # Check the fields in each result if there are any results
+
             if results_dict:
                 first_email = results_dict[0]
                 expected_fields = ["uid", "folder", "from", "subject", "date"]
                 for field in expected_fields:
                     assert field in first_email, f"Field '{field}' missing from email result"
-                
-                # Verify that emails are marked as unread
+
                 assert "\\Seen" not in first_email.get("flags", []), "Email should be unread (no \\Seen flag)"
-                
+
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse search results: {e}")
             logger.error(f"Raw results: {results}")
             pytest.fail(f"Invalid JSON returned from search_emails tool: {e}")
-    
+
     @pytest.mark.asyncio
-    async def test_search_with_different_criteria(self, imap_client):
-        """Test searching with different criteria using the search_emails tool."""
-        # Test cases with different search criteria
+    async def test_search_with_different_queries(self, imap_client):
+        """Test searching with different Gmail-style queries."""
         test_cases = [
-            ("", "all", "all emails"),
-            ("", "today", "emails from today"),
-            ("test", "subject", "emails with 'test' in subject"),
+            ("all", "all emails"),
+            ("today", "emails from today"),
+            ("subject:test", "emails with 'test' in subject"),
         ]
 
-        for query, criteria, description in test_cases:
+        for query, description in test_cases:
             logger.info(f"Testing search for {description}")
 
             results = await search_emails_tool(
                 query=query,
                 folder="INBOX",
-                criteria=criteria,
                 limit=5
             )
-            
-            # Parse and validate results
+
             try:
                 results_dict = json.loads(results)
                 logger.info(f"Found {len(results_dict)} {description}")
-                
-                # Basic validation
                 assert isinstance(results_dict, list), f"Expected list of results for {description}"
-                
+
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse search results for {description}: {e}")
                 logger.error(f"Raw results: {results}")

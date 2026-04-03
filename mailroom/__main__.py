@@ -136,16 +136,19 @@ def server_status() -> None:
 
 @app.command("search-emails")
 def search_emails(
-    query: str = typer.Argument("", help="Search query string."),
+    query: str = typer.Argument("", help=(
+        "Gmail-style search query. Examples: "
+        "'from:alice subject:invoice', 'is:unread after:2025-03-01', "
+        "'meeting notes' (bare words search text), "
+        "'imap:OR TEXT foo SUBJECT bar' (raw IMAP)."
+    )),
     folder: Optional[str] = typer.Option(None, "--folder", "-f", help="Folder to search (default: all)."),
-    criteria: str = typer.Option("subject", "--criteria", "-C",
-        help="Search criteria: text, from, to, subject, all, unseen, seen, today, week, month, raw."),
     limit: int = typer.Option(10, "--limit", "-n", help="Maximum number of results."),
 ) -> None:
     """Search for emails."""
     client = _make_client()
     try:
-        results = client.search_emails(query, criteria, folder=folder, limit=limit)
+        results = client.search_emails(query, folder=folder, limit=limit)
         _out(results)
     except ValueError as exc:
         typer.echo(str(exc), err=True)

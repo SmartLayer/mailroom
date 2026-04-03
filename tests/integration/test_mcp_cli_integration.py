@@ -224,9 +224,8 @@ def test_direct_email_search_command():
         "--server", "imap",
         "--tool", "search_emails", 
         "--args", json.dumps({
-            "query": "",
+            "query": "is:unread",
             "folder": "INBOX",
-            "criteria": "unseen",
             "limit": 5
         })
     ]
