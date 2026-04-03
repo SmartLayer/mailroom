@@ -65,6 +65,8 @@ def _make_client() -> ImapClient:
         available = list(cfg.accounts.keys())
         typer.echo(f"Error: unknown account '{name}'. Available: {available}", err=True)
         raise typer.Exit(1)
+    if not _account_name:
+        typer.echo(f"Using account '{name}'", err=True)
     acct = cfg.accounts[name]
     client = ImapClient(acct.imap, acct.allowed_folders)
     try:
