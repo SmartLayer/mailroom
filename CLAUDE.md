@@ -20,9 +20,9 @@
 - Run all tests: `uv run pytest`
 - Run single test: `uv run pytest tests/test_file.py::TestClass::test_function -v`
 - Run with coverage: `uv run pytest --cov`
-- Run MCP server: `mailroom mcp --config /path/to/config.toml`
-- Development mode: `mailroom mcp --config /path/to/config.toml --dev`
-- One-line execution with dependencies: `uvx mailroom mcp --config /path/to/config.toml`
+- Run MCP server: `mailroom mcp`
+- Development mode: `mailroom mcp --dev`
+- One-line execution with dependencies: `uvx mailroom mcp`
 
 ## Code Style Guidelines
 - Use Black with 88 character line length

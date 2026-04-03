@@ -191,7 +191,6 @@ def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
     default_locations = [
         Path("config.toml"),
         Path("~/.config/mailroom/config.toml"),
-        Path("/etc/mailroom/config.toml"),
     ]
 
     config_data: Dict[str, Any] = {}

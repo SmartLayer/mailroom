@@ -55,7 +55,7 @@ Gmail OAuth2 setup requires a Google Cloud project with the Gmail API enabled. S
 With uv (any platform):
 
 ```bash
-uvx mailroom --config config.toml search-emails "invoice" --criteria subject
+uvx mailroom search-emails "invoice" --criteria subject
 ```
 
 No installation step — `uvx` runs it directly. To install permanently:
@@ -64,7 +64,7 @@ No installation step — `uvx` runs it directly. To install permanently:
 uv tool install mailroom
 ```
 
-On Ubuntu 25.10 or later, the CLI dependencies are in the standard repositories. Install them, then run directly from a clone:
+On Ubuntu 25.04 or later, the CLI dependencies are in the standard repositories. Install them, then run directly from a clone:
 
 ```bash
 sudo apt-get install python3-typer python3-dotenv python3-imapclient python3-requests
@@ -72,8 +72,15 @@ sudo apt-get install python3-typer python3-dotenv python3-imapclient python3-req
 Then you can run it directly without uv
 
 ```bash
-python3 -m mailroom --config config.toml search-emails "invoice" --criteria subject
+python3 -m mailroom search-emails "invoice" --criteria subject
 ```
+
+Mailroom looks for a config file automatically in these locations (in order):
+
+1. `config.toml` in the current directory
+2. `~/.config/mailroom/config.toml`
+
+Use `--config /path/to/config.toml` only if your config is somewhere else.
 
 The MCP server (`mailroom mcp`) requires the `mcp` Python package, which is not in apt. Use `uv` or `pip` for that. Manuy people prefer to use cli instead of mcp as the latter loads 80+ tools into every conversation, in that case no need to install mcp package.
 
@@ -83,28 +90,28 @@ Every command outputs JSON to stdout. Errors go to stderr. This makes Mailroom c
 
 ```bash
 # What's unread?
-mailroom -c config.toml search-emails "" --criteria unseen --folder INBOX --limit 10
+mailroom search-emails "" --criteria unseen --folder INBOX --limit 10
 
 # Search by subject across all folders
-mailroom -c config.toml search-emails "hotel booking" --criteria subject
+mailroom search-emails "hotel booking" --criteria subject
 
 # Read an email's attachments, then download one
-mailroom -c config.toml list-attachments INBOX 4523
-mailroom -c config.toml download-attachment INBOX 4523 itinerary.pdf /tmp/itinerary.pdf
+mailroom list-attachments INBOX 4523
+mailroom download-attachment INBOX 4523 itinerary.pdf /tmp/itinerary.pdf
 
 # Export an HTML email as a standalone file (images embedded)
-mailroom -c config.toml export-email-html INBOX 4523 /tmp/email.html
+mailroom export-email-html INBOX 4523 /tmp/email.html
 
 # Extract all links from several emails (useful for phishing checks)
-mailroom -c config.toml extract-email-links INBOX 4523 4524 4525
+mailroom extract-email-links INBOX 4523 4524 4525
 
 # Draft a threaded reply
-mailroom -c config.toml draft-reply INBOX 4523 "Thanks, confirmed."
+mailroom draft-reply INBOX 4523 "Thanks, confirmed."
 
 # Organize
-mailroom -c config.toml move-email INBOX 4523 Archive
-mailroom -c config.toml mark-as-read INBOX 4524
-mailroom -c config.toml flag-email INBOX 4525
+mailroom move-email INBOX 4523 Archive
+mailroom mark-as-read INBOX 4524
+mailroom flag-email INBOX 4525
 ```
 
 Run `mailroom --help` for the full command list.
@@ -114,7 +121,7 @@ Run `mailroom --help` for the full command list.
 For AI environments that cannot run shell commands (Claude web, Cursor, or any MCP client):
 
 ```bash
-mailroom mcp --config config.toml
+mailroom mcp
 ```
 
 This starts an MCP server exposing the same operations as tools. The MCP package is only imported when this subcommand runs, so the CLI stays lightweight.
@@ -125,12 +132,12 @@ Because every command returns JSON and uses non-zero exit codes on failure, Mail
 
 ```bash
 # Forward all unread emails from a sender to another address
-mailroom -c config.toml search-emails "sender@example.com" --criteria from --folder INBOX \
+mailroom search-emails "sender@example.com" --criteria from --folder INBOX \
   | jq -r '.[].uid' \
-  | xargs -I{} mailroom -c config.toml move-email INBOX {} Forwarded
+  | xargs -I{} mailroom move-email INBOX {} Forwarded
 
 # Daily digest: save today's unread subjects to a file
-mailroom -c config.toml search-emails "" --criteria unseen --folder INBOX \
+mailroom search-emails "" --criteria unseen --folder INBOX \
   | jq -r '.[].subject' > ~/daily-digest.txt
 ```
 
@@ -159,7 +166,7 @@ password = "YOUR_APP_PASSWORD"
 Select an account with `-a`:
 
 ```bash
-mailroom -c config.toml -a work search-emails "" --criteria unseen
+mailroom -a work search-emails "" --criteria unseen
 ```
 
 ## Connection handling
