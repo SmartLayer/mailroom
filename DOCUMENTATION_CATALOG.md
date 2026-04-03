@@ -1,6 +1,6 @@
-# IMAP MCP Documentation Catalog
+# Mailroom Documentation Catalog
 
-This document provides a comprehensive overview of all documentation files in the IMAP MCP project. Use this catalog as your first reference point to find specific information about the project's setup, configuration, development practices, and workflows.
+This document provides a comprehensive overview of all documentation files in the Mailroom project. Use this catalog as your first reference point to find specific information about the project's setup, configuration, development practices, and workflows.
 
 ## Documentation Files
 

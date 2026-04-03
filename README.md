@@ -1,16 +1,12 @@
-# IMAP MCP Server
+# Mailroom
 
-An email toolkit for AI assistants, offering both a lightweight command-line interface and a full MCP server.
+Scriptable email access for humans and AI assistants.
 
 ## Overview
 
-This project provides two ways for an AI assistant to work with IMAP email:
+Mailroom is a command-line tool and Python library for working with IMAP email. It handles the things that raw IMAP makes painful: searching across folders, decoding MIME and base64, downloading attachments, exporting HTML emails with embedded images, extracting links, processing meeting invites, and drafting replies with proper threading headers. All commands output JSON, making them easy to pipe into `jq`, wrap in scripts, or call from an AI agent.
 
-1. **Command-line interface (CLI)** — a lightweight tool that an AI assistant invokes via a skill or shell command. It requires only a Python runtime and a few common packages; the `mcp` library is not in its import chain. This is the recommended default. Most conversations do not involve email at all, and among those that do, many need only a quick search or a single reply. The CLI keeps the cost proportional to the need: it is invoked only when the assistant decides to check or act on email, and it adds nothing to the context window beforehand.
-
-2. **MCP server** — a persistent process that exposes the same operations as MCP tools and resources. It is heavier: the MCP protocol itself consumes context on every turn, whether or not email is discussed. But it is the only option in deployment scenarios where the assistant cannot execute local commands — for instance, when running through the Claude web interface or another hosted MCP client.
-
-The two modes share the same domain code (`imap_client`, `models`, `config`). The difference is only in the entry point and the transport: the CLI reads arguments from the command line and writes JSON to stdout; the MCP server reads and writes MCP protocol messages.
+For environments where the assistant cannot execute local commands (e.g. Claude web interface), Mailroom also runs as an MCP server via `mailroom mcp`. The MCP mode exposes the same operations as MCP tools. The `mcp` package is not imported unless this subcommand is used.
 
 ### Capabilities
 
@@ -41,25 +37,17 @@ The two modes share the same domain code (`imap_client`, `models`, `config`). Th
 - **Interaction Patterns**: Structured patterns for processing emails and learning preferences (planned)
 - **Learning Layer**: Record and analyze user decisions to predict future actions (planned)
 
-## Command-Line Interface
-
-All MCP tools are also available as direct CLI commands, without running the MCP server. This is the recommended way to give an AI assistant access to email when it can execute local commands (e.g. via a skill in Claude Code). The CLI does not import the `mcp` package, so it can run under the system Python with only its own lightweight dependencies installed.
-
-### Invocation
-
-There are two equivalent ways to run the CLI:
+## Usage
 
 ```bash
 # Using the console_script entry point (requires pip/uv install):
-imap-mcp-cli --config path/to/config.yaml COMMAND [ARGS]
+mailroom --config path/to/config.yaml COMMAND [ARGS]
 
 # Using python3 -m (works without installing the entry point):
-python3 -m imap_mcp.cli --config path/to/config.yaml COMMAND [ARGS]
+python3 -m mailroom --config path/to/config.yaml COMMAND [ARGS]
 ```
 
-The `python3 -m` form is useful on systems where the package is available on `PYTHONPATH` or installed into the system Python but the console_script shim was not created. It runs the same code.
-
-The `--config` option (or the `IMAP_MCP_CONFIG` environment variable) selects the YAML configuration file. Add `--verbose` / `-v` for debug logging.
+The `--config` option (or the `MAILROOM_CONFIG` environment variable) selects the YAML configuration file. Add `--verbose` / `-v` for debug logging.
 
 ### Commands
 
@@ -78,33 +66,34 @@ The `--config` option (or the `IMAP_MCP_CONFIG` environment variable) selects th
 | `export-email-html FOLDER UID SAVE_PATH` | Export HTML email to a standalone file with embedded images |
 | `extract-email-links FOLDER UID [UID...]` | Extract all hyperlinks from one or more emails |
 | `process-meeting-invite FOLDER UID` | Identify a meeting invite, check availability, and save a draft reply |
+| `mcp` | Start the MCP server (for environments that cannot run CLI commands) |
 
 ### Examples
 
 ```bash
 # Show what account is configured
-imap-mcp-cli --config config.yaml server-status
+mailroom --config config.yaml server-status
 
 # Find recent unread mail in the inbox
-imap-mcp-cli --config config.yaml search-emails "" --criteria unseen --folder INBOX --limit 10
+mailroom --config config.yaml search-emails "" --criteria unseen --folder INBOX --limit 10
 
 # Search by subject across all folders
-imap-mcp-cli --config config.yaml search-emails "invoice" --criteria subject
+mailroom --config config.yaml search-emails "invoice" --criteria subject
 
 # List attachments on a specific message
-imap-mcp-cli --config config.yaml list-attachments INBOX 12345
+mailroom --config config.yaml list-attachments INBOX 12345
 
 # Save an attachment to disk
-imap-mcp-cli --config config.yaml download-attachment INBOX 12345 report.pdf /tmp/report.pdf
+mailroom --config config.yaml download-attachment INBOX 12345 report.pdf /tmp/report.pdf
 
 # Export a HTML email for browser viewing
-imap-mcp-cli --config config.yaml export-email-html INBOX 12345 /tmp/email.html
+mailroom --config config.yaml export-email-html INBOX 12345 /tmp/email.html
 
 # Extract all links from several messages
-imap-mcp-cli --config config.yaml extract-email-links INBOX 12345 12346 12347
+mailroom --config config.yaml extract-email-links INBOX 12345 12346 12347
 
 # Move a message to a folder
-imap-mcp-cli --config config.yaml move-email INBOX 12345 Archive
+mailroom --config config.yaml move-email INBOX 12345 Archive
 ```
 
 All commands output JSON to stdout.
@@ -153,15 +142,15 @@ The project is currently organized as follows:
 .
 ├── examples/              # Example configurations
 │   └── config.yaml.example
-├── imap_mcp/              # Source code
+├── mailroom/              # Source code
+│   ├── __main__.py        # CLI entry point and all commands
 │   ├── __init__.py
 │   ├── config.py          # Configuration handling
 │   ├── imap_client.py     # IMAP client implementation
 │   ├── models.py          # Data models
-│   ├── resources.py       # MCP resources implementation
-│   ├── server.py          # Main server implementation
-│   ├── tools.py           # MCP tools implementation
-│   └── cli.py             # Command-line interface
+│   ├── mcp_server.py      # MCP server (only loaded by `mailroom mcp`)
+│   ├── resources.py       # MCP resources
+│   ├── tools.py           # MCP tool wrappers
 ├── tests/                 # Test suite
 │   ├── __init__.py
 │   └── test_models.py
@@ -225,26 +214,26 @@ The project is currently organized as follows:
 
 #### Starting the MCP Server
 
-To start the IMAP MCP server:
+To start the MCP server (for use with Claude Desktop or other MCP clients):
 ```bash
-uv run imap-mcp --config config.yaml
+mailroom mcp --config config.yaml
 ```
 
 For development mode with debugging:
 ```bash
-uv run imap-mcp --dev
+mailroom mcp --config config.yaml --dev --debug
 ```
 
 #### Managing OAuth2 Tokens
 
 To refresh your OAuth2 token:
 ```bash
-uv run imap_mcp.auth_setup refresh-token --config config.yaml
+python3 -m mailroom.auth_setup refresh-token --config config.yaml
 ```
 
 To generate a new OAuth2 token:
 ```bash
-uv run imap_mcp.auth_setup generate-token --config config.yaml
+python3 -m mailroom.auth_setup generate-token --config config.yaml
 ```
 
 #### Advanced Email Search
@@ -315,7 +304,7 @@ pytest
 
 ## Security Considerations
 
-This MCP server requires access to your email account, which contains sensitive personal information. Please be aware of the following security considerations:
+Mailroom requires access to your email account, which contains sensitive personal information. Please be aware of the following security considerations:
 
 - Store email credentials securely using environment variables or secure credential storage
 - Consider using app-specific passwords instead of your main account password

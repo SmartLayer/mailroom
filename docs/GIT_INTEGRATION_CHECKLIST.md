@@ -47,13 +47,13 @@ After completing the current issues (#10-#14), the GitHub Integration process wi
 
 ```bash
 # Check GitHub issues
-gh issue list --repo non-dirty/imap-mcp
+gh issue list --repo non-dirty/mailroom
 
 # Run code coverage
-uv run -m pytest --cov=imap_mcp --cov-report=term
+uv run -m pytest --cov=mailroom --cov-report=term
 
 # Verify GitHub project board
-gh project view --owner non-dirty --repo imap-mcp
+gh project view --owner non-dirty --repo mailroom
 ```
 
 This document serves as a reference for the transition process and verification.

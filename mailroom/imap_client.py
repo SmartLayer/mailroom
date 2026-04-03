@@ -9,9 +9,9 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import imapclient
 
-from imap_mcp.config import ImapConfig
-from imap_mcp.models import Email
-from imap_mcp.oauth2 import get_access_token
+from mailroom.config import ImapConfig
+from mailroom.models import Email
+from mailroom.oauth2 import get_access_token
 
 logger = logging.getLogger(__name__)
 

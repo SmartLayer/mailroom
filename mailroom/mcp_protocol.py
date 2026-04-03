@@ -1,4 +1,4 @@
-"""MCP Protocol Implementation for IMAP MCP server.
+"""MCP Protocol Implementation for Mailroom.
 
 This module implements the required MCP protocol methods that are not directly
 supported by FastMCP but needed for Claude desktop compatibility.

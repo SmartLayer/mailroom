@@ -8,7 +8,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional
 
-from imap_mcp.models import Email, EmailAddress
+from mailroom.models import Email, EmailAddress
 
 logger = logging.getLogger(__name__)
 

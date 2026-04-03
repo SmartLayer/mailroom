@@ -28,7 +28,7 @@
 1. Run `pytest tests/test_imap_client.py -v` to see all tests fail
 2. Fix or implement the functionality in imap_client.py
 3. Run tests again until all pass
-4. Run `pytest --cov=imap_mcp.imap_client` to verify coverage
+4. Run `pytest --cov=mailroom.imap_client` to verify coverage
 
 **Accomplishments**:
 
@@ -77,7 +77,7 @@
 1. Run `pytest tests/test_config.py -v` to see all tests fail
 2. Fix or enhance the config.py module to handle all test cases
 3. Run tests again until all pass
-4. Run `pytest --cov=imap_mcp.config` to verify coverage
+4. Run `pytest --cov=mailroom.config` to verify coverage
 
 **Accomplishments**:
 
@@ -122,7 +122,7 @@
 **TDD Process**:
 1. Create empty test files with expected test functions (they should fail)
 2. Implement the test infrastructure code until tests pass
-3. Run `pytest --cov=imap_mcp tests/test_infrastructure.py` to verify
+3. Run `pytest --cov=mailroom tests/test_infrastructure.py` to verify
 
 **Accomplishments**:
 
@@ -169,7 +169,7 @@
 1. Run `pytest tests/test_resources.py -v` to see all tests fail
 2. Implement or fix resource functionality in resources.py
 3. Run tests again until all pass
-4. Run `pytest --cov=imap_mcp.resources` to verify coverage
+4. Run `pytest --cov=mailroom.resources` to verify coverage
 
 **Accomplishments**:
 
@@ -275,7 +275,7 @@ This test infrastructure provides a solid foundation for implementing the remain
 
 **Accomplishments**:
 
-1. Created a complete OAuth2 implementation for Gmail authentication in the IMAP MCP server, including:
+1. Created a complete OAuth2 implementation for Gmail authentication in the Mailroom server, including:
    - Configuration module (`oauth2_config.py`) to handle loading and validating OAuth2 settings
    - Authentication setup tool (`auth_setup.py`) to facilitate the OAuth2 flow
    - Browser-based authentication component (`browser_auth.py`) for handling user authorization
@@ -350,4 +350,4 @@ This test infrastructure provides a solid foundation for implementing the remain
 3. Implemented tests for error handling and edge cases
 4. Achieved near-complete coverage of the server module
 
-This task completes the foundational testing of the IMAP MCP server's core components, providing a solid base for implementing additional features.
+This task completes the foundational testing of the Mailroom server's core components, providing a solid base for implementing additional features.

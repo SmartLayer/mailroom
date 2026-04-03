@@ -19,7 +19,7 @@ class TestTaskParser(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.sample_tasks_content = """
-# IMAP MCP Server Implementation Tasks
+# Mailroom Server Implementation Tasks
 
 ## Task Workflow for Claude
 
@@ -96,21 +96,21 @@ class TestCoverageReporter(unittest.TestCase):
         """Set up test fixtures."""
         self.sample_coverage_data = {
             "files": {
-                "imap_mcp/server.py": {
+                "mailroom/server.py": {
                     "summary": {
                         "num_statements": 100,
                         "missing_lines": 15,
                         "excluded_lines": 0
                     }
                 },
-                "imap_mcp/client.py": {
+                "mailroom/client.py": {
                     "summary": {
                         "num_statements": 80,
                         "missing_lines": 5,
                         "excluded_lines": 0
                     }
                 },
-                "imap_mcp/low_coverage.py": {
+                "mailroom/low_coverage.py": {
                     "summary": {
                         "num_statements": 50,
                         "missing_lines": 20,
@@ -233,7 +233,7 @@ class TestWorkflowUpdater(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.sample_tasks_content = """
-# IMAP MCP Server Implementation Tasks
+# Mailroom Server Implementation Tasks
 
 ## Task Workflow for Claude
 

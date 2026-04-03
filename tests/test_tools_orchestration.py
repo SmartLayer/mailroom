@@ -5,8 +5,8 @@ from unittest.mock import patch, MagicMock
 from datetime import datetime
 from email.message import EmailMessage
 
-from imap_mcp.models import Email, EmailAddress, EmailContent
-from imap_mcp.workflows.meeting_reply import process_meeting_invite_workflow
+from mailroom.models import Email, EmailAddress, EmailContent
+from mailroom.workflows.meeting_reply import process_meeting_invite_workflow
 
 
 class TestMeetingInviteWorkflow:

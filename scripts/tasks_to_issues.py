@@ -117,7 +117,7 @@ class CoverageReporter:
         try:
             # Run pytest with coverage output in JSON format
             result = subprocess.run(
-                ["uv", "run", "-m", "pytest", "--cov=imap_mcp", "--cov-report=json"],
+                ["uv", "run", "-m", "pytest", "--cov=mailroom", "--cov-report=json"],
                 capture_output=True,
                 text=True,
                 check=True
@@ -134,7 +134,7 @@ class CoverageReporter:
             # Extract module coverage percentages
             self.coverage_data = {}
             for file_path, data in coverage_data['files'].items():
-                if 'imap_mcp' in file_path:
+                if 'mailroom' in file_path:
                     module_name = os.path.basename(file_path)
                     total_lines = data['summary']['num_statements']
                     covered_lines = total_lines - data['summary']['missing_lines']

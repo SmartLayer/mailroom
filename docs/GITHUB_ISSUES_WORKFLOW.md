@@ -1,6 +1,6 @@
 # GitHub Issues Workflow
 
-This document outlines the workflow for using GitHub Issues to track and manage tasks in the IMAP MCP project.
+This document outlines the workflow for using GitHub Issues to track and manage tasks in the Mailroom project.
 
 ## Overview
 
@@ -59,7 +59,7 @@ When assigned a task from GitHub Issues, AI assistants should follow this workfl
    - Refactor while maintaining test coverage
    ```bash
    # Run tests with coverage
-   uv run pytest --cov=imap_mcp
+   uv run pytest --cov=mailroom
    ```
 
 4. **Progress Updates**:

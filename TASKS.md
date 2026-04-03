@@ -1,6 +1,6 @@
-# IMAP MCP Server Implementation Tasks
+# Mailroom Server Implementation Tasks
 
-This document outlines the detailed tasks required to complete and enhance the IMAP MCP Server implementation using a test-driven development (TDD) approach. Tasks are sequenced for incremental progress with maximum chance of success.
+This document outlines the detailed tasks required to complete and enhance the Mailroom Server implementation using a test-driven development (TDD) approach. Tasks are sequenced for incremental progress with maximum chance of success.
 
 ## IMPORTANT: Task Management Has Moved to GitHub Issues
 
@@ -125,7 +125,7 @@ The project is transitioning from using TASKS.md to GitHub Issues for task track
 
 #### Using GitHub Issues
 
-1. **Viewing Tasks**: Visit the [Issues page](https://github.com/your-github-username/imap-mcp/issues) to see all open tasks
+1. **Viewing Tasks**: Visit the [Issues page](https://github.com/your-github-username/mailroom/issues) to see all open tasks
 2. **Task Priority**: Priority is indicated by the `priority:X` label
 3. **Task Status**: Status is shown with the `status:X` label
 4. **Starting a Task**: Assign the issue to yourself and move it to "In Progress" in the project board
@@ -178,7 +178,7 @@ uv run -m pytest
 uv run -m pytest tests/test_module_name.py
 
 # Run tests with coverage report
-uv run -m pytest --cov=imap_mcp
+uv run -m pytest --cov=mailroom
 
 # Run tests in verbose mode
 uv run -m pytest -v

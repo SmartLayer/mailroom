@@ -6,7 +6,7 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 
-from imap_mcp.gmail_auth import main
+from mailroom.gmail_auth import main
 
 
 @pytest.mark.skip(reason="Test triggers OAuth2 authentication flow in the browser")
@@ -19,7 +19,7 @@ def test_main_with_credentials_file():
     ]
     
     with patch("sys.argv", ["gmail_auth.py"] + test_args), \
-         patch("imap_mcp.browser_auth.perform_oauth_flow") as mock_oauth_flow:
+         patch("mailroom.browser_auth.perform_oauth_flow") as mock_oauth_flow:
         
         mock_oauth_flow.return_value = {"imap": {"oauth2": {"refresh_token": "test_token"}}}
         
@@ -47,7 +47,7 @@ def test_main_with_client_id_secret():
     ]
     
     with patch("sys.argv", ["gmail_auth.py"] + test_args), \
-         patch("imap_mcp.browser_auth.perform_oauth_flow") as mock_oauth_flow, \
+         patch("mailroom.browser_auth.perform_oauth_flow") as mock_oauth_flow, \
          patch("sys.exit") as mock_exit:
         
         mock_oauth_flow.return_value = {"imap": {"oauth2": {"refresh_token": "test_token"}}}
@@ -72,7 +72,7 @@ def test_main_with_failure():
     test_args = ["--client-id", "test_client_id"]
     
     with patch("sys.argv", ["gmail_auth.py"] + test_args), \
-         patch("imap_mcp.browser_auth.perform_oauth_flow") as mock_oauth_flow, \
+         patch("mailroom.browser_auth.perform_oauth_flow") as mock_oauth_flow, \
          patch("sys.exit") as mock_exit:
         
         # Simulate the OAuth flow failing
@@ -97,7 +97,7 @@ def test_parse_arguments():
     
     with patch("sys.argv", ["gmail_auth.py"] + test_args), \
          patch("argparse.ArgumentParser.parse_args") as mock_parse_args, \
-         patch("imap_mcp.browser_auth.perform_oauth_flow") as mock_oauth_flow, \
+         patch("mailroom.browser_auth.perform_oauth_flow") as mock_oauth_flow, \
          patch("sys.exit"):
         
         mock_args = argparse.Namespace(

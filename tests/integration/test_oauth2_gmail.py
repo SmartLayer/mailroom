@@ -7,8 +7,8 @@ import os
 import pytest
 from dotenv import load_dotenv
 
-from imap_mcp.config import ImapConfig, OAuth2Config
-from imap_mcp.imap_client import ImapClient
+from mailroom.config import ImapConfig, OAuth2Config
+from mailroom.imap_client import ImapClient
 
 # Load environment variables from .env.test if it exists
 load_dotenv(".env.test")

@@ -589,7 +589,7 @@ class TestResultsAnalyzer:
         # Run pytest with coverage
         try:
             subprocess.run(
-                ['uv', 'run', '-m', 'pytest', '--cov=imap_mcp', '--cov-report=json'],
+                ['uv', 'run', '-m', 'pytest', '--cov=mailroom', '--cov-report=json'],
                 capture_output=True,
                 check=True
             )

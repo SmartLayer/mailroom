@@ -8,7 +8,7 @@ Added support for complex IMAP search expressions using OR/AND/NOT operators in 
 
 ### 1. Code Changes
 
-#### `imap_mcp/imap_client.py`
+#### `mailroom/imap_client.py`
 - **Added `ImapClient.parse_raw_criteria()` static method** to parse raw IMAP search strings into the format expected by `imapclient`
 - **Updated `search_emails()` tool** to accept `criteria="raw"` for complex IMAP expressions
 - **Enhanced docstring** to document the new raw criteria option
@@ -153,7 +153,7 @@ Potential future improvements:
 
 ## Files Modified
 
-- `imap_mcp/imap_client.py` - `parse_raw_criteria()` static method
+- `mailroom/imap_client.py` - `parse_raw_criteria()` static method
 - `tests/test_tools.py` - Test coverage
 - `README.md` - User documentation
 - `docs/SEARCH_GUIDE.md` - Detailed guide (NEW)

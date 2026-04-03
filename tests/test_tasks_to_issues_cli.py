@@ -95,7 +95,7 @@ class TestParseTasks(unittest.TestCase):
         """Test parsing tasks from valid TASKS.md content."""
         # Mock content for TASKS.md
         mock_content = """
-# IMAP MCP Server Implementation Tasks
+# Mailroom Server Implementation Tasks
 
 ## Implementation Tasks
 
@@ -142,7 +142,7 @@ Implement the OAuth2 flow for Gmail:
         """Test parsing tasks when no detailed sections are found."""
         # Mock content for TASKS.md with task table but no detailed descriptions
         mock_content = """
-# IMAP MCP Server Implementation Tasks
+# Mailroom Server Implementation Tasks
 
 ## Implementation Tasks
 

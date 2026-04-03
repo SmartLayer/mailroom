@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime
 from unittest.mock import patch
 
-from imap_mcp.workflows.meeting_reply import (
+from mailroom.workflows.meeting_reply import (
     generate_meeting_reply_content,
     _format_meeting_time,
     _generate_accept_reply,

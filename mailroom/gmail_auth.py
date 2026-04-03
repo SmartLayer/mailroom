@@ -5,7 +5,7 @@ import logging
 import os
 import sys
 
-from imap_mcp.browser_auth import perform_oauth_flow
+from mailroom.browser_auth import perform_oauth_flow
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

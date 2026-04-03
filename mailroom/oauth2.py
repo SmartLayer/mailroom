@@ -10,7 +10,7 @@ import requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
-from imap_mcp.config import OAuth2Config
+from mailroom.config import OAuth2Config
 
 logger = logging.getLogger(__name__)
 

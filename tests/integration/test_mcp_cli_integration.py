@@ -1,6 +1,6 @@
 """Integration tests for MCP CLI with IMAP server integration.
 
-This test verifies the basics of server configuration and proper CLI interaction with the IMAP MCP server.
+This test verifies the basics of server configuration and proper CLI interaction with the Mailroom server.
 Following the project's integration testing framework, all tests 
 are tagged with @pytest.mark.integration and can be run or skipped with
 the --skip-integration flag.
@@ -78,7 +78,7 @@ def run_mcp_cli_command(cmd_args, input_text=None, timeout=60):
         os.chdir(PROJECT_ROOT)
 
 class TestImapMcpServerConfig:
-    """Test the IMAP MCP server configuration and basic CLI functionality."""
+    """Test the Mailroom server configuration and basic CLI functionality."""
     
     def test_server_config_exists(self):
         """Test that server_config.json exists and contains imap server entry."""
@@ -101,7 +101,7 @@ class TestImapMcpServerConfig:
         assert command_path.exists(), f"Command does not exist: {command_path}"
     
     def test_wrapper_script_exists(self):
-        """Test that the IMAP MCP server wrapper script exists and is executable."""
+        """Test that the Mailroom server wrapper script exists and is executable."""
         with open(SERVER_CONFIG_FILE, 'r') as f:
             config = json.load(f)
         
@@ -114,7 +114,7 @@ class TestImapMcpServerConfig:
             script_content = f.read()
         
         # Check for key indicators this is the correct script
-        expected_indicators = ["Starting IMAP MCP Server", "PYTHONPATH"]
+        expected_indicators = ["Starting Mailroom Server", "PYTHONPATH"]
         for indicator in expected_indicators:
             assert indicator in script_content, f"Expected content '{indicator}' not found in script"
     

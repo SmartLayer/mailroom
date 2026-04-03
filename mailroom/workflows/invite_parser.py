@@ -9,7 +9,7 @@ import re
 from datetime import datetime
 from typing import Dict, Optional, Any, List, Tuple
 
-from imap_mcp.models import Email, EmailAttachment
+from mailroom.models import Email, EmailAttachment
 
 logger = logging.getLogger(__name__)
 

@@ -6,7 +6,7 @@ from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from imap_mcp.models import Email, EmailAddress, decode_mime_header
+from mailroom.models import Email, EmailAddress, decode_mime_header
 
 
 class TestModels(unittest.TestCase):

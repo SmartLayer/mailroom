@@ -17,9 +17,9 @@ from typing import Any, Dict, List, Optional, Union
 
 from mcp.server.fastmcp import Context, FastMCP
 
-from imap_mcp.imap_client import ImapClient
-from imap_mcp.models import extract_links_batch
-from imap_mcp.resources import get_client_from_context
+from mailroom.imap_client import ImapClient
+from mailroom.models import extract_links_batch
+from mailroom.resources import get_client_from_context
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         Returns:
             Dictionary with status and the UID of the created draft
         """
-        from imap_mcp.smtp_client import compose_and_save_reply_draft
+        from mailroom.smtp_client import compose_and_save_reply_draft
 
         client = get_client_from_context(ctx, account)
         return compose_and_save_reply_draft(
@@ -283,7 +283,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         Returns:
             Dictionary with the processing result
         """
-        from imap_mcp.workflows.meeting_reply import process_meeting_invite_workflow
+        from mailroom.workflows.meeting_reply import process_meeting_invite_workflow
 
         client = get_client_from_context(ctx, account)
         return process_meeting_invite_workflow(client, folder, uid, availability_mode)

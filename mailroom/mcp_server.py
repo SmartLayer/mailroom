@@ -1,4 +1,4 @@
-"""Main server implementation for IMAP MCP."""
+"""Mailroom MCP server — exposes email operations as MCP tools."""
 
 import argparse
 import logging
@@ -8,18 +8,18 @@ from typing import AsyncIterator, Dict, Optional
 
 from mcp.server.fastmcp import FastMCP
 
-from imap_mcp.config import MultiAccountConfig, load_config
-from imap_mcp.imap_client import ImapClient
-from imap_mcp.resources import register_resources
-from imap_mcp.tools import register_tools
-from imap_mcp.mcp_protocol import extend_server
+from mailroom.config import MultiAccountConfig, load_config
+from mailroom.imap_client import ImapClient
+from mailroom.resources import register_resources
+from mailroom.tools import register_tools
+from mailroom.mcp_protocol import extend_server
 
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
-logger = logging.getLogger("imap_mcp")
+logger = logging.getLogger("mailroom")
 
 
 @asynccontextmanager
@@ -76,9 +76,9 @@ def create_server(config_path: Optional[str] = None, debug: bool = False) -> Fas
     config = load_config(config_path)
 
     server = FastMCP(
-        "IMAP",
-        description="IMAP Model Context Protocol server for email processing",
-        version="0.1.0",
+        "Mailroom",
+        description="Email toolkit for AI assistants",
+        version="0.2.0",
         lifespan=server_lifespan,
     )
 
@@ -96,8 +96,8 @@ def create_server(config_path: Optional[str] = None, debug: bool = False) -> Fas
     def server_status() -> str:
         """Get server status and configuration info."""
         lines = [
-            f"server: IMAP MCP",
-            f"version: 0.1.0",
+            f"server: Mailroom",
+            f"version: 0.2.0",
             f"default_account: {config.default_account}",
             f"accounts: {', '.join(config.accounts.keys())}",
         ]
@@ -113,12 +113,12 @@ def create_server(config_path: Optional[str] = None, debug: bool = False) -> Fas
 
 
 def main() -> None:
-    """Run the IMAP MCP server."""
-    parser = argparse.ArgumentParser(description="IMAP MCP Server")
+    """Run the Mailroom MCP server."""
+    parser = argparse.ArgumentParser(description="Mailroom MCP Server")
     parser.add_argument(
         "--config", 
         help="Path to configuration file",
-        default=os.environ.get("IMAP_MCP_CONFIG"),
+        default=os.environ.get("MAILROOM_CONFIG"),
     )
     parser.add_argument(
         "--dev", 
@@ -138,7 +138,7 @@ def main() -> None:
     args = parser.parse_args()
     
     if args.version:
-        print("IMAP MCP Server version 0.1.0")
+        print("Mailroom MCP server version 0.2.0")
         return
     
     if args.debug:

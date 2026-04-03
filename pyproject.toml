@@ -3,9 +3,9 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "imap-mcp"
-version = "0.1.0"
-description = "IMAP Model Context Protocol server for interactive email processing"
+name = "mailroom"
+version = "0.2.0"
+description = "Email toolkit for AI assistants and command-line scripting"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -52,15 +52,14 @@ dev = [
 ]
 
 [project.scripts]
-imap-mcp = "imap_mcp.server:main"
-imap-mcp-cli = "imap_mcp.cli:main"
+mailroom = "mailroom.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/non-dirty/imap-mcp"
 Issues = "https://github.com/non-dirty/imap-mcp/issues"
 
 [tool.setuptools]
-packages = ["imap_mcp"]
+packages = ["mailroom"]
 
 [tool.black]
 line-length = 88

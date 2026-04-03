@@ -1,6 +1,6 @@
 # AI-Assisted Development Workflow
 
-This document outlines the workflow for using AI assistants (like Claude Sonnet) with GitHub Issues to autonomously develop features for the IMAP MCP project.
+This document outlines the workflow for using AI assistants (like Claude Sonnet) with GitHub Issues to autonomously develop features for the Mailroom project.
 
 ## Overview
 
@@ -53,7 +53,7 @@ AI assistants should follow TDD practices:
 uv run pytest tests/
 
 # Run with coverage
-uv run pytest --cov=imap_mcp
+uv run pytest --cov=mailroom
 ```
 
 ### 4. Pull Request Creation

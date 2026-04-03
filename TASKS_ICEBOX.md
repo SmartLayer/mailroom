@@ -24,7 +24,7 @@
 1. Run `pytest tests/test_workflow_states.py -v` to see all tests fail
 2. Create workflow_states.py implementing the required functionality
 3. Run tests again until all pass
-4. Run `pytest --cov=imap_mcp.workflow_states` to verify coverage
+4. Run `pytest --cov=mailroom.workflow_states` to verify coverage
 
 ### 12. Implement Email Processing Workflow - Actions
 
@@ -52,7 +52,7 @@
 1. Run `pytest tests/test_workflow_actions.py -v` to see all tests fail
 2. Create workflow_actions.py implementing the required functionality
 3. Run tests again until all pass
-4. Run `pytest --cov=imap_mcp.workflow_actions` to verify coverage
+4. Run `pytest --cov=mailroom.workflow_actions` to verify coverage
 
 ### 13. Implement Email Processing Workflow - User Interaction
 
@@ -80,7 +80,7 @@
 1. Run `pytest tests/test_user_interaction.py -v` to see all tests fail
 2. Create user_interaction.py implementing the required functionality
 3. Run tests again until all pass
-4. Run `pytest --cov=imap_mcp.user_interaction` to verify coverage
+4. Run `pytest --cov=mailroom.user_interaction` to verify coverage
 
 ### 14. Integrate Workflow Components
 
@@ -109,7 +109,7 @@
 2. Create workflow.py integrating all workflow components
 3. Update server.py, resources.py, and tools.py to integrate with workflow.py
 4. Run tests again until all pass
-5. Run `pytest --cov=imap_mcp.workflow` to verify coverage
+5. Run `pytest --cov=mailroom.workflow` to verify coverage
 
 ### 15. Implement Multi-Account Foundation
 
@@ -137,7 +137,7 @@
 1. Run `pytest tests/test_account_model.py -v` to see all tests fail
 2. Create account_model.py implementing the required functionality
 3. Run tests again until all pass
-4. Run `pytest --cov=imap_mcp.account_model` to verify coverage
+4. Run `pytest --cov=mailroom.account_model` to verify coverage
 
 ### 16. Implement Account Management
 
@@ -165,7 +165,7 @@
 1. Run `pytest tests/test_account_manager.py -v` to see all tests fail
 2. Create account_manager.py implementing the required functionality
 3. Run tests again until all pass
-4. Run `pytest --cov=imap_mcp.account_manager` to verify coverage
+4. Run `pytest --cov=mailroom.account_manager` to verify coverage
 
 ### 17. Integrate Multi-Account Support
 
@@ -193,4 +193,4 @@
 1. Run `pytest tests/test_multi_account_integration.py -v` to see all tests fail
 2. Update all relevant components to support multiple accounts
 3. Run tests again until all pass
-4. Run `pytest --cov=imap_mcp` to verify overall coverage
+4. Run `pytest --cov=mailroom` to verify overall coverage

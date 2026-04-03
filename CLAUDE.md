@@ -1,4 +1,4 @@
-# IMAP MCP Server Development Guide
+# Mailroom Server Development Guide
 
 > **Important**: Before starting any development task, first consult the [DOCUMENTATION_CATALOG.md](./DOCUMENTATION_CATALOG.md) file to identify the most relevant documentation for your task. This catalog provides a comprehensive overview of all documentation files in the project.
 
@@ -22,9 +22,9 @@
 - Run all tests: `uv run pytest`
 - Run single test: `uv run pytest tests/test_file.py::TestClass::test_function -v`
 - Run with coverage: `uv run pytest --cov`
-- Run server: `uv run python -m imap_mcp.server --config /path/to/config.yaml`
-- Development mode: `uv run python -m imap_mcp.server --dev`
-- One-line execution with dependencies: `uvx run -m imap_mcp.server --config /path/to/config.yaml`
+- Run MCP server: `mailroom mcp --config /path/to/config.yaml`
+- Development mode: `mailroom mcp --config /path/to/config.yaml --dev`
+- One-line execution with dependencies: `uvx mailroom mcp --config /path/to/config.yaml`
 
 ## Code Style Guidelines
 - Use Black with 88 character line length
@@ -54,7 +54,7 @@ When working on tasks from GitHub Issues, follow this workflow:
    - Write tests first that verify the desired functionality
    - Implement the feature until all tests pass
    - Refactor code while maintaining test coverage
-   - Run full test suite to check for regressions: `uv run pytest --cov=imap_mcp`
+   - Run full test suite to check for regressions: `uv run pytest --cov=mailroom`
 
 4. **Completing an Issue**:
    - Create a pull request that references the issue: `gh pr create --title "[TITLE]" --body "Closes #[NUMBER]"`
@@ -98,7 +98,7 @@ Priority labels follow the format `priority:X` where X is a number starting from
 
 ## Integration Testing
 
-Integration tests verify that the IMAP MCP server works correctly with real email services. These tests require valid credentials and network connectivity to external services.
+Integration tests verify that the Mailroom server works correctly with real email services. These tests require valid credentials and network connectivity to external services.
 
 ### Environment Setup for Integration Tests
 
@@ -129,17 +129,17 @@ OAuth2 tokens expire periodically. If integration tests fail with authentication
 
 1. **Check if token refresh is needed**:
    ```bash
-   uv run python -m imap_mcp.oauth2 check-token --config config.yaml
+   uv run python -m mailroom.oauth2 check-token --config config.yaml
    ```
 
 2. **Refresh the token if expired**:
    ```bash
-   uv run python -m imap_mcp.auth_setup refresh-token --config config.yaml
+   uv run python -m mailroom.auth_setup refresh-token --config config.yaml
    ```
 
 3. **Generate a new token if refresh fails**:
    ```bash
-   uv run python -m imap_mcp.auth_setup generate-token --config config.yaml
+   uv run python -m mailroom.auth_setup generate-token --config config.yaml
    ```
 
 ### Running Integration Tests
@@ -192,7 +192,7 @@ When working with AI assistants or development tools that use credit-based syste
 ### Minimize Tool Use
 1. **Batch Commands**: Run fewer, more comprehensive commands rather than many small ones.
    - Run all tests at once: `uv run pytest` instead of testing individual files sequentially
-   - Use coverage reports to identify issues in one pass: `uv run pytest --cov=imap_mcp`
+   - Use coverage reports to identify issues in one pass: `uv run pytest --cov=mailroom`
    
 2. **Strategic Command Execution**:
    - Ask the user to run commands that will save many tool calls over time
