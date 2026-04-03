@@ -1,107 +1,28 @@
-# IMAP MCP Server
+# Mailroom
 
-A Model Context Protocol (MCP) server that enables AI assistants to check email, process messages, and learn user preferences through interaction.
+Give your AI assistant access to your email.
 
-## Overview
+Mailroom lets AI assistants search, read, download, reply to, and organize email. It works with any IMAP provider (Gmail, Outlook, Fastmail, self-hosted). Two interfaces serve different environments: a CLI that outputs JSON (for terminal-based agents, scripts, and automation) and an MCP server (for web-based AI chats and MCP clients). Both expose the same operations.
 
-This project implements an MCP server that interfaces with IMAP email servers to provide the following capabilities:
+## What your AI can do with it
 
-- Email browsing and searching
-- Email organization (moving, tagging, marking)
-- Email composition and replies
-- Interactive email processing and learning user preferences
-- Automated email summarization and categorization
-- Support for multiple IMAP providers
+- Find a booking confirmation buried in your inbox
+- Download the PDF attachment from an invoice
+- Check all the links in a suspicious email
+- Draft a reply that lands in the right thread
+- Move, flag, or archive messages
+- Search across all folders at once
+- Handle a meeting invite — check availability, draft a response
 
-The IMAP MCP server is designed to work with Claude or any other MCP-compatible assistant, allowing them to act as intelligent email assistants that learn your preferences over time.
+## Configuration
 
-## Features
-
-- **Email Authentication**: Secure access to IMAP servers with various authentication methods
-- **Email Browsing**: List folders and messages with filtering options 
-- **Email Content**: Read message contents including text, HTML, and attachments with download capability 
-- **Email Actions**: Move, delete, mark as read/unread, flag messages 
-- **Email Composition**: Draft and save replies to messages with proper formatting
-  - Support for plain text and HTML replies
-  - Reply-all functionality with CC support
-  - Proper threading with In-Reply-To and References headers
-  - Save drafts to appropriate folders
-- **Search**: Advanced search capabilities with support for complex IMAP expressions
-  - Simple criteria: text, from, to, subject, all, unseen, seen
-  - Date-based searches: today, week, month
-  - Raw IMAP expressions: Full support for OR/AND/NOT operators in Polish notation
-  - Complex queries for finding specific email patterns (e.g., travel bookings, receipts) 
-- **Connection Management**: Intelligent connection lifecycle management with configurable idle timeout and automatic reconnection
-- **Interaction Patterns**: Structured patterns for processing emails and learning preferences (planned)
-- **Learning Layer**: Record and analyze user decisions to predict future actions (planned)
-
-## Command-Line Interface
-
-All MCP tools are also available as direct CLI commands via `imap-mcp-cli`, without running the MCP server. This is useful for scripting, debugging, and manual operations.
-
-### Usage
-
-```
-imap-mcp-cli --config path/to/config.yaml COMMAND [ARGS]
-```
-
-The `--config` option (or the `IMAP_MCP_CONFIG` environment variable) selects the YAML configuration file. Add `--verbose` / `-v` for debug logging.
-
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `server-status` | Show IMAP server configuration (no connection needed) |
-| `search-emails QUERY` | Search emails; `--criteria` selects field (subject, from, to, text, all, unseen, seen, raw), `--folder` limits to one folder, `--limit` caps results |
-| `move-email FOLDER UID TARGET` | Move an email to another folder |
-| `mark-as-read FOLDER UID` | Mark an email as read |
-| `mark-as-unread FOLDER UID` | Mark an email as unread |
-| `flag-email FOLDER UID` | Flag (star) an email; `--unflag` removes the flag |
-| `delete-email FOLDER UID` | Delete an email |
-| `process-email FOLDER UID ACTION` | Higher-level action dispatch: move, read, unread, flag, unflag, delete |
-| `list-attachments FOLDER UID` | List attachment metadata for an email |
-| `download-attachment FOLDER UID IDENTIFIER SAVE_PATH` | Download attachment by filename or index |
-| `export-email-html FOLDER UID SAVE_PATH` | Export HTML email to a standalone file with embedded images |
-| `extract-email-links FOLDER UID [UID...]` | Extract all hyperlinks from one or more emails |
-| `process-meeting-invite FOLDER UID` | Identify a meeting invite, check availability, and save a draft reply |
-
-### Examples
+Copy the sample and fill in your credentials:
 
 ```bash
-# Show what account is configured
-imap-mcp-cli --config config.yaml server-status
-
-# Find recent unread mail in the inbox
-imap-mcp-cli --config config.yaml search-emails "" --criteria unseen --folder INBOX --limit 10
-
-# Search by subject across all folders
-imap-mcp-cli --config config.yaml search-emails "invoice" --criteria subject
-
-# List attachments on a specific message
-imap-mcp-cli --config config.yaml list-attachments INBOX 12345
-
-# Save an attachment to disk
-imap-mcp-cli --config config.yaml download-attachment INBOX 12345 report.pdf /tmp/report.pdf
-
-# Export a HTML email for browser viewing
-imap-mcp-cli --config config.yaml export-email-html INBOX 12345 /tmp/email.html
-
-# Extract all links from several messages
-imap-mcp-cli --config config.yaml extract-email-links INBOX 12345 12346 12347
-
-# Move a message to a folder
-imap-mcp-cli --config config.yaml move-email INBOX 12345 Archive
+cp config.sample.yaml config.yaml
 ```
 
-All commands output JSON to stdout.
-
-## Connection Management
-
-IMAP servers typically drop idle connections after 10-30 minutes. Since AI assistants have bursty usage patterns (quick operations followed by thinking time and user interaction), the server includes intelligent connection lifecycle management to handle this gracefully.
-
-### Configuration
-
-Add connection settings to the `imap` section of the config file:
+For Gmail with OAuth2:
 
 ```yaml
 imap:
@@ -109,240 +30,142 @@ imap:
   port: 993
   username: your-email@gmail.com
   use_ssl: true
-  idle_timeout: 300      # seconds before reconnecting (default: 300)
-  verify_with_noop: true # verify connection health with NOOP command
+  oauth2:
+    client_id: YOUR_CLIENT_ID
+    client_secret: YOUR_CLIENT_SECRET
+    refresh_token: YOUR_REFRESH_TOKEN
 ```
 
-### idle_timeout Options
+For other providers, use a password or app-specific password:
 
-| Value | Behaviour | Use Case |
-|-------|-----------|----------|
-| `0` | Close connection after each operation | Testing, debugging, strict resource control |
-| `300` (default) | Reconnect if idle > 5 minutes | Normal AI assistant usage |
-| `600` | Reconnect if idle > 10 minutes | Low-latency environments |
-| `-1` | Never proactively reconnect | Legacy behaviour |
-
-### How It Works
-
-1. **Activity Tracking**: Each successful IMAP operation updates an internal timestamp
-2. **Staleness Check**: Before operations, the client checks if idle time exceeds `idle_timeout`
-3. **NOOP Verification**: If enabled, sends a NOOP command to verify the connection is still alive
-4. **Automatic Reconnection**: Stale or dead connections are transparently reconnected
-
-This ensures reliable operation even when there are long gaps between MCP tool calls.
-
-## Current Project Structure
-
-The project is currently organized as follows:
-
-```
-.
-├── examples/              # Example configurations
-│   └── config.yaml.example
-├── imap_mcp/              # Source code
-│   ├── __init__.py
-│   ├── config.py          # Configuration handling
-│   ├── imap_client.py     # IMAP client implementation
-│   ├── models.py          # Data models
-│   ├── resources.py       # MCP resources implementation
-│   ├── server.py          # Main server implementation
-│   ├── tools.py           # MCP tools implementation
-│   └── cli.py             # Command-line interface
-├── tests/                 # Test suite
-│   ├── __init__.py
-│   └── test_models.py
-├── INSTALLATION.md        # Detailed installation guide
-├── pyproject.toml         # Project configuration
-└── README.md              # This file
+```yaml
+imap:
+  host: imap.your-provider.com
+  port: 993
+  username: your-email@provider.com
+  use_ssl: true
+  password: YOUR_APP_PASSWORD
 ```
 
-## Getting Started
+Gmail OAuth2 setup requires a Google Cloud project with the Gmail API enabled. See [GMAIL_SETUP.md](GMAIL_SETUP.md) for the full walkthrough.
 
-### Prerequisites
+## Quick test
 
-- Python 3.8 or higher
-- An IMAP-enabled email account (Gmail recommended)
-- [uv](https://docs.astral.sh/uv/) for package management and running Python scripts
-
-### Installation
-
-1. Install uv if you haven't already:
-   ```bash
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   ```
-
-2. Clone and install the package:
-   ```bash
-   git clone https://github.com/non-dirty/imap-mcp.git
-   cd imap-mcp
-   uv venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   uv pip install -e ".[dev]"
-   ```
-
-### Gmail Configuration
-
-1. Create a config file:
-   ```bash
-   cp config.sample.yaml config.yaml
-   ```
-
-2. Set up Gmail OAuth2 credentials:
-   - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Create a new project or select existing one
-   - Enable the Gmail API
-   - Create OAuth2 credentials (Desktop Application type)
-   - Download the client configuration
-
-3. Update `config.yaml` with your Gmail settings:
-   ```yaml
-   imap:
-     host: imap.gmail.com
-     port: 993
-     username: your-email@gmail.com
-     use_ssl: true
-     oauth2:
-       client_id: YOUR_CLIENT_ID
-       client_secret: YOUR_CLIENT_SECRET
-       refresh_token: YOUR_REFRESH_TOKEN
-   ```
-
-### Usage
-
-#### Checking Email
-
-To list emails in your inbox:
-```bash
-uv run list_inbox.py --config config.yaml --folder INBOX --limit 10
-```
-
-Available options:
-- `--folder`: Specify which folder to check (default: INBOX)
-- `--limit`: Maximum number of emails to display (default: 10)
-- `--verbose`: Enable detailed logging output
-
-#### Starting the MCP Server
-
-To start the IMAP MCP server:
-```bash
-uv run imap-mcp --config config.yaml
-```
-
-For development mode with debugging:
-```bash
-uv run imap-mcp --dev
-```
-
-#### Managing OAuth2 Tokens
-
-To refresh your OAuth2 token:
-```bash
-uv run imap_mcp.auth_setup refresh-token --config config.yaml
-```
-
-To generate a new OAuth2 token:
-```bash
-uv run imap_mcp.auth_setup generate-token --config config.yaml
-```
-
-#### Advanced Email Search
-
-The server supports complex IMAP search expressions for powerful email filtering:
-
-**Simple searches:**
-```python
-# Using the search_emails tool
-search_emails(query="important", criteria="text")      # Search for text
-search_emails(query="john@example.com", criteria="from")  # From specific sender
-search_emails(query="", criteria="unseen")              # Unread emails
-search_emails(query="", criteria="today")               # Today's emails
-```
-
-**Complex searches with raw IMAP expressions:**
-```python
-# Simple OR: Find emails from Edinburgh or Berlin
-search_emails(
-    query='OR TEXT "Edinburgh" TEXT "Berlin"',
-    criteria="raw"
-)
-
-# Complex nested OR: Find travel-related emails
-search_emails(
-    query='OR TEXT "Edinburgh" OR TEXT "Berlin" OR TEXT "Munich" OR TEXT "itinerary" OR TEXT "booking confirmation" TEXT "e-ticket"',
-    criteria="raw"
-)
-
-# Combined criteria: Find unread emails from specific sender
-search_emails(
-    query='UNSEEN FROM "john@example.com"',
-    criteria="raw"
-)
-```
-
-**Note:** Raw IMAP expressions use Polish (prefix) notation where operators come before their operands. Each `OR` operator combines exactly two search criteria. For multiple OR operations, nest them properly as shown above.
-
-#### Using MCP Resources
-
-The server exposes email data through MCP resources that can be accessed via `fetch_mcp_resource`:
-
-- `email://folders` - List all email folders
-- `email://{folder}/list` - List emails in a folder (max 50 recent)
-- `email://search/{query}` - Search emails across folders
-- `email://{folder}/{uid}` - Get specific email content (returns HTML when available)
-
-These resources are designed to work with MCP-compatible clients like Claude Desktop or other AI assistants that support the Model Context Protocol.
-
-## Development
-
-### Setting Up Development Environment
+With uv (any platform):
 
 ```bash
-# Set up virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install development dependencies
-pip install -e ".[dev]"
+uvx mailroom --config config.yaml search-emails "invoice" --criteria subject
 ```
 
-### Running Tests
+No installation step — `uvx` runs it directly. To install permanently:
 
 ```bash
-pytest
+uv tool install mailroom
 ```
 
-## Security Considerations
+On Ubuntu 25.10 or later, the CLI dependencies are in the standard repositories. Install them, then run directly from a clone:
 
-This MCP server requires access to your email account, which contains sensitive personal information. Please be aware of the following security considerations:
+```bash
+sudo apt-get install python3-typer python3-yaml python3-dotenv python3-imapclient python3-requests
+```
+Then you can run it directly without uv
 
-- Store email credentials securely using environment variables or secure credential storage
-- Consider using app-specific passwords instead of your main account password
-- Limit folder access to only what's necessary for your use case
-- Review the permissions granted to the server in your email provider's settings
+```bash
+python3 -m mailroom --config config.yaml search-emails "invoice" --criteria subject
+```
 
-## Project Roadmap
+The MCP server (`mailroom mcp`) requires the `mcp` Python package, which is not in apt. Use `uv` or `pip` for that. Manuy people prefer to use cli instead of mcp as the latter loads 80+ tools into every conversation, in that case no need to install mcp package.
 
-- [x] Project initialization and repository setup
-- [x] Basic IMAP integration
-- [x] Email resource implementation
-- [x] Email tool implementation
-- [x] Email reply and draft functionality
-- [x] Connection lifecycle management
-- [x] Advanced search capabilities with complex IMAP expressions
-- [ ] User preference learning implementation
-- [ ] Multi-account support
-- [ ] Integration with major email providers
+## CLI usage
 
-## Contributing
+Every command outputs JSON to stdout. Errors go to stderr. This makes Mailroom composable with `jq`, shell scripts, and AI agent skill definitions.
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+```bash
+# What's unread?
+mailroom -c config.yaml search-emails "" --criteria unseen --folder INBOX --limit 10
+
+# Search by subject across all folders
+mailroom -c config.yaml search-emails "hotel booking" --criteria subject
+
+# Read an email's attachments, then download one
+mailroom -c config.yaml list-attachments INBOX 4523
+mailroom -c config.yaml download-attachment INBOX 4523 itinerary.pdf /tmp/itinerary.pdf
+
+# Export an HTML email as a standalone file (images embedded)
+mailroom -c config.yaml export-email-html INBOX 4523 /tmp/email.html
+
+# Extract all links from several emails (useful for phishing checks)
+mailroom -c config.yaml extract-email-links INBOX 4523 4524 4525
+
+# Draft a threaded reply
+mailroom -c config.yaml draft-reply INBOX 4523 "Thanks, confirmed."
+
+# Organize
+mailroom -c config.yaml move-email INBOX 4523 Archive
+mailroom -c config.yaml mark-as-read INBOX 4524
+mailroom -c config.yaml flag-email INBOX 4525
+```
+
+Run `mailroom --help` for the full command list.
+
+## MCP server
+
+For AI environments that cannot run shell commands (Claude web, Cursor, or any MCP client):
+
+```bash
+mailroom mcp --config config.yaml
+```
+
+This starts an MCP server exposing the same operations as tools. The MCP package is only imported when this subcommand runs, so the CLI stays lightweight.
+
+## Scripting and automation
+
+Because every command returns JSON and uses non-zero exit codes on failure, Mailroom works as a building block in pipelines and cron jobs. A few patterns:
+
+```bash
+# Forward all unread emails from a sender to another address
+mailroom -c config.yaml search-emails "sender@example.com" --criteria from --folder INBOX \
+  | jq -r '.[].uid' \
+  | xargs -I{} mailroom -c config.yaml move-email INBOX {} Forwarded
+
+# Daily digest: save today's unread subjects to a file
+mailroom -c config.yaml search-emails "" --criteria unseen --folder INBOX \
+  | jq -r '.[].subject' > ~/daily-digest.txt
+```
+
+AI agents with skill/hook systems can call Mailroom the same way — define a skill that runs a shell command and parses the JSON output.
+
+## Multi-account
+
+A single config file can hold multiple accounts:
+
+```yaml
+default_account: personal
+accounts:
+  personal:
+    imap:
+      host: imap.gmail.com
+      # ...
+  work:
+    imap:
+      host: outlook.office365.com
+      # ...
+```
+
+Select an account with `-a`:
+
+```bash
+mailroom -c config.yaml -a work search-emails "" --criteria unseen
+```
+
+## Connection handling
+
+IMAP servers drop idle connections after 10-30 minutes. AI assistants work in bursts — a flurry of operations, then thinking time. Mailroom tracks connection age and reconnects transparently before operations fail. The default idle timeout is 300 seconds; set `idle_timeout` in the config to adjust.
+
+## Security
+
+Mailroom accesses your email account. Store credentials outside your repository (environment variables, a secrets manager, or a config file in `.gitignore`). Use app-specific passwords or OAuth2 rather than your main account password. Restrict `allowed_folders` in the config to limit what the tool can see.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- [Model Context Protocol](https://modelcontextprotocol.io/) for providing the framework
-- [Anthropic](https://www.anthropic.com/) for developing Claude
-- Various Python IMAP libraries that make this project possible
+MIT. See [LICENSE](LICENSE).

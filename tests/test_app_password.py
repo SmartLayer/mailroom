@@ -9,7 +9,7 @@ import tempfile
 from unittest.mock import patch, mock_open, MagicMock
 import pytest
 
-from imap_mcp.app_password import setup_app_password, main
+from mailroom.app_password import setup_app_password, main
 
 
 @pytest.fixture
@@ -168,7 +168,7 @@ class TestMain:
     
     @pytest.mark.skip(reason="Test interrupts automated execution to ask for password in command line")
     @pytest.mark.skip(reason="Skipping test that requires real credentials")
-    @patch("imap_mcp.app_password.setup_app_password")
+    @patch("mailroom.app_password.setup_app_password")
     @patch("sys.argv")
     @patch("sys.exit")
     def test_main_success(self, mock_exit, mock_argv, mock_setup):
@@ -201,7 +201,7 @@ class TestMain:
         mock_exit.assert_called_once_with(0)
     
     @pytest.mark.skip(reason="Skipping test that requires real credentials")
-    @patch("imap_mcp.app_password.setup_app_password")
+    @patch("mailroom.app_password.setup_app_password")
     @patch("sys.argv")
     @patch("sys.exit")
     def test_main_with_config(self, mock_exit, mock_argv, mock_setup):
@@ -230,7 +230,7 @@ class TestMain:
     
     @pytest.mark.skip(reason="Test interrupts automated execution to ask for password in command line")
     @pytest.mark.skip(reason="Skipping test that requires real credentials")
-    @patch("imap_mcp.app_password.setup_app_password")
+    @patch("mailroom.app_password.setup_app_password")
     @patch("sys.argv")
     @patch("sys.exit")
     def test_main_error(self, mock_exit, mock_argv, mock_setup):
@@ -251,7 +251,7 @@ class TestMain:
         mock_exit.assert_called_once_with(1)
     
     @pytest.mark.skip(reason="Skipping test that requires real credentials")
-    @patch("imap_mcp.app_password.setup_app_password")
+    @patch("mailroom.app_password.setup_app_password")
     @patch("argparse.ArgumentParser.parse_args")
     @patch("sys.exit")
     def test_main_argument_parsing(self, mock_exit, mock_parse_args, mock_setup):

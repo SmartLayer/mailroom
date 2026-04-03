@@ -14,9 +14,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from imapclient.response_types import SearchIds
 
-from imap_mcp.config import ImapConfig, OAuth2Config
-from imap_mcp.imap_client import ImapClient
-from imap_mcp.models import Email, EmailAddress, EmailAttachment, EmailContent
+from mailroom.config import ImapConfig, OAuth2Config
+from mailroom.imap_client import ImapClient
+from mailroom.models import Email, EmailAddress, EmailAttachment, EmailContent
 
 
 class TestImapClientThreading(unittest.TestCase):
@@ -34,7 +34,7 @@ class TestImapClientThreading(unittest.TestCase):
         self.mock_client = MagicMock()
         
         # Create patcher for IMAPClient
-        self.imapclient_patcher = patch("imap_mcp.imap_client.imapclient.IMAPClient")
+        self.imapclient_patcher = patch("mailroom.imap_client.imapclient.IMAPClient")
         self.mock_imapclient = self.imapclient_patcher.start()
         self.mock_imapclient.return_value = self.mock_client
         

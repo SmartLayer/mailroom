@@ -6,9 +6,9 @@ from typing import Optional
 
 from mcp.server.fastmcp import FastMCP, Context
 
-from imap_mcp.imap_client import ImapClient
-from imap_mcp.models import Email
-import imap_mcp.smtp_client as smtp_client
+from mailroom.imap_client import ImapClient
+from mailroom.models import Email
+import mailroom.smtp_client as smtp_client
 
 logger = logging.getLogger(__name__)
 

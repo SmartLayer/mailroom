@@ -1,1 +1,1 @@
-"""Integration tests for the IMAP MCP."""
+"""Integration tests for the Mailroom."""

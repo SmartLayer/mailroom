@@ -1,4 +1,4 @@
-"""Integration tests for direct tool usage with the IMAP MCP client.
+"""Integration tests for direct tool usage with the Mailroom client.
 
 These tests directly import and use the IMAP tool functions to test their functionality
 with a real Gmail account. This approach bypasses the server API and CLI interfaces
@@ -20,14 +20,14 @@ logger = logging.getLogger(__name__)
 pytestmark = pytest.mark.integration
 
 # Import the IMAP client and tools
-from imap_mcp.imap_client import ImapClient
-from imap_mcp.config import Config
-from imap_mcp.models import Context
-from imap_mcp.tools import search_emails as search_emails_tool
+from mailroom.imap_client import ImapClient
+from mailroom.config import Config
+from mailroom.models import Context
+from mailroom.tools import search_emails as search_emails_tool
 
 
 class TestDirectToolsIntegration:
-    """Test direct usage of IMAP MCP tools without going through the server or CLI."""
+    """Test direct usage of Mailroom tools without going through the server or CLI."""
     
     @pytest.fixture(scope="class")
     async def imap_client(self):

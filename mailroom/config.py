@@ -1,4 +1,4 @@
-"""Configuration handling for IMAP MCP server."""
+"""Configuration handling for Mailroom."""
 
 import logging
 import os
@@ -184,8 +184,8 @@ def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
     default_locations = [
         Path("config.yaml"),
         Path("config.yml"),
-        Path("~/.config/imap-mcp/config.yaml"),
-        Path("/etc/imap-mcp/config.yaml"),
+        Path("~/.config/mailroom/config.yaml"),
+        Path("/etc/mailroom/config.yaml"),
     ]
 
     config_data: Dict[str, Any] = {}

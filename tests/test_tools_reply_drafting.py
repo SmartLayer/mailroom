@@ -4,8 +4,8 @@ import pytest
 from unittest.mock import MagicMock
 from datetime import datetime
 
-from imap_mcp.models import Email, EmailAddress, EmailContent
-from imap_mcp.smtp_client import compose_and_save_reply_draft, _find_reply_from_address
+from mailroom.models import Email, EmailAddress, EmailContent
+from mailroom.smtp_client import compose_and_save_reply_draft, _find_reply_from_address
 
 
 class TestFindReplyFromAddress:

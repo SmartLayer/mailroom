@@ -1,4 +1,4 @@
-"""Pytest fixtures for IMAP MCP tests."""
+"""Pytest fixtures for Mailroom tests."""
 
 import datetime
 import email
@@ -29,9 +29,9 @@ try:
 except ImportError:
     load_dotenv = lambda x=None: None
 
-from imap_mcp.models import Email, EmailAddress, EmailAttachment, EmailContent
-from imap_mcp.config import ImapConfig, OAuth2Config
-from imap_mcp.imap_client import ImapClient
+from mailroom.models import Email, EmailAddress, EmailAttachment, EmailContent
+from mailroom.config import ImapConfig, OAuth2Config
+from mailroom.imap_client import ImapClient
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

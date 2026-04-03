@@ -14,9 +14,9 @@ from typing import Dict, List, Optional, Generator
 import pytest
 from dotenv import load_dotenv
 
-from imap_mcp.config import ImapConfig, OAuth2Config
-from imap_mcp.imap_client import ImapClient
-from imap_mcp.models import Email
+from mailroom.config import ImapConfig, OAuth2Config
+from mailroom.imap_client import ImapClient
+from mailroom.models import Email
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

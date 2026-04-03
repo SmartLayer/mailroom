@@ -1,7 +1,8 @@
-"""Command-line interface for imap-mcp tools.
+"""Mailroom — email toolkit for AI assistants and command-line scripting.
 
-Exposes the same operations available via the MCP server as direct CLI commands,
-taking a --config path to the YAML configuration file.
+All CLI commands are subcommands of `mailroom`. The `mcp` subcommand starts
+the MCP server; every other subcommand operates directly via IMAP without
+importing the mcp package.
 """
 
 import asyncio
@@ -12,13 +13,13 @@ from typing import List, Optional
 
 import typer
 
-from imap_mcp.config import load_config
-from imap_mcp.imap_client import ImapClient
-from imap_mcp.models import extract_links_batch
+from mailroom.config import load_config
+from mailroom.imap_client import ImapClient
+from mailroom.models import extract_links_batch
 
 app = typer.Typer(
-    name="imap-mcp-cli",
-    help="Command-line interface for imap-mcp email operations.",
+    name="mailroom",
+    help="Email toolkit for AI assistants and command-line scripting.",
     no_args_is_help=True,
 )
 
@@ -36,7 +37,7 @@ def _global_options(
         "--config",
         "-c",
         help="Path to YAML configuration file.",
-        envvar="IMAP_MCP_CONFIG",
+        envvar="MAILROOM_CONFIG",
     ),
     account: Optional[str] = typer.Option(
         None,
@@ -54,14 +55,25 @@ def _global_options(
 
 
 def _make_client() -> ImapClient:
-    cfg = load_config(_config_path)
+    try:
+        cfg = load_config(_config_path)
+    except (ValueError, FileNotFoundError, Exception) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
     name = _account_name or cfg.default_account
     if name not in cfg.accounts:
         available = list(cfg.accounts.keys())
-        raise typer.BadParameter(f"Unknown account '{name}'. Available: {available}")
+        typer.echo(f"Error: unknown account '{name}'. Available: {available}", err=True)
+        raise typer.Exit(1)
+    if not _account_name:
+        typer.echo(f"Using account '{name}'", err=True)
     acct = cfg.accounts[name]
     client = ImapClient(acct.imap, acct.allowed_folders)
-    client.connect()
+    try:
+        client.connect()
+    except Exception as exc:
+        typer.echo(f"Error: failed to connect to IMAP server: {exc}", err=True)
+        raise typer.Exit(1)
     return client
 
 
@@ -102,8 +114,8 @@ def server_status() -> None:
     """Show IMAP server status and configuration."""
     cfg = load_config(_config_path)
     status = {
-        "server": "IMAP MCP",
-        "version": "0.1.0",
+        "server": "Mailroom",
+        "version": "0.2.0",
         "default_account": cfg.default_account,
         "accounts": {},
     }
@@ -382,8 +394,8 @@ def draft_reply(
     try:
         if output is not None:
             # --output path: build MIME locally and write raw bytes
-            from imap_mcp.smtp_client import create_reply_mime, _find_reply_from_address
-            from imap_mcp.models import EmailAddress
+            from mailroom.smtp_client import create_reply_mime, _find_reply_from_address
+            from mailroom.models import EmailAddress
 
             email_obj = client.fetch_email(uid, folder)
             if not email_obj:
@@ -419,7 +431,7 @@ def draft_reply(
                 typer.echo(f"Wrote {len(raw)} bytes to {output}", err=True)
         else:
             # Default path: save as draft via domain function
-            from imap_mcp.smtp_client import compose_and_save_reply_draft
+            from mailroom.smtp_client import compose_and_save_reply_draft
 
             result = compose_and_save_reply_draft(
                 client, folder, uid, body,
@@ -448,7 +460,7 @@ def process_meeting_invite(
     ),
 ) -> None:
     """Process a meeting invite and create a draft reply."""
-    from imap_mcp.workflows.meeting_reply import process_meeting_invite_workflow
+    from mailroom.workflows.meeting_reply import process_meeting_invite_workflow
 
     client = _make_client()
     try:
@@ -456,6 +468,30 @@ def process_meeting_invite(
         _out(result)
     finally:
         client.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# mcp (start MCP server)
+# ---------------------------------------------------------------------------
+
+@app.command("mcp")
+def mcp_serve(
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c",
+        help="Path to YAML configuration file.",
+        envvar="MAILROOM_CONFIG",
+    ),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging."),
+    dev: bool = typer.Option(False, "--dev", help="Enable development mode."),
+    version: bool = typer.Option(False, "--version", help="Show version and exit."),
+) -> None:
+    """Start the MCP server (Model Context Protocol)."""
+    if version:
+        print("Mailroom MCP server version 0.2.0")
+        raise typer.Exit()
+    from mailroom.mcp_server import create_server
+    server = create_server(config, debug)
+    server.run()
 
 
 # ---------------------------------------------------------------------------

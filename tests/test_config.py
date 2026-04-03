@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from imap_mcp.config import ImapConfig, MultiAccountConfig, ServerConfig, load_config
+from mailroom.config import ImapConfig, MultiAccountConfig, ServerConfig, load_config
 
 
 class TestImapConfig:
@@ -241,7 +241,7 @@ class TestLoadConfig:
         }
         
         # Create a temporary config file in one of the default locations
-        temp_dir = tmp_path / ".config" / "imap-mcp"
+        temp_dir = tmp_path / ".config" / "mailroom"
         temp_dir.mkdir(parents=True, exist_ok=True)
         temp_file = temp_dir / "config.yaml"
         
@@ -251,7 +251,7 @@ class TestLoadConfig:
         # Monkeypatch Path.expanduser to return our temp path
         original_expanduser = Path.expanduser
         def mock_expanduser(self):
-            if str(self) == "~/.config/imap-mcp/config.yaml":
+            if str(self) == "~/.config/mailroom/config.yaml":
                 return temp_file
             return original_expanduser(self)
         

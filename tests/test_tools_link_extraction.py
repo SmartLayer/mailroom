@@ -4,7 +4,7 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from imap_mcp.models import Email, EmailAddress, EmailContent
+from mailroom.models import Email, EmailAddress, EmailContent
 
 
 def _make_email(html):
@@ -200,7 +200,7 @@ class TestExtractEmailLinksTool:
 
     async def test_extract_links_from_email(self, mock_context):
         """Test extracting links from an email with HTML content."""
-        from imap_mcp.tools import register_tools
+        from mailroom.tools import register_tools
         from mcp.server.fastmcp import FastMCP
         
         # Create mock email with HTML content
@@ -260,7 +260,7 @@ class TestExtractEmailLinksTool:
 
     async def test_extract_links_multiple_emails(self, mock_context):
         """Test extracting links from multiple emails."""
-        from imap_mcp.tools import register_tools
+        from mailroom.tools import register_tools
         from mcp.server.fastmcp import FastMCP
         
         # Create two mock emails
@@ -324,7 +324,7 @@ class TestExtractEmailLinksTool:
 
     async def test_extract_links_email_not_found(self, mock_context):
         """Test error when email is not found."""
-        from imap_mcp.tools import register_tools
+        from mailroom.tools import register_tools
         from mcp.server.fastmcp import FastMCP
         
         # Set up mock client that returns None
@@ -357,7 +357,7 @@ class TestExtractEmailLinksTool:
 
     async def test_extract_links_no_html_content(self, mock_context):
         """Test error when email has no HTML content."""
-        from imap_mcp.tools import register_tools
+        from mailroom.tools import register_tools
         from mcp.server.fastmcp import FastMCP
         
         # Create mock email with only plain text
@@ -401,7 +401,7 @@ class TestExtractEmailLinksTool:
 
     async def test_extract_links_html_with_no_links(self, mock_context):
         """Test with HTML content that has no links."""
-        from imap_mcp.tools import register_tools
+        from mailroom.tools import register_tools
         from mcp.server.fastmcp import FastMCP
         
         # Create mock email with HTML but no links
@@ -445,7 +445,7 @@ class TestExtractEmailLinksTool:
 
     async def test_extract_links_deduplication(self, mock_context):
         """Test that duplicate URLs are deduplicated per email."""
-        from imap_mcp.tools import register_tools
+        from mailroom.tools import register_tools
         from mcp.server.fastmcp import FastMCP
         
         # Create mock email with duplicate links

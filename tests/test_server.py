@@ -8,8 +8,8 @@ import logging
 
 from mcp.server.fastmcp import FastMCP
 
-from imap_mcp.server import create_server, server_lifespan, main
-from imap_mcp.config import AccountConfig, ImapConfig, MultiAccountConfig, ServerConfig
+from mailroom.mcp_server import create_server, server_lifespan, main
+from mailroom.config import AccountConfig, ImapConfig, MultiAccountConfig, ServerConfig
 
 
 class TestServer:
@@ -30,15 +30,15 @@ class TestServer:
             )},
         )
 
-        with mock.patch("imap_mcp.server.load_config", return_value=mock_config):
+        with mock.patch("mailroom.mcp_server.load_config", return_value=mock_config):
             server = create_server()
 
             assert isinstance(server, FastMCP)
-            assert server.name == "IMAP"
+            assert server.name == "Mailroom"
             assert server._config == mock_config
 
-            with mock.patch("imap_mcp.server.register_resources") as mock_register_resources:
-                with mock.patch("imap_mcp.server.register_tools") as mock_register_tools:
+            with mock.patch("mailroom.mcp_server.register_resources") as mock_register_resources:
+                with mock.patch("mailroom.mcp_server.register_tools") as mock_register_tools:
                     create_server()
                     assert mock_register_resources.called
                     assert mock_register_tools.called
@@ -50,8 +50,8 @@ class TestServer:
                 imap=ImapConfig(host="localhost", port=993, username="test", password="pw"),
             )},
         )
-        with mock.patch("imap_mcp.server.load_config", return_value=mock_config):
-            with mock.patch("imap_mcp.server.logger") as mock_logger:
+        with mock.patch("mailroom.mcp_server.load_config", return_value=mock_config):
+            with mock.patch("mailroom.mcp_server.logger") as mock_logger:
                 create_server(debug=True)
                 mock_logger.setLevel.assert_called_with(logging.DEBUG)
 
@@ -59,7 +59,7 @@ class TestServer:
         """Test server creation with a specific config path."""
         config_path = "test_config.yaml"
         
-        with mock.patch("imap_mcp.server.load_config") as mock_load_config:
+        with mock.patch("mailroom.mcp_server.load_config") as mock_load_config:
             create_server(config_path=config_path)
             mock_load_config.assert_called_with(config_path)
     
@@ -79,7 +79,7 @@ class TestServer:
         )
         mock_server._config = mock_config
 
-        with mock.patch("imap_mcp.server.ImapClient") as MockImapClient:
+        with mock.patch("mailroom.mcp_server.ImapClient") as MockImapClient:
             mock_client = MockImapClient.return_value
 
             async with AsyncExitStack() as stack:
@@ -104,8 +104,8 @@ class TestServer:
             )},
         )
 
-        with mock.patch("imap_mcp.server.load_config", return_value=mock_config) as mock_load_config:
-            with mock.patch("imap_mcp.server.ImapClient"):
+        with mock.patch("mailroom.mcp_server.load_config", return_value=mock_config) as mock_load_config:
+            with mock.patch("mailroom.mcp_server.ImapClient"):
                 async with AsyncExitStack() as stack:
                     await stack.enter_async_context(server_lifespan(mock_server))
                     mock_load_config.assert_called_once()
@@ -137,7 +137,7 @@ class TestServer:
             )},
         )
 
-        with mock.patch("imap_mcp.server.load_config", return_value=mock_config):
+        with mock.patch("mailroom.mcp_server.load_config", return_value=mock_config):
             server = create_server()
             assert server is not None
     
@@ -146,8 +146,8 @@ class TestServer:
         test_args = ["--config", "test_config.yaml", "--debug", "--dev"]
 
         with mock.patch("sys.argv", ["server.py"] + test_args):
-            with mock.patch("imap_mcp.server.create_server") as mock_create_server:
-                with mock.patch("imap_mcp.server.argparse.ArgumentParser.parse_args") as mock_parse_args:
+            with mock.patch("mailroom.mcp_server.create_server") as mock_create_server:
+                with mock.patch("mailroom.mcp_server.argparse.ArgumentParser.parse_args") as mock_parse_args:
                     mock_args = argparse.Namespace(
                         config="test_config.yaml",
                         debug=True,
@@ -159,7 +159,7 @@ class TestServer:
                     mock_server = mock.MagicMock()
                     mock_create_server.return_value = mock_server
 
-                    with mock.patch("imap_mcp.server.logger") as mock_logger:
+                    with mock.patch("mailroom.mcp_server.logger") as mock_logger:
                         main()
 
                         mock_create_server.assert_called_once_with("test_config.yaml", True)
@@ -168,11 +168,11 @@ class TestServer:
     
     def test_main_env_config(self, monkeypatch):
         """Test main function with config from environment variable."""
-        monkeypatch.setenv("IMAP_MCP_CONFIG", "env_config.yaml")
+        monkeypatch.setenv("MAILROOM_CONFIG", "env_config.yaml")
 
         with mock.patch("sys.argv", ["server.py"]):
-            with mock.patch("imap_mcp.server.create_server") as mock_create_server:
-                with mock.patch("imap_mcp.server.argparse.ArgumentParser.parse_args") as mock_parse_args:
+            with mock.patch("mailroom.mcp_server.create_server") as mock_create_server:
+                with mock.patch("mailroom.mcp_server.argparse.ArgumentParser.parse_args") as mock_parse_args:
                     mock_args = argparse.Namespace(
                         config="env_config.yaml",
                         debug=False,

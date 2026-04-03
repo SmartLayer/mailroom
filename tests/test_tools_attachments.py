@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from imap_mcp.models import Email, EmailAddress, EmailAttachment, EmailContent
-from imap_mcp.tools import register_tools
+from mailroom.models import Email, EmailAddress, EmailAttachment, EmailContent
+from mailroom.tools import register_tools
 
 
 @pytest.fixture

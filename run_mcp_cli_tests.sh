@@ -1,11 +1,11 @@
 #!/bin/bash
-# Script to run MCP-CLI integration tests against the IMAP MCP server
+# Script to run MCP-CLI integration tests against the Mailroom server
 # Assumes mcp-cli will dynamically launch the server based on its config.
 
 set -e  # Exit immediately if a command exits with a non-zero status.
 set -x  # Print commands and their arguments as they are executed.
 
-# Ensure script is run from the project root (imap-mcp)
+# Ensure script is run from the project root (mailroom)
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 PROJECT_ROOT="$SCRIPT_DIR"
 cd "$PROJECT_ROOT" || exit 1

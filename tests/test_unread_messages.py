@@ -2,9 +2,9 @@
 
 import pytest
 from unittest.mock import MagicMock, patch
-from imap_mcp.imap_client import ImapClient
-from imap_mcp.config import ImapConfig
-from imap_mcp.models import Email, EmailAddress, EmailContent
+from mailroom.imap_client import ImapClient
+from mailroom.config import ImapConfig
+from mailroom.models import Email, EmailAddress, EmailContent
 
 
 def test_get_unread_messages_defaults():

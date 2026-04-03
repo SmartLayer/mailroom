@@ -4,7 +4,7 @@ Quick test to verify the raw IMAP search functionality works correctly.
 This script tests the parsing without requiring an actual IMAP connection.
 """
 
-from imap_mcp.imap_client import ImapClient
+from mailroom.imap_client import ImapClient
 
 
 def test_example_queries():
