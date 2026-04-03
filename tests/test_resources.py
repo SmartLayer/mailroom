@@ -6,13 +6,13 @@ from unittest import mock
 
 from mcp.server.fastmcp import Context, FastMCP
 
-from imap_mcp.resources import register_resources, get_client_from_context
+from mailroom.resources import register_resources, get_client_from_context
 
 # Directly patch the Context class
 original_get_current = getattr(Context, 'get_current', None)
 
 class TestResources:
-    """Tests for imap_mcp.resources."""
+    """Tests for mailroom.resources."""
     
     def test_get_client_from_context(self):
         """Test getting IMAP client from context."""
@@ -209,7 +209,8 @@ class TestResources:
         email.flags = ["\\Seen"]
         email.attachments = []
         email.date.isoformat.return_value = "2023-01-01T12:00:00"
-        email.content.get_best_content.return_value = "This is the email content"
+        email.content.html = None
+        email.content.text = "This is the email content"
         
         # Return the mock email from fetch_email
         mock_imap_client.fetch_email.return_value = email
@@ -266,7 +267,7 @@ class TestResources:
         
         try:
             # This should succeed if all resources have correct parameter definitions
-            from imap_mcp.resources import register_resources
+            from mailroom.resources import register_resources
             register_resources(real_mcp, mock.MagicMock())
             
             # If we get here, all resources passed validation

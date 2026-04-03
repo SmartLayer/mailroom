@@ -6,7 +6,7 @@ import pytest
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from imap_mcp.models import Email, EmailAddress
+from mailroom.models import Email, EmailAddress
 from tests.test_utils import (
     assert_email_equals,
     create_mock_folder_list,

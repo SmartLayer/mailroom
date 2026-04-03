@@ -7,15 +7,15 @@ from datetime import datetime
 
 from mcp.server.fastmcp import FastMCP, Context
 
-from imap_mcp.imap_client import ImapClient
-from imap_mcp.models import Email, EmailAddress, EmailContent
-from imap_mcp.tools import register_tools
+from mailroom.imap_client import ImapClient
+from mailroom.models import Email, EmailAddress, EmailContent
+from mailroom.tools import register_tools
 
 
 # Patch the get_client_from_context function to use our mock client
 @pytest.fixture(autouse=True)
 def patch_get_client():
-    with patch('imap_mcp.tools.get_client_from_context') as mock_get_client:
+    with patch('mailroom.tools.get_client_from_context') as mock_get_client:
         yield mock_get_client
 
 
@@ -200,109 +200,108 @@ class TestTools:
 
     @pytest.mark.asyncio
     async def test_search_emails(self, tools, mock_client, mock_context, mock_email):
-        """Test searching for emails."""
-        # Get the search_emails function
+        """Test searching for emails via the MCP tool wrapper."""
         search_emails = tools["search_emails"]
-        
-        # Test searching with default parameters
+
+        # Configure client.search_emails to return sample results
+        sample_results = [
+            {"uid": 1, "folder": "INBOX", "from": "sender@example.com",
+             "to": ["recipient@example.com"], "subject": "Test Email",
+             "date": "2025-04-01T10:00:00", "flags": ["\\Seen"],
+             "has_attachments": False},
+        ]
+        mock_client.search_emails.return_value = sample_results
+
+        # Test default parameters
         result = await search_emails("test query", mock_context)
         result_data = json.loads(result)
-        
-        # Assert client methods were called properly
-        mock_client.list_folders.assert_called_once()
-        assert mock_client.search.call_count > 0 
-        
-        # Check result structure
         assert isinstance(result_data, list)
-        assert len(result_data) > 0
-        assert "uid" in result_data[0]
-        assert "folder" in result_data[0]
-        assert "subject" in result_data[0]
-        
-        # Reset mocks
-        mock_client.list_folders.reset_mock()
-        mock_client.search.reset_mock()
-        mock_client.fetch_emails.reset_mock()
-        
-        # Test searching with specific folder
-        result = await search_emails("test query", mock_context, folder="INBOX")
-        
-        # Assert client methods were called properly
-        mock_client.list_folders.assert_not_called()
-        mock_client.search.assert_called_once()
-        
-        # Test with different criteria
-        criteria_tests = ["from", "to", "subject", "all", "unseen", "seen"]
-        for criteria in criteria_tests:
-            mock_client.search.reset_mock()
-            result = await search_emails("test query", mock_context, criteria=criteria)
-            assert mock_client.search.called
-        
-        # Test with invalid criteria
+        assert len(result_data) == 1
+        assert result_data[0]["subject"] == "Test Email"
+        mock_client.search_emails.assert_called_once_with(
+            "test query", "text", folder=None, limit=10,
+        )
+
+        # Test with specific folder and criteria
+        mock_client.search_emails.reset_mock()
+        result = await search_emails("test query", mock_context, folder="INBOX", criteria="from")
+        mock_client.search_emails.assert_called_once_with(
+            "test query", "from", folder="INBOX", limit=10,
+        )
+
+        # Test with invalid criteria — client.search_emails raises ValueError
+        mock_client.search_emails.reset_mock()
+        mock_client.search_emails.side_effect = ValueError("Invalid search criteria: invalid")
         result = await search_emails("test query", mock_context, criteria="invalid")
         assert "Invalid search criteria" in result
+        mock_client.search_emails.side_effect = None
+
+        # Test numeric query is coerced to string
+        mock_client.search_emails.reset_mock()
+        mock_client.search_emails.return_value = sample_results
+        result = await search_emails(69172700, mock_context, folder="INBOX")
+        mock_client.search_emails.assert_called_once_with(
+            "69172700", "text", folder="INBOX", limit=10,
+        )
+
+    @pytest.mark.asyncio
+    async def test_search_emails_raw_criteria(self, tools, mock_client, mock_context, mock_email):
+        """Test searching with raw IMAP criteria delegates to client.search_emails."""
+        search_emails = tools["search_emails"]
+
+        sample_results = [
+            {"uid": 1, "folder": "INBOX", "from": "sender@example.com",
+             "to": ["recipient@example.com"], "subject": "Edinburgh trip",
+             "date": "2025-04-01T10:00:00", "flags": [], "has_attachments": False},
+        ]
+        mock_client.search_emails.return_value = sample_results
+
+        result = await search_emails("TEXT Edinburgh", mock_context, folder="INBOX", criteria="raw")
+        result_data = json.loads(result)
+        assert isinstance(result_data, list)
+        mock_client.search_emails.assert_called_once_with(
+            "TEXT Edinburgh", "raw", folder="INBOX", limit=10,
+        )
 
     @pytest.mark.asyncio
     async def test_process_email(self, tools, mock_client, mock_context):
         """Test processing an email with multiple actions."""
-        # Get the process_email function
         process_email = tools["process_email"]
-        
-        # Test move action
-        mock_client.move_email.reset_mock()
-        mock_client.move_email.return_value = True
-        
+
+        # Test move action — delegates to process_email_action
+        mock_client.process_email_action.return_value = "Email moved from INBOX to Archive"
         result = await process_email(
             "INBOX", 123, "move", mock_context, target_folder="Archive"
         )
-        
-        mock_client.move_email.assert_called_once_with(123, "INBOX", "Archive")
+        mock_client.process_email_action.assert_called_with(
+            123, "INBOX", "move", target_folder="Archive"
+        )
         assert "Email moved" in result
-        
-        # Test move action without target folder
-        result = await process_email("INBOX", 123, "move", mock_context)
-        assert "Target folder must be specified" in result
-        
+
         # Test read action
-        mock_client.mark_email.reset_mock()
-        mock_client.mark_email.return_value = True
-        
+        mock_client.process_email_action.return_value = "Email marked as read"
         result = await process_email("INBOX", 123, "read", mock_context)
-        
-        mock_client.mark_email.assert_called_once_with(123, "INBOX", "\\Seen", True)
+        mock_client.process_email_action.assert_called_with(
+            123, "INBOX", "read", target_folder=None
+        )
         assert "Email marked as read" in result
-        
-        # Test unread action
-        mock_client.mark_email.reset_mock()
-        mock_client.mark_email.return_value = True
-        
-        result = await process_email("INBOX", 123, "unread", mock_context)
-        
-        mock_client.mark_email.assert_called_once_with(123, "INBOX", "\\Seen", False)
-        assert "Email marked as unread" in result
-        
-        # Test flag action
-        mock_client.mark_email.reset_mock()
-        mock_client.mark_email.return_value = True
-        
-        result = await process_email("INBOX", 123, "flag", mock_context)
-        
-        mock_client.mark_email.assert_called_once_with(123, "INBOX", "\\Flagged", True)
-        assert "Email flagged" in result
-        
-        # Test delete action
-        mock_client.delete_email.reset_mock()
-        mock_client.delete_email.return_value = True
-        
-        result = await process_email("INBOX", 123, "delete", mock_context)
-        
-        mock_client.delete_email.assert_called_once_with(123, "INBOX")
-        assert "Email deleted" in result
-        
-        # Test invalid action
+
+        # Test move without target folder — ValueError from domain
+        mock_client.process_email_action.side_effect = ValueError(
+            "target_folder is required for move action"
+        )
+        result = await process_email("INBOX", 123, "move", mock_context)
+        assert "target_folder" in result
+        mock_client.process_email_action.side_effect = None
+
+        # Test invalid action — ValueError from domain
+        mock_client.process_email_action.side_effect = ValueError(
+            "Unknown action 'invalid_action'"
+        )
         result = await process_email("INBOX", 123, "invalid_action", mock_context)
-        assert "Invalid action" in result
-        
+        assert "Unknown action" in result
+        mock_client.process_email_action.side_effect = None
+
         # Test email not found
         mock_client.fetch_email.return_value = None
         result = await process_email("INBOX", 123, "read", mock_context)
@@ -326,11 +325,11 @@ class TestTools:
         result = await mark_as_read("INBOX", 123, mock_context)
         assert "Error" in result
         
-        # Test search_emails error handling
-        mock_client.search.side_effect = Exception("Search failed")
+        # Test search_emails error handling — client.search_emails raises ValueError
+        mock_client.search_emails.side_effect = ValueError("Search failed")
         result = await search_emails("test", mock_context)
-        # Search should continue with other folders and return an empty list
-        assert "[]" in result or result == "[]"
+        assert "Search failed" in result
+        mock_client.search_emails.side_effect = None
 
     @pytest.mark.asyncio
     async def test_tool_parameter_validation(self, tools, mock_client, mock_context):
@@ -339,14 +338,76 @@ class TestTools:
         search_emails = tools["search_emails"]
         process_email = tools["process_email"]
         
-        # Test search_emails with invalid criteria
+        # Test search_emails with invalid criteria — client raises ValueError
+        mock_client.search_emails.side_effect = ValueError("Invalid search criteria: invalid_criteria")
         result = await search_emails("test", mock_context, criteria="invalid_criteria")
         assert "Invalid search criteria" in result
+        mock_client.search_emails.side_effect = None
         
         # Test process_email with missing target folder for move action
+        mock_client.process_email_action.side_effect = ValueError("target_folder is required for move action")
         result = await process_email("INBOX", 123, "move", ctx=mock_context)
-        assert "Target folder must be specified" in result
-        
+        assert "target_folder" in result
+
         # Test process_email with invalid action
+        mock_client.process_email_action.side_effect = ValueError("Unknown action 'nonexistent_action'")
         result = await process_email("INBOX", 123, "nonexistent_action", ctx=mock_context)
-        assert "Invalid action" in result
+        assert "Unknown action" in result
+        mock_client.process_email_action.side_effect = None
+
+
+class TestRawImapCriteriaParsing:
+    """Test the ImapClient.parse_raw_criteria helper function."""
+    
+    def test_parse_simple_single_keyword(self):
+        """Test parsing simple single-keyword queries."""
+        assert ImapClient.parse_raw_criteria("ALL") == "ALL"
+        assert ImapClient.parse_raw_criteria("UNSEEN") == "UNSEEN"
+        assert ImapClient.parse_raw_criteria("SEEN") == "SEEN"
+    
+    def test_parse_simple_text_search(self):
+        """Test parsing simple TEXT searches."""
+        result = ImapClient.parse_raw_criteria("TEXT Edinburgh")
+        assert result == ["TEXT", "Edinburgh"]
+        
+        result = ImapClient.parse_raw_criteria('TEXT "booking confirmation"')
+        assert result == ["TEXT", "booking confirmation"]
+    
+    def test_parse_simple_or_expression(self):
+        """Test parsing simple OR expressions."""
+        result = ImapClient.parse_raw_criteria('OR TEXT "Edinburgh" TEXT "Berlin"')
+        assert result == ["OR", "TEXT", "Edinburgh", "TEXT", "Berlin"]
+    
+    def test_parse_nested_or_expression(self):
+        """Test parsing nested OR expressions."""
+        result = ImapClient.parse_raw_criteria('OR TEXT "Edinburgh" OR TEXT "Berlin" TEXT "Munich"')
+        assert result == ["OR", "TEXT", "Edinburgh", "OR", "TEXT", "Berlin", "TEXT", "Munich"]
+    
+    def test_parse_complex_travel_query(self):
+        """Test parsing the complex travel booking query from the example."""
+        query = 'OR TEXT "Edinburgh" OR TEXT "Berlin" OR TEXT "Munich" OR TEXT "Vienna" OR TEXT "Warsaw" OR TEXT "itinerary" OR TEXT "booking confirmation" OR TEXT "e-ticket" OR TEXT "reservation" OR TEXT "receipt" OR TEXT "ticket" TEXT "order"'
+        result = ImapClient.parse_raw_criteria(query)
+        
+        # Verify it's a list
+        assert isinstance(result, list)
+        
+        # Verify key elements are present
+        assert "OR" in result
+        assert "TEXT" in result
+        assert "Edinburgh" in result
+        assert "Berlin" in result
+        assert "booking confirmation" in result
+        assert "order" in result
+    
+    def test_parse_from_subject_criteria(self):
+        """Test parsing FROM and SUBJECT criteria."""
+        result = ImapClient.parse_raw_criteria('FROM "john@example.com"')
+        assert result == ["FROM", "john@example.com"]
+        
+        result = ImapClient.parse_raw_criteria('SUBJECT "meeting"')
+        assert result == ["SUBJECT", "meeting"]
+    
+    def test_parse_combined_criteria(self):
+        """Test parsing combined criteria without OR."""
+        result = ImapClient.parse_raw_criteria('SEEN FROM gmail')
+        assert result == ["SEEN", "FROM", "gmail"]

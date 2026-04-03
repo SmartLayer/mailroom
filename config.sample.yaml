@@ -9,6 +9,15 @@ imap:
   username: your-email@gmail.com
   use_ssl: true
   
+  # Connection lifecycle management (optional, defaults shown)
+  # idle_timeout: seconds before reconnecting idle connections
+  #   0 = close after each operation (stateless mode)
+  #   300 = reconnect if idle > 5 minutes (default, recommended for AI assistants)
+  #   -1 = never proactively reconnect (legacy behaviour)
+  idle_timeout: 300
+  # verify_with_noop: send NOOP command to verify connection health before operations
+  verify_with_noop: true
+  
   # Option 1: OAuth2 authentication (recommended for Gmail)
   oauth2:
     client_id: YOUR_CLIENT_ID

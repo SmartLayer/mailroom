@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock, call
 import pytest
 from flask import Flask
 
-from imap_mcp.browser_auth import (
+from mailroom.browser_auth import (
     create_oauth_app,
     run_local_server,
     load_client_credentials,
@@ -115,7 +115,7 @@ class TestRunLocalServer:
         mock_token.return_value = "mock_state_token"
         
         # Set up patches
-        with patch("imap_mcp.browser_auth._tokens", {}) as mock_tokens:
+        with patch("mailroom.browser_auth._tokens", {}) as mock_tokens:
             # Simulate a successful auth flow by setting the tokens directly
             # This mimics what the callback route would do
             mock_tokens["mock_state_token"] = {
@@ -155,8 +155,8 @@ class TestPerformOauthFlow:
     """Tests for the perform_oauth_flow function."""
     
     @pytest.mark.skip(reason="Skipping test that requires real OAuth flow")
-    @patch("imap_mcp.browser_auth.run_local_server")
-    @patch("imap_mcp.browser_auth.load_client_credentials")
+    @patch("mailroom.browser_auth.run_local_server")
+    @patch("mailroom.browser_auth.load_client_credentials")
     def test_perform_oauth_flow_with_credentials_file(
         self, mock_load_credentials, mock_run_server, sample_credentials_file
     ):
@@ -191,7 +191,7 @@ class TestPerformOauthFlow:
         assert "client_secret" in result["imap"]["oauth2"]
     
     @pytest.mark.skip(reason="Skipping test that requires real OAuth flow")
-    @patch("imap_mcp.browser_auth.run_local_server")
+    @patch("mailroom.browser_auth.run_local_server")
     def test_perform_oauth_flow_with_client_id_secret(self, mock_run_server):
         """Test OAuth flow with direct client ID and secret."""
         # Set up mock
@@ -219,7 +219,7 @@ class TestPerformOauthFlow:
         assert result["imap"]["oauth2"]["client_id"] == "direct_client_id"
     
     @pytest.mark.skip(reason="Skipping test that requires real OAuth flow")
-    @patch("imap_mcp.browser_auth.run_local_server")
+    @patch("mailroom.browser_auth.run_local_server")
     def test_perform_oauth_flow_failure(self, mock_run_server):
         """Test OAuth flow failure."""
         # Set up mock to simulate failure
@@ -239,7 +239,7 @@ class TestMain:
     """Tests for the main function."""
     
     @pytest.mark.skip(reason="Skipping test that uses real OAuth flow")
-    @patch("imap_mcp.browser_auth.perform_oauth_flow")
+    @patch("mailroom.browser_auth.perform_oauth_flow")
     @patch("sys.argv")
     @patch("sys.exit")
     def test_main_success(self, mock_exit, mock_argv, mock_perform_oauth):
@@ -265,7 +265,7 @@ class TestMain:
         mock_exit.assert_called_once_with(0)
     
     @pytest.mark.skip(reason="Skipping test that uses real OAuth flow")
-    @patch("imap_mcp.browser_auth.perform_oauth_flow")
+    @patch("mailroom.browser_auth.perform_oauth_flow")
     @patch("sys.argv")
     @patch("sys.exit")
     def test_main_failure(self, mock_exit, mock_argv, mock_perform_oauth):

@@ -1,198 +1,171 @@
-# IMAP MCP Server
+# Mailroom
 
-A Model Context Protocol (MCP) server that enables AI assistants to check email, process messages, and learn user preferences through interaction.
+Give your AI assistant access to your email.
 
-## Overview
+Mailroom lets AI assistants search, read, download, reply to, and organize email. It works with any IMAP provider (Gmail, Outlook, Fastmail, self-hosted). Two interfaces serve different environments: a CLI that outputs JSON (for terminal-based agents, scripts, and automation) and an MCP server (for web-based AI chats and MCP clients). Both expose the same operations.
 
-This project implements an MCP server that interfaces with IMAP email servers to provide the following capabilities:
+## What your AI can do with it
 
-- Email browsing and searching
-- Email organization (moving, tagging, marking)
-- Email composition and replies
-- Interactive email processing and learning user preferences
-- Automated email summarization and categorization
-- Support for multiple IMAP providers
+- Find a booking confirmation buried in your inbox
+- Download the PDF attachment from an invoice
+- Check all the links in a suspicious email
+- Draft a reply that lands in the right thread
+- Move, flag, or archive messages
+- Search across all folders at once
+- Handle a meeting invite — check availability, draft a response
 
-The IMAP MCP server is designed to work with Claude or any other MCP-compatible assistant, allowing them to act as intelligent email assistants that learn your preferences over time.
+## Configuration
 
-## Features
-
-- **Email Authentication**: Secure access to IMAP servers with various authentication methods
-- **Email Browsing**: List folders and messages with filtering options 
-- **Email Content**: Read message contents including text, HTML, and attachments 
-- **Email Actions**: Move, delete, mark as read/unread, flag messages 
-- **Email Composition**: Draft and save replies to messages with proper formatting
-  - Support for plain text and HTML replies
-  - Reply-all functionality with CC support
-  - Proper threading with In-Reply-To and References headers
-  - Save drafts to appropriate folders
-- **Search**: Basic search capabilities across folders 
-- **Interaction Patterns**: Structured patterns for processing emails and learning preferences (planned)
-- **Learning Layer**: Record and analyze user decisions to predict future actions (planned)
-
-## Current Project Structure
-
-The project is currently organized as follows:
-
-```
-.
-├── examples/              # Example configurations
-│   └── config.yaml.example
-├── imap_mcp/              # Source code
-│   ├── __init__.py
-│   ├── config.py          # Configuration handling
-│   ├── imap_client.py     # IMAP client implementation
-│   ├── models.py          # Data models
-│   ├── resources.py       # MCP resources implementation
-│   ├── server.py          # Main server implementation
-│   └── tools.py           # MCP tools implementation
-├── tests/                 # Test suite
-│   ├── __init__.py
-│   └── test_models.py
-├── INSTALLATION.md        # Detailed installation guide
-├── pyproject.toml         # Project configuration
-└── README.md              # This file
-```
-
-## Getting Started
-
-### Prerequisites
-
-- Python 3.8 or higher
-- An IMAP-enabled email account (Gmail recommended)
-- [uv](https://docs.astral.sh/uv/) for package management and running Python scripts
-
-### Installation
-
-1. Install uv if you haven't already:
-   ```bash
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   ```
-
-2. Clone and install the package:
-   ```bash
-   git clone https://github.com/non-dirty/imap-mcp.git
-   cd imap-mcp
-   uv venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   uv pip install -e ".[dev]"
-   ```
-
-### Gmail Configuration
-
-1. Create a config file:
-   ```bash
-   cp config.sample.yaml config.yaml
-   ```
-
-2. Set up Gmail OAuth2 credentials:
-   - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Create a new project or select existing one
-   - Enable the Gmail API
-   - Create OAuth2 credentials (Desktop Application type)
-   - Download the client configuration
-
-3. Update `config.yaml` with your Gmail settings:
-   ```yaml
-   imap:
-     host: imap.gmail.com
-     port: 993
-     username: your-email@gmail.com
-     use_ssl: true
-     oauth2:
-       client_id: YOUR_CLIENT_ID
-       client_secret: YOUR_CLIENT_SECRET
-       refresh_token: YOUR_REFRESH_TOKEN
-   ```
-
-### Usage
-
-#### Checking Email
-
-To list emails in your inbox:
-```bash
-uv run list_inbox.py --config config.yaml --folder INBOX --limit 10
-```
-
-Available options:
-- `--folder`: Specify which folder to check (default: INBOX)
-- `--limit`: Maximum number of emails to display (default: 10)
-- `--verbose`: Enable detailed logging output
-
-#### Starting the MCP Server
-
-To start the IMAP MCP server:
-```bash
-uv run imap-mcp --config config.yaml
-```
-
-For development mode with debugging:
-```bash
-uv run imap-mcp --dev
-```
-
-#### Managing OAuth2 Tokens
-
-To refresh your OAuth2 token:
-```bash
-uv run imap_mcp.auth_setup refresh-token --config config.yaml
-```
-
-To generate a new OAuth2 token:
-```bash
-uv run imap_mcp.auth_setup generate-token --config config.yaml
-```
-
-## Development
-
-### Setting Up Development Environment
+Copy the sample and fill in your credentials:
 
 ```bash
-# Set up virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install development dependencies
-pip install -e ".[dev]"
+cp config.sample.yaml config.yaml
 ```
 
-### Running Tests
+For Gmail with OAuth2:
+
+```yaml
+imap:
+  host: imap.gmail.com
+  port: 993
+  username: your-email@gmail.com
+  use_ssl: true
+  oauth2:
+    client_id: YOUR_CLIENT_ID
+    client_secret: YOUR_CLIENT_SECRET
+    refresh_token: YOUR_REFRESH_TOKEN
+```
+
+For other providers, use a password or app-specific password:
+
+```yaml
+imap:
+  host: imap.your-provider.com
+  port: 993
+  username: your-email@provider.com
+  use_ssl: true
+  password: YOUR_APP_PASSWORD
+```
+
+Gmail OAuth2 setup requires a Google Cloud project with the Gmail API enabled. See [GMAIL_SETUP.md](GMAIL_SETUP.md) for the full walkthrough.
+
+## Quick test
+
+With uv (any platform):
 
 ```bash
-pytest
+uvx mailroom --config config.yaml search-emails "invoice" --criteria subject
 ```
 
-## Security Considerations
+No installation step — `uvx` runs it directly. To install permanently:
 
-This MCP server requires access to your email account, which contains sensitive personal information. Please be aware of the following security considerations:
+```bash
+uv tool install mailroom
+```
 
-- Store email credentials securely using environment variables or secure credential storage
-- Consider using app-specific passwords instead of your main account password
-- Limit folder access to only what's necessary for your use case
-- Review the permissions granted to the server in your email provider's settings
+On Ubuntu 25.10 or later, the CLI dependencies are in the standard repositories. Install them, then run directly from a clone:
 
-## Project Roadmap
+```bash
+sudo apt-get install python3-typer python3-yaml python3-dotenv python3-imapclient python3-requests
+```
+Then you can run it directly without uv
 
-- [x] Project initialization and repository setup
-- [x] Basic IMAP integration
-- [x] Email resource implementation
-- [x] Email tool implementation
-- [x] Email reply and draft functionality
-- [ ] User preference learning implementation
-- [ ] Advanced search capabilities
-- [ ] Multi-account support
-- [ ] Integration with major email providers
+```bash
+python3 -m mailroom --config config.yaml search-emails "invoice" --criteria subject
+```
 
-## Contributing
+The MCP server (`mailroom mcp`) requires the `mcp` Python package, which is not in apt. Use `uv` or `pip` for that. Manuy people prefer to use cli instead of mcp as the latter loads 80+ tools into every conversation, in that case no need to install mcp package.
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+## CLI usage
+
+Every command outputs JSON to stdout. Errors go to stderr. This makes Mailroom composable with `jq`, shell scripts, and AI agent skill definitions.
+
+```bash
+# What's unread?
+mailroom -c config.yaml search-emails "" --criteria unseen --folder INBOX --limit 10
+
+# Search by subject across all folders
+mailroom -c config.yaml search-emails "hotel booking" --criteria subject
+
+# Read an email's attachments, then download one
+mailroom -c config.yaml list-attachments INBOX 4523
+mailroom -c config.yaml download-attachment INBOX 4523 itinerary.pdf /tmp/itinerary.pdf
+
+# Export an HTML email as a standalone file (images embedded)
+mailroom -c config.yaml export-email-html INBOX 4523 /tmp/email.html
+
+# Extract all links from several emails (useful for phishing checks)
+mailroom -c config.yaml extract-email-links INBOX 4523 4524 4525
+
+# Draft a threaded reply
+mailroom -c config.yaml draft-reply INBOX 4523 "Thanks, confirmed."
+
+# Organize
+mailroom -c config.yaml move-email INBOX 4523 Archive
+mailroom -c config.yaml mark-as-read INBOX 4524
+mailroom -c config.yaml flag-email INBOX 4525
+```
+
+Run `mailroom --help` for the full command list.
+
+## MCP server
+
+For AI environments that cannot run shell commands (Claude web, Cursor, or any MCP client):
+
+```bash
+mailroom mcp --config config.yaml
+```
+
+This starts an MCP server exposing the same operations as tools. The MCP package is only imported when this subcommand runs, so the CLI stays lightweight.
+
+## Scripting and automation
+
+Because every command returns JSON and uses non-zero exit codes on failure, Mailroom works as a building block in pipelines and cron jobs. A few patterns:
+
+```bash
+# Forward all unread emails from a sender to another address
+mailroom -c config.yaml search-emails "sender@example.com" --criteria from --folder INBOX \
+  | jq -r '.[].uid' \
+  | xargs -I{} mailroom -c config.yaml move-email INBOX {} Forwarded
+
+# Daily digest: save today's unread subjects to a file
+mailroom -c config.yaml search-emails "" --criteria unseen --folder INBOX \
+  | jq -r '.[].subject' > ~/daily-digest.txt
+```
+
+AI agents with skill/hook systems can call Mailroom the same way — define a skill that runs a shell command and parses the JSON output.
+
+## Multi-account
+
+A single config file can hold multiple accounts:
+
+```yaml
+default_account: personal
+accounts:
+  personal:
+    imap:
+      host: imap.gmail.com
+      # ...
+  work:
+    imap:
+      host: outlook.office365.com
+      # ...
+```
+
+Select an account with `-a`:
+
+```bash
+mailroom -c config.yaml -a work search-emails "" --criteria unseen
+```
+
+## Connection handling
+
+IMAP servers drop idle connections after 10-30 minutes. AI assistants work in bursts — a flurry of operations, then thinking time. Mailroom tracks connection age and reconnects transparently before operations fail. The default idle timeout is 300 seconds; set `idle_timeout` in the config to adjust.
+
+## Security
+
+Mailroom accesses your email account. Store credentials outside your repository (environment variables, a secrets manager, or a config file in `.gitignore`). Use app-specific passwords or OAuth2 rather than your main account password. Restrict `allowed_folders` in the config to limit what the tool can see.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- [Model Context Protocol](https://modelcontextprotocol.io/) for providing the framework
-- [Anthropic](https://www.anthropic.com/) for developing Claude
-- Various Python IMAP libraries that make this project possible
+MIT. See [LICENSE](LICENSE).

@@ -1,6 +1,6 @@
 # Commit Message Conventions
 
-This document outlines the commit message format and conventions for the IMAP MCP project.
+This document outlines the commit message format and conventions for the Mailroom project.
 
 ## Format
 

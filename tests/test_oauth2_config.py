@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from imap_mcp.config import ServerConfig
-from imap_mcp.oauth2_config import OAuth2Config
+from mailroom.config import ServerConfig
+from mailroom.oauth2_config import OAuth2Config
 
 
 @pytest.fixture

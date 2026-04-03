@@ -8,7 +8,7 @@ set -e
 display_help() {
     echo "Usage: ./scripts/run_checks.sh [OPTIONS]"
     echo ""
-    echo "Run code quality checks for the imap-mcp project."
+    echo "Run code quality checks for the mailroom project."
     echo ""
     echo "Options:"
     echo "  --help                      Display this help message"
@@ -26,7 +26,7 @@ display_help() {
 
 # Set variables
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC_DIR="${ROOT_DIR}/imap_mcp"
+SRC_DIR="${ROOT_DIR}/mailroom"
 TESTS_DIR="${ROOT_DIR}/tests"
 PYTHONPATH="${ROOT_DIR}:${PYTHONPATH}"
 export PYTHONPATH
@@ -88,7 +88,7 @@ if [[ "${RUN_ALL}" = true ]]; then
     RUN_COVERAGE=true
 fi
 
-echo "=== Running checks for imap-mcp ==="
+echo "=== Running checks for mailroom ==="
 cd "${ROOT_DIR}"
 
 # Linting

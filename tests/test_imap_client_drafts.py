@@ -13,7 +13,7 @@ from email.message import Message
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from imap_mcp.imap_client import ImapClient
+from mailroom.imap_client import ImapClient
 
 
 class TestImapClientDrafts:
@@ -181,8 +181,8 @@ import pytest
 from unittest.mock import MagicMock, patch
 from email.message import EmailMessage
 
-from imap_mcp.config import ImapConfig
-from imap_mcp.imap_client import ImapClient
+from mailroom.config import ImapConfig
+from mailroom.imap_client import ImapClient
 
 
 class TestDraftsFunctionality:
@@ -257,7 +257,7 @@ class TestDraftsFunctionality:
         drafts_folder = mock_imap_client._get_drafts_folder()
         assert drafts_folder == "INBOX"
     
-    @patch("imap_mcp.imap_client.logger")
+    @patch("mailroom.imap_client.logger")
     def test_save_draft_mime_success(self, mock_logger, mock_imap_client, sample_mime_message):
         """Test saving a draft MIME message successfully."""
         # Mock behavior
@@ -272,7 +272,7 @@ class TestDraftsFunctionality:
         assert uid == 5678
         mock_logger.debug.assert_called_with("Draft saved with UID: 5678")
     
-    @patch("imap_mcp.imap_client.logger")
+    @patch("mailroom.imap_client.logger")
     def test_save_draft_mime_no_appenduid(self, mock_logger, mock_imap_client, sample_mime_message):
         """Test saving a draft without APPENDUID in response."""
         # Mock behavior
@@ -287,7 +287,7 @@ class TestDraftsFunctionality:
         assert uid is None
         mock_logger.warning.assert_called_with("Could not extract UID from append response: b'OK'")
     
-    @patch("imap_mcp.imap_client.logger")
+    @patch("mailroom.imap_client.logger")
     def test_save_draft_mime_error(self, mock_logger, mock_imap_client, sample_mime_message):
         """Test error handling when saving a draft fails."""
         # Mock behavior

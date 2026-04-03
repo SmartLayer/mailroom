@@ -1,6 +1,6 @@
-# IMAP MCP Server Installation Guide
+# Mailroom Server Installation Guide
 
-This document provides detailed instructions for installing and setting up the IMAP MCP Server.
+This document provides detailed instructions for installing and setting up the Mailroom Server.
 
 ## Prerequisites
 
@@ -19,8 +19,8 @@ https://docs.astral.sh/uv/
 ### 2. Clone the repository
 
 ```bash
-git clone https://github.com/non-dirty/imap-mcp.git
-cd imap-mcp
+git clone https://github.com/SmartLayer/mailroom.git
+cd mailroom
 ```
 
 ### 3. Install the package and dependencies
@@ -81,25 +81,25 @@ export IMAP_PASSWORD="your_secure_password"
 #### Basic usage:
 
 ```bash
-python -m imap_mcp.server
+mailroom mcp
 ```
 
 #### With specific config file:
 
 ```bash
-python -m imap_mcp.server --config /path/to/config.yaml
+mailroom mcp --config /path/to/config.yaml
 ```
 
 #### For development mode (with inspector):
 
 ```bash
-python -m imap_mcp.server --dev
+mailroom mcp --config /path/to/config.yaml --dev
 ```
 
 #### For debugging:
 
 ```bash
-python -m imap_mcp.server --debug
+mailroom mcp --config /path/to/config.yaml --debug
 ```
 
 ## Integrating with Claude Desktop
@@ -109,9 +109,9 @@ Add the following to your Claude Desktop configuration:
 ```json
 {
   "mcpServers": {
-    "imap": {
-      "command": "python",
-      "args": ["-m", "imap_mcp.server", "--config", "/path/to/config.yaml"],
+    "mailroom": {
+      "command": "mailroom",
+      "args": ["mcp", "--config", "/path/to/config.yaml"],
       "env": {
         "IMAP_PASSWORD": "your_secure_password"
       }

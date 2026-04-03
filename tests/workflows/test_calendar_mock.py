@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import patch
 from datetime import datetime, timedelta
 
-from imap_mcp.workflows.calendar_mock import (
+from mailroom.workflows.calendar_mock import (
     check_mock_availability,
     _parse_datetime,
     _check_availability_by_mode,

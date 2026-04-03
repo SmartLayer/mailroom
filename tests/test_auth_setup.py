@@ -8,7 +8,7 @@ import yaml
 from unittest.mock import patch, mock_open, MagicMock
 import pytest
 
-from imap_mcp.auth_setup import setup_gmail_oauth2, main
+from mailroom.auth_setup import setup_gmail_oauth2, main
 
 
 @pytest.fixture
@@ -61,8 +61,8 @@ class TestSetupGmailOAuth2:
     """Tests for the setup_gmail_oauth2 function."""
     
     @pytest.mark.skip(reason="Skipping test that requires real authentication")
-    @patch("imap_mcp.auth_setup.get_authorization_url")
-    @patch("imap_mcp.auth_setup.exchange_code_for_tokens")
+    @patch("mailroom.auth_setup.get_authorization_url")
+    @patch("mailroom.auth_setup.exchange_code_for_tokens")
     @patch("builtins.input", return_value="test_auth_code")
     def test_setup_gmail_oauth2_with_client_id_secret(
         self, mock_input, mock_exchange, mock_get_url
@@ -99,9 +99,9 @@ class TestSetupGmailOAuth2:
         assert result["imap"]["oauth2"]["client_secret"] == "test_client_secret"
     
     @pytest.mark.skip(reason="Skipping test that requires real authentication")
-    @patch("imap_mcp.auth_setup.load_client_credentials")
-    @patch("imap_mcp.auth_setup.get_authorization_url")
-    @patch("imap_mcp.auth_setup.exchange_code_for_tokens")
+    @patch("mailroom.auth_setup.load_client_credentials")
+    @patch("mailroom.auth_setup.get_authorization_url")
+    @patch("mailroom.auth_setup.exchange_code_for_tokens")
     @patch("builtins.input", return_value="test_auth_code")
     def test_setup_gmail_oauth2_with_credentials_file(
         self, mock_input, mock_exchange, mock_get_url, mock_load, sample_credentials_file
@@ -130,8 +130,8 @@ class TestSetupGmailOAuth2:
         assert result["imap"]["oauth2"]["client_id"] == "file_client_id"
     
     @pytest.mark.skip(reason="Skipping test that requires authentication")
-    @patch("imap_mcp.auth_setup.get_authorization_url")
-    @patch("imap_mcp.auth_setup.exchange_code_for_tokens")
+    @patch("mailroom.auth_setup.get_authorization_url")
+    @patch("mailroom.auth_setup.exchange_code_for_tokens")
     @patch("builtins.input", return_value="test_auth_code")
     @patch("yaml.safe_load")
     def test_setup_gmail_oauth2_with_existing_config(
@@ -170,8 +170,8 @@ class TestSetupGmailOAuth2:
         assert result["imap"]["oauth2"]["refresh_token"] == "test_refresh_token"
     
     @pytest.mark.skip(reason="Skipping test that requires authentication")
-    @patch("imap_mcp.auth_setup.get_authorization_url")
-    @patch("imap_mcp.auth_setup.exchange_code_for_tokens")
+    @patch("mailroom.auth_setup.get_authorization_url")
+    @patch("mailroom.auth_setup.exchange_code_for_tokens")
     @patch("builtins.input", return_value="test_auth_code")
     @patch("yaml.dump")
     def test_setup_gmail_oauth2_config_output(
@@ -207,7 +207,7 @@ class TestMain:
     """Tests for the main function."""
     
     @pytest.mark.skip(reason="Skipping test that requires authentication")
-    @patch("imap_mcp.auth_setup.setup_gmail_oauth2")
+    @patch("mailroom.auth_setup.setup_gmail_oauth2")
     @patch("sys.argv")
     @patch("sys.exit")
     def test_main_success(self, mock_exit, mock_argv, mock_setup):
@@ -239,7 +239,7 @@ class TestMain:
         mock_exit.assert_called_once_with(0)
     
     @pytest.mark.skip(reason="Skipping test that requires authentication")
-    @patch("imap_mcp.auth_setup.setup_gmail_oauth2")
+    @patch("mailroom.auth_setup.setup_gmail_oauth2")
     @patch("sys.argv")
     @patch("sys.exit")
     def test_main_with_credentials_file(self, mock_exit, mock_argv, mock_setup):
@@ -268,7 +268,7 @@ class TestMain:
         )
     
     @pytest.mark.skip(reason="Skipping test that requires authentication")
-    @patch("imap_mcp.auth_setup.setup_gmail_oauth2")
+    @patch("mailroom.auth_setup.setup_gmail_oauth2")
     @patch("sys.argv")
     @patch("sys.exit")
     def test_main_error(self, mock_exit, mock_argv, mock_setup):
