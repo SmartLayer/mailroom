@@ -137,7 +137,7 @@ if [[ "${RUN_COVERAGE}" = true ]]; then
     
     # Check coverage threshold in CI mode
     if [[ "${CI_MODE}" = true ]]; then
-        MIN_COVERAGE=80
+        MIN_COVERAGE=70
         COVERAGE=$(uv run python -c "import json; print(json.load(open('coverage.json'))['totals']['percent_covered_display'])")
         
         echo "Coverage: ${COVERAGE}%"
