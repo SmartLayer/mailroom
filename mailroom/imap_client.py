@@ -815,27 +815,50 @@ class ImapClient:
         search_spec = parse_query(query)
 
         folders_to_search = [folder] if folder else self.list_folders()
-        results: List[Dict[str, Any]] = []
 
+        # Pass 1: collect (uid, folder, date) using a lightweight fetch
+        candidates: List[tuple] = []
         for current_folder in folders_to_search:
             try:
                 uids = self.search(search_spec, folder=current_folder)
-                uids = sorted(uids, reverse=True)[:limit]
-                if uids:
-                    emails = self.fetch_emails(uids, folder=current_folder)
-                    for uid, email_obj in emails.items():
-                        results.append({
-                            "uid": uid,
-                            "folder": current_folder,
-                            "from": str(email_obj.from_),
-                            "to": [str(t) for t in email_obj.to],
-                            "subject": email_obj.subject,
-                            "date": email_obj.date.isoformat() if email_obj.date else None,
-                            "flags": email_obj.flags,
-                            "has_attachments": len(email_obj.attachments) > 0,
-                        })
+                if not uids:
+                    continue
+                self.select_folder(current_folder, readonly=True)
+                date_data = self.client.fetch(uids, ["INTERNALDATE"])
+                for uid, data in date_data.items():
+                    dt = data.get(b"INTERNALDATE")
+                    iso = dt.isoformat() if dt else "0"
+                    candidates.append((iso, uid, current_folder))
             except Exception as e:
                 logger.warning(f"Error searching folder {current_folder}: {e}")
 
+        # Sort globally by date and keep only the top `limit`
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        top = candidates[:limit]
+
+        # Pass 2: full-fetch only the messages we will return
+        # Group by folder to minimise SELECT commands
+        by_folder: Dict[str, List[int]] = {}
+        for _date, uid, fldr in top:
+            by_folder.setdefault(fldr, []).append(uid)
+
+        results: List[Dict[str, Any]] = []
+        for current_folder, uid_list in by_folder.items():
+            try:
+                emails = self.fetch_emails(uid_list, folder=current_folder)
+                for uid, email_obj in emails.items():
+                    results.append({
+                        "uid": uid,
+                        "folder": current_folder,
+                        "from": str(email_obj.from_),
+                        "to": [str(t) for t in email_obj.to],
+                        "subject": email_obj.subject,
+                        "date": email_obj.date.isoformat() if email_obj.date else None,
+                        "flags": email_obj.flags,
+                        "has_attachments": len(email_obj.attachments) > 0,
+                    })
+            except Exception as e:
+                logger.warning(f"Error fetching from folder {current_folder}: {e}")
+
         results.sort(key=lambda x: x.get("date") or "0", reverse=True)
-        return results[:limit]
+        return results

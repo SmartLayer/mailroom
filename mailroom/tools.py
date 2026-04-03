@@ -188,7 +188,8 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
 
     @mcp.tool()
     async def search_emails(
-        query: Union[str, int], ctx: Context,
+        query: Union[str, int] = "",
+        ctx: Context = None,
         folder: Optional[str] = None,
         limit: int = 10, account: Optional[str] = None,
     ) -> str:
