@@ -65,7 +65,8 @@ fpm -s python -t rpm --python-bin python3 --python-pip pip3 \
 Copy the sample configuration and edit with your credentials:
 
 ```bash
-cp config.sample.toml config.toml
+mkdir -p ~/.config/mailroom
+cp examples/config.sample.toml ~/.config/mailroom/config.toml
 ```
 
 Example configuration:

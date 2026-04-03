@@ -207,7 +207,6 @@ def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
         ValueError: If no configuration source is available
     """
     default_locations = [
-        Path("config.toml"),
         Path("~/.config/mailroom/config.toml"),
     ]
 

@@ -36,7 +36,7 @@ Mailroom lets commandline users, script authors and AI assistants search, read, 
 Copy the sample and fill in your credentials:
 
 ```bash
-cp config.sample.toml config.toml
+cp examples/config.sample.toml ~/.config/mailroom/config.toml
 ```
 
 For Gmail with OAuth2:
@@ -92,12 +92,7 @@ Then you can run it directly without uv
 python3 -m mailroom search-emails "subject:invoice"
 ```
 
-Mailroom looks for a config file automatically in these locations (in order):
-
-1. `config.toml` in the current directory
-2. `~/.config/mailroom/config.toml`
-
-Use `--config /path/to/config.toml` only if your config is somewhere else.
+Mailroom looks for a config file at `~/.config/mailroom/config.toml`. Use `--config /path/to/config.toml` to point to a different location.
 
 The MCP server (`mailroom mcp`) requires the `mcp` Python package, which is not in apt. Use `uv` or `pip` for that. Manuy people prefer to use cli instead of mcp as the latter loads 80+ tools into every conversation, in that case no need to install mcp package.
 
