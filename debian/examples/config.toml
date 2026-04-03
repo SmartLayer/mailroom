@@ -1,0 +1,19 @@
+# Mailroom configuration — multi-account example.
+# Copy to config.toml and edit with your credentials.
+# Use -a to select an account: mailroom -a work search-emails ...
+
+default_account = "personal"
+
+[accounts.personal]
+host = "imap.gmail.com"
+username = "you@gmail.com"
+# For Gmail, use OAuth2 credentials:
+client_id = "YOUR_CLIENT_ID"
+client_secret = "YOUR_CLIENT_SECRET"
+refresh_token = "YOUR_REFRESH_TOKEN"
+
+[accounts.work]
+host = "imap.fastmail.com"
+username = "you@company.com"
+# For app-password authentication:
+password = "YOUR_APP_PASSWORD"

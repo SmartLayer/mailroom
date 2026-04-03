@@ -73,3 +73,17 @@ mcp-cli/
 
 # Secret Design Ideas
 # reference/
+
+# Debian build artifacts
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/mailroom.postinst.debhelper
+debian/mailroom.prerm.debhelper
+debian/mailroom.substvars
+debian/mailroom/
+.pybuild/
+
+# RPM build artifacts
+*.rpm
+*.deb

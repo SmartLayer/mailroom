@@ -1,3 +1,0 @@
-python3:Depends=python3-dotenv, python3-imapclient, python3-requests, python3-typer, python3:any
-misc:Depends=
-misc:Pre-Depends=
