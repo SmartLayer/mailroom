@@ -55,14 +55,23 @@ def _global_options(
 
 
 def _make_client() -> ImapClient:
-    cfg = load_config(_config_path)
+    try:
+        cfg = load_config(_config_path)
+    except (ValueError, FileNotFoundError, Exception) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
     name = _account_name or cfg.default_account
     if name not in cfg.accounts:
         available = list(cfg.accounts.keys())
-        raise typer.BadParameter(f"Unknown account '{name}'. Available: {available}")
+        typer.echo(f"Error: unknown account '{name}'. Available: {available}", err=True)
+        raise typer.Exit(1)
     acct = cfg.accounts[name]
     client = ImapClient(acct.imap, acct.allowed_folders)
-    client.connect()
+    try:
+        client.connect()
+    except Exception as exc:
+        typer.echo(f"Error: failed to connect to IMAP server: {exc}", err=True)
+        raise typer.Exit(1)
     return client
 
 
