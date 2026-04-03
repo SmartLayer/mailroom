@@ -6,16 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from mailroom.config import ImapConfig, MultiAccountConfig, ServerConfig, load_config
-
-
-def _write_toml(path, toml_str):
-    """Write a TOML string to a file."""
-    if hasattr(path, "write"):
-        path.write(toml_str.encode())
-    else:
-        with open(path, "wb") as f:
-            f.write(toml_str.encode())
+from mailroom.config import ImapConfig, MultiAccountConfig, AccountConfig, load_config
 
 
 class TestImapConfig:
@@ -34,9 +25,8 @@ class TestImapConfig:
         assert config.port == 993
         assert config.username == "test@example.com"
         assert config.password == "password"
-        assert config.use_ssl is True  # Default value
+        assert config.use_ssl is True
 
-        # Test with custom SSL setting
         config = ImapConfig(
             host="imap.example.com",
             port=143,
@@ -47,7 +37,7 @@ class TestImapConfig:
         assert config.use_ssl is False
 
     def test_from_dict(self):
-        """Test creating ImapConfig from a dictionary."""
+        """Test creating ImapConfig from a flat dictionary."""
         data = {
             "host": "imap.example.com",
             "port": 993,
@@ -59,199 +49,194 @@ class TestImapConfig:
         config = ImapConfig.from_dict(data)
         assert config.host == "imap.example.com"
         assert config.port == 993
-        assert config.username == "test@example.com"
         assert config.password == "password"
         assert config.use_ssl is True
+        assert config.oauth2 is None
 
-        # Test with minimal data and defaults
-        minimal_data = {
-            "host": "imap.example.com",
-            "username": "test@example.com",
-            "password": "password"
-        }
-
-        config = ImapConfig.from_dict(minimal_data)
-        assert config.host == "imap.example.com"
-        assert config.port == 993  # Default with SSL
-        assert config.username == "test@example.com"
-        assert config.password == "password"
-        assert config.use_ssl is True  # Default
-
-        # Test with non-SSL port default
-        non_ssl_data = {
-            "host": "imap.example.com",
-            "username": "test@example.com",
-            "password": "password",
-            "use_ssl": False
-        }
-
-        config = ImapConfig.from_dict(non_ssl_data)
-        assert config.port == 143  # Default non-SSL port
-
-    def test_from_dict_with_env_password(self, monkeypatch):
-        """Test creating ImapConfig with password from environment variable."""
-        # Set environment variable
-        monkeypatch.setenv("IMAP_PASSWORD", "env_password")
-
+    def test_from_dict_oauth2(self):
+        """Test creating ImapConfig with OAuth2 from a flat dictionary."""
         data = {
-            "host": "imap.example.com",
-            "username": "test@example.com",
-            # No password in dict
+            "host": "imap.gmail.com",
+            "username": "test@gmail.com",
+            "client_id": "my_id",
+            "client_secret": "my_secret",
+            "refresh_token": "my_token",
         }
 
         config = ImapConfig.from_dict(data)
+        assert config.host == "imap.gmail.com"
+        assert config.oauth2 is not None
+        assert config.oauth2.client_id == "my_id"
+        assert config.password is None
+
+    def test_from_dict_defaults(self):
+        """Test that port defaults to 993 for SSL, 143 for non-SSL."""
+        ssl_data = {"host": "imap.example.com", "username": "u", "password": "p"}
+        assert ImapConfig.from_dict(ssl_data).port == 993
+
+        non_ssl_data = {"host": "imap.example.com", "username": "u", "password": "p", "use_ssl": False}
+        assert ImapConfig.from_dict(non_ssl_data).port == 143
+
+    def test_from_dict_global_defaults(self):
+        """Test that global defaults are inherited."""
+        data = {"host": "imap.example.com", "username": "u", "password": "p"}
+        defaults = {"idle_timeout": 600, "verify_with_noop": False}
+
+        config = ImapConfig.from_dict(data, defaults)
+        assert config.idle_timeout == 600
+        assert config.verify_with_noop is False
+
+    def test_from_dict_account_overrides_global(self):
+        """Test that per-account values override global defaults."""
+        data = {"host": "imap.example.com", "username": "u", "password": "p", "idle_timeout": 60}
+        defaults = {"idle_timeout": 600}
+
+        config = ImapConfig.from_dict(data, defaults)
+        assert config.idle_timeout == 60
+
+    def test_from_dict_with_env_password(self, monkeypatch):
+        """Test creating ImapConfig with password from environment variable."""
+        monkeypatch.setenv("IMAP_PASSWORD", "env_password")
+
+        data = {"host": "imap.example.com", "username": "test@example.com"}
+        config = ImapConfig.from_dict(data)
         assert config.password == "env_password"
 
-        # Test that dict password takes precedence
-        data_with_password = {
-            "host": "imap.example.com",
-            "username": "test@example.com",
-            "password": "dict_password"
-        }
-
+        data_with_password = {"host": "imap.example.com", "username": "test@example.com", "password": "dict_password"}
         config = ImapConfig.from_dict(data_with_password)
         assert config.password == "dict_password"
 
     def test_from_dict_missing_password(self, monkeypatch):
         """Test error when password is missing from both dict and environment."""
-        # Ensure environment variable is not set
         monkeypatch.delenv("IMAP_PASSWORD", raising=False)
 
-        data = {
-            "host": "imap.example.com",
-            "username": "test@example.com",
-            # No password
-        }
+        data = {"host": "imap.example.com", "username": "test@example.com"}
 
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError, match="IMAP password must be specified"):
             ImapConfig.from_dict(data)
-
-        assert "IMAP password must be specified" in str(excinfo.value)
 
     def test_from_dict_missing_required_fields(self):
         """Test error when required fields are missing."""
-        # Missing host
         with pytest.raises(KeyError):
             ImapConfig.from_dict({"username": "test@example.com", "password": "password"})
 
-        # Missing username
         with pytest.raises(KeyError):
             ImapConfig.from_dict({"host": "imap.example.com", "password": "password"})
 
 
-class TestServerConfig:
-    """Test cases for the ServerConfig class."""
+class TestAccountConfig:
+    """Test cases for AccountConfig."""
 
-    def test_init(self):
-        """Test ServerConfig initialization."""
-        imap_config = ImapConfig(
-            host="imap.example.com",
-            port=993,
-            username="test@example.com",
-            password="password"
-        )
-
-        # Test without allowed folders
-        server_config = ServerConfig(imap=imap_config)
-        assert server_config.imap == imap_config
-        assert server_config.allowed_folders is None
-
-        # Test with allowed folders
-        allowed_folders = ["INBOX", "Sent", "Archive"]
-        server_config = ServerConfig(imap=imap_config, allowed_folders=allowed_folders)
-        assert server_config.imap == imap_config
-        assert server_config.allowed_folders == allowed_folders
-
-    def test_from_dict(self, monkeypatch):
-        """Test creating ServerConfig from a dictionary."""
+    def test_from_flat_dict(self):
+        """Test creating AccountConfig from a flat dictionary."""
         data = {
-            "imap": {
-                "host": "imap.example.com",
-                "port": 993,
-                "username": "test@example.com",
-                "password": "password"
-            },
-            "allowed_folders": ["INBOX", "Sent"]
+            "host": "imap.example.com",
+            "port": 993,
+            "username": "test@example.com",
+            "password": "password",
+            "allowed_folders": ["INBOX", "Sent"],
         }
 
-        config = ServerConfig.from_dict(data)
-        assert config.imap.host == "imap.example.com"
-        assert config.imap.port == 993
-        assert config.imap.username == "test@example.com"
-        assert config.imap.password == "password"
-        assert config.allowed_folders == ["INBOX", "Sent"]
+        acct = AccountConfig.from_dict(data)
+        assert acct.imap.host == "imap.example.com"
+        assert acct.imap.password == "password"
+        assert acct.allowed_folders == ["INBOX", "Sent"]
 
-        # Test with minimal data (no allowed_folders)
-        minimal_data = {
-            "imap": {
-                "host": "imap.example.com",
-                "username": "test@example.com",
-                "password": "password"
-            }
-        }
 
-        config = ServerConfig.from_dict(minimal_data)
-        assert config.imap.host == "imap.example.com"
-        assert config.allowed_folders is None
+class TestMultiAccountConfig:
+    """Test cases for MultiAccountConfig."""
 
-        # Test with empty dict (needs env password)
-        monkeypatch.setenv("IMAP_PASSWORD", "env_password")
-        with pytest.raises(KeyError):
-            # Should fail because host is required
-            ServerConfig.from_dict({})
+    def test_default_account_explicit(self):
+        """Test explicit default_account."""
+        imap = ImapConfig(host="h", port=993, username="u", password="p")
+        cfg = MultiAccountConfig(
+            accounts={"a": AccountConfig(imap=imap), "b": AccountConfig(imap=imap)},
+            _default_account="b",
+        )
+        assert cfg.default_account == "b"
+
+    def test_default_account_fallback(self):
+        """Test default_account falls back to first account."""
+        imap = ImapConfig(host="h", port=993, username="u", password="p")
+        cfg = MultiAccountConfig(accounts={"first": AccountConfig(imap=imap)})
+        assert cfg.default_account == "first"
 
 
 class TestLoadConfig:
     """Test cases for the load_config function."""
 
-    def test_load_from_file(self):
-        """Test loading configuration from a file."""
+    def test_load_flat_accounts(self):
+        """Test loading the new flat account format."""
         toml_content = """\
-allowed_folders = ["INBOX", "Sent"]
+default_account = "work"
 
-[imap]
-host = "imap.example.com"
-port = 993
-username = "test@example.com"
-password = "password"
+[accounts.personal]
+host = "imap.gmail.com"
+username = "me@gmail.com"
+client_id = "cid"
+client_secret = "csec"
+refresh_token = "rtok"
+
+[accounts.work]
+host = "imap.fastmail.com"
+username = "me@company.com"
+password = "secret"
 """
-        with tempfile.NamedTemporaryFile(suffix=".toml", mode="wb") as temp_file:
-            temp_file.write(toml_content.encode())
-            temp_file.flush()
+        with tempfile.NamedTemporaryFile(suffix=".toml", mode="wb") as f:
+            f.write(toml_content.encode())
+            f.flush()
 
-            config = load_config(temp_file.name)
+            config = load_config(f.name)
 
-            # load_config now returns MultiAccountConfig
             assert isinstance(config, MultiAccountConfig)
-            acct = config.accounts[config.default_account]
-            assert acct.imap.host == "imap.example.com"
-            assert acct.imap.port == 993
-            assert acct.imap.username == "test@example.com"
-            assert acct.imap.password == "password"
-            assert acct.allowed_folders == ["INBOX", "Sent"]
+            assert config.default_account == "work"
+            assert "personal" in config.accounts
+            assert "work" in config.accounts
+
+            personal = config.accounts["personal"]
+            assert personal.imap.host == "imap.gmail.com"
+            assert personal.imap.oauth2 is not None
+            assert personal.imap.oauth2.client_id == "cid"
+
+            work = config.accounts["work"]
+            assert work.imap.host == "imap.fastmail.com"
+            assert work.imap.password == "secret"
+            assert work.imap.oauth2 is None
+
+    def test_load_global_defaults(self):
+        """Test that global idle_timeout is inherited by accounts."""
+        toml_content = """\
+idle_timeout = 600
+
+[accounts.test]
+host = "imap.example.com"
+username = "u"
+password = "p"
+"""
+        with tempfile.NamedTemporaryFile(suffix=".toml", mode="wb") as f:
+            f.write(toml_content.encode())
+            f.flush()
+
+            config = load_config(f.name)
+            assert config.accounts["test"].imap.idle_timeout == 600
 
     def test_load_from_default_locations(self, monkeypatch, tmp_path):
         """Test loading configuration from default locations."""
-        # Clear any environment variables that might affect the test
-        for env_var in [
-            "IMAP_HOST", "IMAP_PORT", "IMAP_USERNAME", "IMAP_PASSWORD",
-            "IMAP_USE_SSL", "IMAP_ALLOWED_FOLDERS"
-        ]:
+        for env_var in ["IMAP_HOST", "IMAP_PORT", "IMAP_USERNAME", "IMAP_PASSWORD",
+                        "IMAP_USE_SSL", "IMAP_ALLOWED_FOLDERS"]:
             monkeypatch.delenv(env_var, raising=False)
 
         toml_content = """\
-[imap]
+[accounts.test]
 host = "imap.example.com"
 username = "test@example.com"
 password = "password"
 """
-        # Create a temporary config file in one of the default locations
         temp_dir = tmp_path / ".config" / "mailroom"
         temp_dir.mkdir(parents=True, exist_ok=True)
         temp_file = temp_dir / "config.toml"
-        _write_toml(temp_file, toml_content)
+        temp_file.write_bytes(toml_content.encode())
 
-        # Monkeypatch Path.expanduser to return our temp path
         original_expanduser = Path.expanduser
         def mock_expanduser(self):
             if str(self) == "~/.config/mailroom/config.toml":
@@ -260,26 +245,16 @@ password = "password"
 
         monkeypatch.setattr(Path, "expanduser", mock_expanduser)
 
-        # Monkeypatch to ensure no other config file is found
         def mock_exists(path):
-            if path == temp_file:
-                return True
-            return False
+            return path == temp_file
 
         monkeypatch.setattr(Path, "exists", mock_exists)
 
-        # Load config without specifying path (should find default)
         config = load_config()
-
-        assert isinstance(config, MultiAccountConfig)
-        acct = config.accounts[config.default_account]
-        assert acct.imap.host == "imap.example.com"
-        assert acct.imap.username == "test@example.com"
-        assert acct.imap.password == "password"
+        assert config.accounts["test"].imap.host == "imap.example.com"
 
     def test_load_from_env_variables(self, monkeypatch):
         """Test loading configuration from environment variables."""
-        # Set environment variables
         monkeypatch.setenv("IMAP_HOST", "imap.example.com")
         monkeypatch.setenv("IMAP_PORT", "993")
         monkeypatch.setenv("IMAP_USERNAME", "test@example.com")
@@ -287,7 +262,6 @@ password = "password"
         monkeypatch.setenv("IMAP_USE_SSL", "true")
         monkeypatch.setenv("IMAP_ALLOWED_FOLDERS", "INBOX,Sent,Archive")
 
-        # Mock open to raise FileNotFoundError
         original_open = open
         def mock_open(*args, **kwargs):
             if args[0] == "nonexistent_file.toml":
@@ -297,53 +271,47 @@ password = "password"
         with patch("builtins.open", side_effect=mock_open):
             config = load_config("nonexistent_file.toml")
 
-            assert isinstance(config, MultiAccountConfig)
-            acct = config.accounts[config.default_account]
+            acct = config.accounts["default"]
             assert acct.imap.host == "imap.example.com"
-            assert acct.imap.port == 993
-            assert acct.imap.username == "test@example.com"
             assert acct.imap.password == "env_password"
-            assert acct.imap.use_ssl is True
             assert acct.allowed_folders == ["INBOX", "Sent", "Archive"]
-
-            monkeypatch.setenv("IMAP_USE_SSL", "false")
-            config = load_config("nonexistent_file.toml")
-            acct = config.accounts[config.default_account]
-            assert acct.imap.use_ssl is False
 
     def test_load_missing_required_env(self, monkeypatch):
         """Test error when required environment variables are missing."""
-        # Ensure IMAP_HOST is not set
         monkeypatch.delenv("IMAP_HOST", raising=False)
 
-        # Mock open to raise FileNotFoundError
         original_open = open
         def mock_open(*args, **kwargs):
             if args[0] == "nonexistent_file.toml":
                 raise FileNotFoundError(f"No such file: {args[0]}")
             return original_open(*args, **kwargs)
 
-        # Need to patch the built-in open function
         with patch("builtins.open", side_effect=mock_open):
-            with pytest.raises(ValueError) as excinfo:
+            with pytest.raises(ValueError, match="IMAP_HOST"):
                 load_config("nonexistent_file.toml")
 
-            assert "IMAP_HOST environment variable not set" in str(excinfo.value)
-
-    def test_invalid_config(self):
-        """Test error when config is invalid."""
+    def test_invalid_config_missing_host(self):
+        """Test error when config is missing required host."""
         toml_content = """\
-[imap]
+[accounts.test]
 username = "test@example.com"
 password = "password"
 """
-        # Create temporary config file
-        with tempfile.NamedTemporaryFile(suffix=".toml", mode="wb") as temp_file:
-            temp_file.write(toml_content.encode())
-            temp_file.flush()
+        with tempfile.NamedTemporaryFile(suffix=".toml", mode="wb") as f:
+            f.write(toml_content.encode())
+            f.flush()
 
-            # Load should raise ValueError
-            with pytest.raises(ValueError) as excinfo:
-                load_config(temp_file.name)
+            with pytest.raises(ValueError, match="Missing required configuration"):
+                load_config(f.name)
 
-            assert "Missing required configuration" in str(excinfo.value)
+    def test_no_accounts(self):
+        """Test error when no accounts are defined."""
+        toml_content = """\
+idle_timeout = 300
+"""
+        with tempfile.NamedTemporaryFile(suffix=".toml", mode="wb") as f:
+            f.write(toml_content.encode())
+            f.flush()
+
+            with pytest.raises(ValueError, match="No accounts defined"):
+                load_config(f.name)

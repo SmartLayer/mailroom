@@ -10,7 +10,12 @@ import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from .config import ServerConfig
+from typing import Protocol
+
+
+class _HasOAuth2(Protocol):
+    oauth2: dict | None
+    password: str | None
 
 
 class OAuth2Config:
@@ -76,9 +81,9 @@ class OAuth2Config:
         )
         
     @classmethod
-    def from_server_config(cls, config: ServerConfig) -> "OAuth2Config":
+    def from_server_config(cls, config: _HasOAuth2) -> "OAuth2Config":
         """
-        Create OAuth2Config from ServerConfig.
+        Create OAuth2Config from a config object with oauth2/password attributes.
 
         Args:
             config: The server configuration object

@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-from mailroom.config import ServerConfig
 from mailroom.oauth2_config import OAuth2Config
 
 
@@ -60,9 +59,9 @@ def test_oauth2_config_init():
 
 
 def test_from_server_config():
-    """Test creating OAuth2Config from ServerConfig."""
-    # Create a mock ServerConfig object with the oauth2 property
-    server_config = mock.MagicMock(spec=ServerConfig)
+    """Test creating OAuth2Config from a config object."""
+    # Create a mock config object with the oauth2 property
+    server_config = mock.MagicMock()
     server_config.oauth2 = {
         "credentials_file": "client_secret.json", 
         "token_file": "custom_token.json",
@@ -78,9 +77,9 @@ def test_from_server_config():
 
 
 def test_from_server_config_defaults():
-    """Test creating OAuth2Config with default values when not in ServerConfig."""
-    # Create a mock ServerConfig object without the oauth2 property
-    server_config = mock.MagicMock(spec=ServerConfig)
+    """Test creating OAuth2Config with default values when config has no oauth2."""
+    # Create a mock config object without the oauth2 property
+    server_config = mock.MagicMock()
     server_config.oauth2 = None
     server_config.password = "test_password"
     
@@ -93,15 +92,15 @@ def test_from_server_config_defaults():
 
 def test_from_server_config_with_env_vars():
     """Test that environment variables override config values."""
-    # Create a mock ServerConfig object with the oauth2 property
-    server_config = mock.MagicMock(spec=ServerConfig)
+    # Create a mock config object with the oauth2 property
+    server_config = mock.MagicMock()
     server_config.oauth2 = {
         "credentials_file": "client_secret.json",
         "token_file": "token.json",
         "scopes": ["https://mail.google.com/"]
     }
     server_config.password = "test_password"
-    
+
     with mock.patch.dict(os.environ, {
         "GMAIL_CLIENT_ID": "env_client_id",
         "GMAIL_CLIENT_SECRET": "env_client_secret"

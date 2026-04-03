@@ -9,7 +9,7 @@ import logging
 from mcp.server.fastmcp import FastMCP
 
 from mailroom.mcp_server import create_server, server_lifespan, main
-from mailroom.config import AccountConfig, ImapConfig, MultiAccountConfig, ServerConfig
+from mailroom.config import AccountConfig, ImapConfig, MultiAccountConfig
 
 
 class TestServer:
@@ -115,7 +115,7 @@ class TestServer:
         """Test server lifespan with invalid config."""
         # Create mock server with invalid config
         mock_server = mock.MagicMock()
-        mock_server._config = "not a ServerConfig object"
+        mock_server._config = "not a MultiAccountConfig object"
         
         # Verify TypeError is raised
         with pytest.raises(TypeError, match="Invalid server configuration"):

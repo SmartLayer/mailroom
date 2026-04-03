@@ -77,8 +77,7 @@ def create_server(config_path: Optional[str] = None, debug: bool = False) -> Fas
 
     server = FastMCP(
         "Mailroom",
-        description="Email toolkit for AI assistants",
-        version="0.2.0",
+        instructions="Email toolkit for AI assistants",
         lifespan=server_lifespan,
     )
 

@@ -143,13 +143,17 @@ A single config file can hold multiple accounts:
 ```toml
 default_account = "personal"
 
-[accounts.personal.imap]
+[accounts.personal]
 host = "imap.gmail.com"
-# ...
+username = "you@gmail.com"
+client_id = "YOUR_CLIENT_ID"
+client_secret = "YOUR_CLIENT_SECRET"
+refresh_token = "YOUR_REFRESH_TOKEN"
 
-[accounts.work.imap]
+[accounts.work]
 host = "outlook.office365.com"
-# ...
+username = "you@company.com"
+password = "YOUR_APP_PASSWORD"
 ```
 
 Select an account with `-a`:

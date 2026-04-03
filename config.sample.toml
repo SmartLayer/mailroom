@@ -1,19 +1,14 @@
 # Multi-account example. Use -a to select: mailroom -a work search-emails ...
+default_account = "personal"
 
-[accounts.personal.imap]
+[accounts.personal]
 host = "imap.gmail.com"
-port = 993
 username = "you@gmail.com"
-use_ssl = true
-
-[accounts.personal.imap.oauth2]
 client_id = "YOUR_CLIENT_ID"
 client_secret = "YOUR_CLIENT_SECRET"
 refresh_token = "YOUR_REFRESH_TOKEN"
 
-[accounts.work.imap]
+[accounts.work]
 host = "imap.fastmail.com"
-port = 993
 username = "you@company.com"
 password = "YOUR_APP_PASSWORD"
-use_ssl = true

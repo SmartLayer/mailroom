@@ -21,9 +21,12 @@ pytestmark = pytest.mark.integration
 
 # Import the IMAP client and tools
 from mailroom.imap_client import ImapClient
-from mailroom.config import Config
-from mailroom.models import Context
-from mailroom.tools import search_emails as search_emails_tool
+from mailroom.config import load_config
+
+try:
+    from mailroom.tools import search_emails as search_emails_tool
+except ImportError:
+    search_emails_tool = None
 
 
 class TestDirectToolsIntegration:
@@ -32,27 +35,14 @@ class TestDirectToolsIntegration:
     @pytest.fixture(scope="class")
     async def imap_client(self):
         """Create and yield an IMAP client connected to Gmail."""
-        # Load config from the default location
-        config = Config.load_config()
-        
-        # Create IMAP client
-        client = ImapClient(config.email)
-        
-        # Connect to the server
+        config = load_config()
+        acct = config.accounts[config.default_account]
+        client = ImapClient(acct.imap, acct.allowed_folders)
         client.connect()
-        
         try:
             yield client
         finally:
-            # Disconnect when done
             client.disconnect()
-
-    @pytest.fixture(scope="class")
-    async def context(self, imap_client):
-        """Create a context object with the IMAP client for use with tools."""
-        # Create a minimal context object compatible with the tools
-        ctx = Context(client=imap_client)
-        return ctx
     
     @pytest.mark.asyncio
     async def test_list_folders(self, imap_client):
@@ -70,12 +60,11 @@ class TestDirectToolsIntegration:
         logger.info(f"Found {len(folders)} folders: {folders}")
     
     @pytest.mark.asyncio
-    async def test_search_unread_emails(self, imap_client, context):
+    async def test_search_unread_emails(self, imap_client):
         """Test searching for unread emails using the search_emails tool directly."""
         # Search for unread emails in INBOX
         results = await search_emails_tool(
             query="",
-            ctx=context,
             folder="INBOX",
             criteria="unseen",
             limit=10
@@ -108,7 +97,7 @@ class TestDirectToolsIntegration:
             pytest.fail(f"Invalid JSON returned from search_emails tool: {e}")
     
     @pytest.mark.asyncio
-    async def test_search_with_different_criteria(self, imap_client, context):
+    async def test_search_with_different_criteria(self, imap_client):
         """Test searching with different criteria using the search_emails tool."""
         # Test cases with different search criteria
         test_cases = [
@@ -116,13 +105,12 @@ class TestDirectToolsIntegration:
             ("", "today", "emails from today"),
             ("test", "subject", "emails with 'test' in subject"),
         ]
-        
+
         for query, criteria, description in test_cases:
             logger.info(f"Testing search for {description}")
-            
+
             results = await search_emails_tool(
                 query=query,
-                ctx=context,
                 folder="INBOX",
                 criteria=criteria,
                 limit=5
