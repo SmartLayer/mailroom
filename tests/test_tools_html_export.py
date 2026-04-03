@@ -1,9 +1,8 @@
 """Tests for HTML export MCP tool."""
 
-import json
 import os
 import tempfile
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 

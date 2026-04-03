@@ -1,11 +1,8 @@
 """Tests for the app_password module."""
 
-import os
-import tempfile
-from unittest.mock import patch
 import pytest
 
-from mailroom.app_password import setup_app_password, main
+from mailroom.app_password import setup_app_password
 
 
 class TestSetupAppPassword:

@@ -1,6 +1,5 @@
 """Browser-based OAuth2 authentication for Gmail."""
 
-import base64
 import json
 import logging
 import os
@@ -10,7 +9,7 @@ import time
 import webbrowser
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-from urllib.parse import urlencode, urlparse, parse_qs
+from urllib.parse import urlencode
 
 from flask import Flask, request, redirect, url_for
 
@@ -165,7 +164,7 @@ def run_local_server(
     auth_tokens["refresh_token"] = None
     auth_tokens["token_expiry"] = None
     
-    print(f"\nOpening browser for Gmail authentication...")
+    print("\nOpening browser for Gmail authentication...")
     webbrowser.open(auth_url)
     
     print(f"\nWaiting for authentication at http://{host}:{port}{CALLBACK_PATH}")

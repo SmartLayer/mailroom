@@ -1,6 +1,5 @@
 """Tests for the Gmail-style query parser."""
 
-import re
 from datetime import date, datetime, timedelta
 
 import pytest

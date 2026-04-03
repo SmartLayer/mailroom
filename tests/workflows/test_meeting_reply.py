@@ -2,7 +2,6 @@
 
 import pytest
 from datetime import datetime
-from unittest.mock import patch
 
 from mailroom.workflows.meeting_reply import (
     generate_meeting_reply_content,

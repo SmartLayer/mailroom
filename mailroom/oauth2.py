@@ -3,7 +3,7 @@
 import base64
 import logging
 import time
-from typing import Optional, Tuple
+from typing import Tuple
 
 import requests
 

@@ -1,11 +1,10 @@
 """Command-line tool for setting up OAuth2 authentication for Gmail."""
 
 import argparse
-import json
 import logging
 import os
 import sys
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from mailroom.config import OAuth2Config
 from mailroom.browser_auth import load_client_credentials

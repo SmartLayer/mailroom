@@ -25,13 +25,11 @@ This script is designed to minimize API calls by combining common operations.
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional
 
 
 class IssueStatus(str, Enum):

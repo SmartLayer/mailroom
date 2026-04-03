@@ -10,7 +10,6 @@ import json
 import os
 import pytest
 import subprocess
-import time
 import logging
 import tempfile
 from pathlib import Path
@@ -255,7 +254,7 @@ def test_direct_email_search_command():
             
             # Verify result structure if it's a valid result
             if isinstance(result, dict):
-                logger.info(f"Successfully parsed search results as JSON")
+                logger.info("Successfully parsed search results as JSON")
                 # Success!
         except json.JSONDecodeError:
             logger.warning("Could not parse search results as JSON")

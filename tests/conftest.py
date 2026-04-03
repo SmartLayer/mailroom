@@ -4,7 +4,6 @@ import datetime
 import email
 import email.utils
 import os
-import re
 import time
 import logging
 from contextlib import contextmanager
@@ -12,7 +11,7 @@ from email.header import Header
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union, Generator
+from typing import Any, Dict, List, Optional, Tuple, Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,16 +19,22 @@ try:
     from imapclient.response_types import Address, BodyData, Envelope
 except ImportError:
     # Mock these classes if not available
-    class Address: pass
-    class BodyData: pass
-    class Envelope: pass
+    class Address:
+        pass
+
+    class BodyData:
+        pass
+
+    class Envelope:
+        pass
 
 try:
     from dotenv import load_dotenv
 except ImportError:
-    load_dotenv = lambda x=None: None
+    def load_dotenv(x=None):
+        return None
 
-from mailroom.models import Email, EmailAddress, EmailAttachment, EmailContent
+from mailroom.models import Email, EmailAddress, EmailContent
 from mailroom.config import ImapConfig, OAuth2Config
 from mailroom.imap_client import ImapClient
 

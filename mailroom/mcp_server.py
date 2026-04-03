@@ -95,8 +95,8 @@ def create_server(config_path: Optional[str] = None, debug: bool = False) -> Fas
     def server_status() -> str:
         """Get server status and configuration info."""
         lines = [
-            f"server: Mailroom",
-            f"version: 0.2.0",
+            "server: Mailroom",
+            "version: 0.2.0",
             f"default_account: {config.default_account}",
             f"accounts: {', '.join(config.accounts.keys())}",
         ]

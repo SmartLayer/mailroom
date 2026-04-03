@@ -1,9 +1,8 @@
 """Tests for the meeting invite orchestration workflow."""
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 from datetime import datetime
-from email.message import EmailMessage
 
 from mailroom.models import Email, EmailAddress, EmailContent
 from mailroom.workflows.meeting_reply import process_meeting_invite_workflow

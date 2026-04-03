@@ -1,8 +1,6 @@
 """Tests for the Gmail authentication module."""
 
-import argparse
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from mailroom.gmail_auth import main
 

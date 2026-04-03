@@ -93,7 +93,8 @@ def generate_test_emails(
         ]
         
         content_text = random.choice(contents)
-        content_html = f"<html><body><p>{content_text.replace('\n\n', '</p><p>')}</p></body></html>"
+        replacement = content_text.replace('\n\n', '</p><p>')
+        content_html = f"<html><body><p>{replacement}</p></body></html>"
         
         # Create email object
         email_obj = Email(

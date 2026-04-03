@@ -2,10 +2,9 @@
 
 import json
 import os
-import sys
 import pytest
 from datetime import datetime
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 from mcp.server.fastmcp import FastMCP, Context
 

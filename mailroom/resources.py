@@ -7,7 +7,6 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP, Context
 
 from mailroom.imap_client import ImapClient
-from mailroom.models import Email
 from mailroom.query_parser import parse_query
 import mailroom.smtp_client as smtp_client
 

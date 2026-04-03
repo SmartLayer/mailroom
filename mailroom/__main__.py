@@ -5,7 +5,6 @@ the MCP server; every other subcommand operates directly via IMAP without
 importing the mcp package.
 """
 
-import asyncio
 import json
 import logging
 import sys

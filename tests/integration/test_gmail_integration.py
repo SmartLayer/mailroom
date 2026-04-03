@@ -9,7 +9,7 @@ import os
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Generator
+from typing import Dict, Generator
 
 import pytest
 from dotenv import load_dotenv
@@ -434,7 +434,7 @@ def test_gmail_date_search(gmail_client: ImapClient):
     thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime("%d-%b-%Y")
     range_criteria = f"SINCE {ninety_days_ago} BEFORE {thirty_days_ago}"
     
-    with timed_operation(f"Searching messages in date range"):
+    with timed_operation("Searching messages in date range"):
         range_messages = gmail_client.search(range_criteria)
     
     assert isinstance(range_messages, list), "Date range search should return a list"
@@ -444,7 +444,7 @@ def test_gmail_date_search(gmail_client: ImapClient):
     today = datetime.now().strftime("%d-%b-%Y")
     today_criteria = f"ON {today}"
     
-    with timed_operation(f"Searching messages from today"):
+    with timed_operation("Searching messages from today"):
         today_messages = gmail_client.search(today_criteria)
     
     assert isinstance(today_messages, list), "Today search should return a list"
@@ -730,7 +730,7 @@ def test_gmail_message_count_special_folders(gmail_client: ImapClient):
                 folder_status = gmail_client.get_folder_status(folder)
                 total = folder_status.get(b"MESSAGES", 0)
                 unread = folder_status.get(b"UNSEEN", 0)
-                read = max(0, total - unread)  # Calculate read from the same status data
+                _ = max(0, total - unread)  # Calculate read from the same status data
                 
                 # Get the values using the client methods with refresh=True to ensure consistency
                 total_count = gmail_client.get_total_count(folder, refresh=True)

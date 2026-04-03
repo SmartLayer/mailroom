@@ -5,23 +5,19 @@ with a real Gmail account. This approach bypasses the server API and CLI interfa
 to focus on testing the core email search functionality.
 """
 
-import asyncio
 import json
 import logging
-import os
 import pytest
-from typing import Dict, List, Optional, Any, Callable
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+from mailroom.imap_client import ImapClient  # noqa: E402
+from mailroom.config import load_config  # noqa: E402
+
 # Mark all tests in this file as integration tests
 pytestmark = pytest.mark.integration
-
-# Import the IMAP client and tools
-from mailroom.imap_client import ImapClient
-from mailroom.config import load_config
 
 try:
     from mailroom.tools import search_emails as search_emails_tool

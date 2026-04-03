@@ -7,9 +7,9 @@
 import logging
 import re
 from datetime import datetime
-from typing import Dict, Optional, Any, List, Tuple
+from typing import Dict, Optional, Any, Tuple
 
-from mailroom.models import Email, EmailAttachment
+from mailroom.models import Email
 
 logger = logging.getLogger(__name__)
 

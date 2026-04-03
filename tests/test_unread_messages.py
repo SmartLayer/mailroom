@@ -1,10 +1,10 @@
 """Tests for unread message retrieval functionality."""
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from mailroom.imap_client import ImapClient
 from mailroom.config import ImapConfig
-from mailroom.models import Email, EmailAddress, EmailContent
+from mailroom.models import Email, EmailAddress
 
 
 def test_get_unread_messages_defaults():

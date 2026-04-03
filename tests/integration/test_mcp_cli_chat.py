@@ -13,7 +13,7 @@ import logging
 import tempfile
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

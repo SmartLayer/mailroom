@@ -2,11 +2,9 @@
 
 import json
 import os
-import secrets
 import tempfile
 import time
-import webbrowser
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch
 import pytest
 from flask import Flask
 

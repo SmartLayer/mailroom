@@ -11,12 +11,10 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
-import pytest
 from imapclient.response_types import SearchIds
 
-from mailroom.config import ImapConfig, OAuth2Config
+from mailroom.config import ImapConfig
 from mailroom.imap_client import ImapClient
-from mailroom.models import Email, EmailAddress, EmailAttachment, EmailContent
 
 
 class TestImapClientThreading(unittest.TestCase):
@@ -296,9 +294,6 @@ class TestImapClientThreading(unittest.TestCase):
         }
         
         # Create the email messages with proper headers
-        date_initial = datetime.now() - timedelta(hours=2)
-        date_reply1 = datetime.now() - timedelta(hours=1)
-        date_reply2 = datetime.now()
         
         # Create multipart messages with proper headers
         initial_msg = email.mime.multipart.MIMEMultipart()
@@ -461,7 +456,7 @@ class TestImapClientThreading(unittest.TestCase):
             reply_email = self.create_mock_email(
                 uid=uids[i],
                 message_id=message_ids[i],
-                subject=f"Re: Large Thread",
+                subject="Re: Large Thread",
                 sender="person2@example.com" if i % 2 else "person1@example.com",
                 to="person1@example.com" if i % 2 else "person2@example.com",
                 date=datetime.now() - timedelta(hours=24-i),

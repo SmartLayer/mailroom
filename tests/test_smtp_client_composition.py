@@ -1,6 +1,5 @@
 """Tests for SMTP client MIME composition functionality."""
 
-import re
 import pytest
 from datetime import datetime
 

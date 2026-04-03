@@ -8,7 +8,6 @@ import os
 import re
 import sys
 import asyncio
-from pathlib import Path
 from playwright.async_api import async_playwright
 
 async def render_mermaid(mermaid_code, output_path):
