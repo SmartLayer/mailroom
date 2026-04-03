@@ -65,7 +65,7 @@ use_ssl = true
 password = "YOUR_APP_PASSWORD"
 ```
 
-Gmail OAuth2 setup requires a Google Cloud project with the Gmail API enabled. See [GMAIL_SETUP.md](GMAIL_SETUP.md) for the full walkthrough.
+Gmail OAuth2 setup requires a Google Cloud project with the Gmail API enabled. See [GMAIL_SETUP.md](docs/GMAIL_SETUP.md) for the full walkthrough.
 
 ## Quick test
 
