@@ -448,6 +448,89 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             return f"Error: {e}"
 
     @mcp.tool()
+    async def import_email(
+        from_account: str,
+        from_folder: str,
+        uid: int,
+        ctx: Context,
+        to_folder: str = "INBOX",
+        move: bool = False,
+        preserve_flags: bool = False,
+        account: Optional[str] = None,
+    ) -> str:
+        """Import an email from one account into another account's IMAP folder.
+
+        Fetches the raw RFC 822 message from the source account and APPENDs it
+        to the destination, preserving the message byte-for-byte. The original
+        internal date is always preserved so the email appears at its original
+        chronological position.
+
+        Args:
+            from_account: Source account name.
+            from_folder: Folder in the source account containing the email.
+            uid: UID of the email in the source folder.
+            ctx: MCP context.
+            to_folder: Destination folder (default: INBOX).
+            move: If True, delete the email from the source after import.
+            preserve_flags: If True, copy original flags to the destination.
+                If False, email arrives with no flags (unread, unflagged).
+            account: Destination account name (None for default account).
+
+        Returns:
+            Status message with the UID assigned by the destination server.
+        """
+        source_client = get_client_from_context(ctx, from_account)
+        dest_client = get_client_from_context(ctx, account)
+
+        try:
+            # Fetch raw message from source
+            raw_data = source_client.fetch_raw(uid, from_folder)
+            if raw_data is None:
+                return (
+                    f"Error: Email UID {uid} not found in "
+                    f"{from_account}/{from_folder}"
+                )
+
+            # Determine flags for destination
+            flags: tuple = ()
+            if preserve_flags:
+                raw_flags = raw_data["flags"]
+                flags = tuple(
+                    f.decode("utf-8") if isinstance(f, bytes) else f
+                    for f in raw_flags
+                    if f not in (b"\\Recent", "\\Recent")
+                )
+
+            # Append to destination
+            new_uid = dest_client.append_raw(
+                to_folder,
+                raw_data["raw"],
+                flags=flags,
+                msg_time=raw_data["date"],
+            )
+
+            subject = raw_data["subject"]
+            uid_info = f" as UID {new_uid}" if new_uid else ""
+
+            # Optionally delete from source
+            if move:
+                source_client.delete_email(uid, from_folder)
+                return (
+                    f'Imported and removed from source: "{subject}" '
+                    f"(UID {uid} from {from_account}/{from_folder}) → "
+                    f"{to_folder}{uid_info}"
+                )
+
+            return (
+                f'Imported "{subject}" '
+                f"(UID {uid} from {from_account}/{from_folder}) "
+                f"into {to_folder}{uid_info}"
+            )
+        except Exception as e:
+            logger.error(f"Error importing email: {e}")
+            return f"Error: {e}"
+
+    @mcp.tool()
     async def extract_email_links(
         folder: str,
         uids: List[int],

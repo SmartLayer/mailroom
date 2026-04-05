@@ -814,6 +814,102 @@ class ImapClient:
             logger.error(f"Failed to save draft: {e}")
             return None
 
+    def fetch_raw(
+        self,
+        uid: int,
+        folder: str = "INBOX",
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch raw RFC 822 bytes, flags, and INTERNALDATE for a message.
+
+        Args:
+            uid: Email UID
+            folder: Folder containing the email
+
+        Returns:
+            Dict with keys 'raw' (bytes), 'flags' (tuple), 'date' (datetime),
+            'subject' (str) or None if not found.
+        """
+        self.ensure_connected()
+        self.select_folder(folder, readonly=True)
+
+        result = self._client_or_raise().fetch(
+            [uid], ["BODY.PEEK[]", "FLAGS", "INTERNALDATE"]
+        )
+
+        if not result or uid not in result:
+            logger.warning(f"Message with UID {uid} not found in folder {folder}")
+            return None
+
+        data = result[uid]
+        raw_message = data[b"BODY[]"]
+        flags = data[b"FLAGS"]
+        internal_date = data.get(b"INTERNALDATE")
+
+        # Extract subject for logging/display
+        msg = email.message_from_bytes(raw_message)
+        subject = msg.get("Subject", "(no subject)")
+
+        self._update_activity()
+        return {
+            "raw": raw_message,
+            "flags": flags,
+            "date": internal_date,
+            "subject": subject,
+        }
+
+    def append_raw(
+        self,
+        folder: str,
+        raw_message: bytes,
+        flags: tuple = (),
+        msg_time: Optional[datetime] = None,
+    ) -> Optional[int]:
+        """Append raw RFC 822 bytes to a folder.
+
+        Args:
+            folder: Target folder.
+            raw_message: Complete RFC 822 message as bytes.
+            flags: IMAP flags to set (e.g. (r'\\Seen', r'\\Flagged')).
+            msg_time: INTERNALDATE for the message. If None, server uses
+                current time.
+
+        Returns:
+            UID of the appended message if server supports APPENDUID,
+            else None.
+        """
+        self.ensure_connected()
+
+        try:
+            response = self._client_or_raise().append(
+                folder, raw_message, flags=flags, msg_time=msg_time
+            )
+
+            uid = None
+            if isinstance(response, bytes) and b"APPENDUID" in response:
+                try:
+                    match = re.search(rb"APPENDUID\s+\d+\s+(\d+)", response)
+                    if match:
+                        uid = int(match.group(1))
+                        logger.debug(
+                            f"Message appended to {folder} with UID: {uid}"
+                        )
+                except (IndexError, ValueError) as e:
+                    logger.warning(
+                        f"Could not parse UID from response: {e}"
+                    )
+
+            if uid is None:
+                logger.warning(
+                    f"Could not extract UID from append response: {response}"
+                )
+
+            self._update_activity()
+            return uid
+
+        except Exception as e:
+            logger.error(f"Failed to append message to {folder}: {e}")
+            raise
+
     def search_emails(
         self,
         query: str,

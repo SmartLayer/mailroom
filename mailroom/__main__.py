@@ -55,18 +55,24 @@ def _global_options(
     logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
 
 
-def _make_client() -> ImapClient:
+def _make_client(account_override: Optional[str] = None) -> ImapClient:
+    """Create and connect an ImapClient.
+
+    Args:
+        account_override: If given, use this account name instead of the
+            global ``--account`` flag.
+    """
     try:
         cfg = load_config(_config_path)
     except (ValueError, FileNotFoundError, Exception) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1)
-    name = _account_name or cfg.default_account
+    name = account_override or _account_name or cfg.default_account
     if name not in cfg.accounts:
         available = list(cfg.accounts.keys())
         typer.echo(f"Error: unknown account '{name}'. Available: {available}", err=True)
         raise typer.Exit(1)
-    if not _account_name:
+    if not _account_name and not account_override:
         typer.echo(f"Using account '{name}'", err=True)
     acct = cfg.accounts[name]
     client = ImapClient(acct.imap, acct.allowed_folders)
@@ -206,6 +212,81 @@ def move_email(
         )
     finally:
         client.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# import-email
+# ---------------------------------------------------------------------------
+
+
+@app.command("import-email")
+def import_email_cmd(
+    from_account: str = typer.Argument(..., help="Source account name."),
+    from_folder: str = typer.Argument(..., help="Source folder."),
+    uid: int = typer.Argument(..., help="Email UID in the source folder."),
+    to_folder: str = typer.Option("INBOX", "--to-folder", "-t", help="Destination folder."),
+    move: bool = typer.Option(False, "--move", help="Delete from source after import."),
+    preserve_flags: bool = typer.Option(
+        False, "--preserve-flags", help="Copy original flags to destination."
+    ),
+) -> None:
+    """Import an email from one account into another.
+
+    The global --account/-a selects the destination account.
+    Fetches the raw RFC 822 message from the source and APPENDs it to the
+    destination, preserving the message byte-for-byte and its original date.
+    """
+    source = _make_client(account_override=from_account)
+    dest = _make_client()
+    try:
+        raw_data = source.fetch_raw(uid, from_folder)
+        if raw_data is None:
+            typer.echo(
+                f"Error: UID {uid} not found in {from_account}/{from_folder}",
+                err=True,
+            )
+            raise typer.Exit(1)
+
+        # Determine flags
+        flags: tuple = ()
+        if preserve_flags:
+            raw_flags = raw_data["flags"]
+            flags = tuple(
+                f.decode("utf-8") if isinstance(f, bytes) else f
+                for f in raw_flags
+                if f not in (b"\\Recent", "\\Recent")
+            )
+
+        new_uid = dest.append_raw(
+            to_folder,
+            raw_data["raw"],
+            flags=flags,
+            msg_time=raw_data["date"],
+        )
+
+        subject = raw_data["subject"]
+
+        if move:
+            source.delete_email(uid, from_folder)
+
+        _out(
+            {
+                "success": True,
+                "subject": subject,
+                "source": f"{from_account}/{from_folder}/{uid}",
+                "destination": f"{to_folder}",
+                "new_uid": new_uid,
+                "moved": move,
+            }
+        )
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+    finally:
+        source.disconnect()
+        dest.disconnect()
 
 
 # ---------------------------------------------------------------------------
