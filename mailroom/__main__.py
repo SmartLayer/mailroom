@@ -95,7 +95,11 @@ def _out(data: object) -> None:
 @app.command("list-accounts")
 def list_accounts() -> None:
     """List configured email accounts."""
-    cfg = load_config(_config_path)
+    try:
+        cfg = load_config(_config_path)
+    except (ValueError, FileNotFoundError, Exception) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
     accounts = []
     for name, acct in cfg.accounts.items():
         accounts.append(
@@ -117,7 +121,11 @@ def list_accounts() -> None:
 @app.command("server-status")
 def server_status() -> None:
     """Show IMAP server status and configuration."""
-    cfg = load_config(_config_path)
+    try:
+        cfg = load_config(_config_path)
+    except (ValueError, FileNotFoundError, Exception) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
     accounts_map: Dict[str, Any] = {}
     status: Dict[str, Any] = {
         "server": "Mailroom",

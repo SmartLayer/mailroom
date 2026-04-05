@@ -218,12 +218,19 @@ def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
             logger.info(f"Loaded configuration from {config_path}")
         except FileNotFoundError:
             logger.warning(f"Configuration file not found: {config_path}")
+        except tomllib.TOMLDecodeError as e:
+            raise ValueError(f"Invalid TOML in {config_path}: {e}") from e
     else:
         for path in default_locations:
             expanded_path = path.expanduser()
             if expanded_path.exists():
-                with open(expanded_path, "rb") as f:
-                    config_data = tomllib.load(f)
+                try:
+                    with open(expanded_path, "rb") as f:
+                        config_data = tomllib.load(f)
+                except tomllib.TOMLDecodeError as e:
+                    raise ValueError(
+                        f"Invalid TOML in {expanded_path}: {e}"
+                    ) from e
                 logger.info(f"Loaded configuration from {expanded_path}")
                 break
 
