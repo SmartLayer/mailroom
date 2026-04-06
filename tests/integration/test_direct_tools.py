@@ -21,9 +21,9 @@ from mailroom.imap_client import ImapClient  # noqa: E402
 pytestmark = pytest.mark.integration
 
 try:
-    from mailroom.tools import search_emails as search_emails_tool
+    from mailroom.tools import search as search_tool
 except ImportError:
-    search_emails_tool = None
+    search_tool = None
 
 
 class TestDirectToolsIntegration:
@@ -58,8 +58,8 @@ class TestDirectToolsIntegration:
 
     @pytest.mark.asyncio
     async def test_search_unread_emails(self, imap_client):
-        """Test searching for unread emails using the search_emails tool directly."""
-        results = await search_emails_tool(query="is:unread", folder="INBOX", limit=10)
+        """Test searching for unread emails using the search tool directly."""
+        results = await search_tool(query="is:unread", folder="INBOX", limit=10)
 
         try:
             results_dict = json.loads(results)
@@ -83,7 +83,7 @@ class TestDirectToolsIntegration:
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse search results: {e}")
             logger.error(f"Raw results: {results}")
-            pytest.fail(f"Invalid JSON returned from search_emails tool: {e}")
+            pytest.fail(f"Invalid JSON returned from search tool: {e}")
 
     @pytest.mark.asyncio
     async def test_search_with_different_queries(self, imap_client):
@@ -97,7 +97,7 @@ class TestDirectToolsIntegration:
         for query, description in test_cases:
             logger.info(f"Testing search for {description}")
 
-            results = await search_emails_tool(query=query, folder="INBOX", limit=5)
+            results = await search_tool(query=query, folder="INBOX", limit=5)
 
             try:
                 results_dict = json.loads(results)
@@ -110,7 +110,7 @@ class TestDirectToolsIntegration:
                 logger.error(f"Failed to parse search results for {description}: {e}")
                 logger.error(f"Raw results: {results}")
                 pytest.fail(
-                    f"Invalid JSON returned from search_emails tool for {description}: {e}"
+                    f"Invalid JSON returned from search tool for {description}: {e}"
                 )
 
 

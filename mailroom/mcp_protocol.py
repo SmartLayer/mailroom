@@ -37,8 +37,8 @@ def extend_server(server: FastMCP) -> FastMCP:
         return "No email folders available"
 
     # Register prompts
-    @server.prompt()
-    def search_emails(query: str) -> str:
+    @server.prompt(name="search")
+    def search(query: str) -> str:
         """Create prompt for searching emails.
 
         Args:

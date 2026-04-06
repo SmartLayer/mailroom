@@ -257,8 +257,8 @@ class TestEmbedInlineImages:
         assert result == html
 
 
-class TestExportEmailHtml:
-    """Tests for export_email_html tool."""
+class TestExport:
+    """Tests for export tool."""
 
     @pytest.fixture
     def mock_client(self):
@@ -275,9 +275,10 @@ class TestExportEmailHtml:
         # Make tool decorator store and return the decorated function
         stored_tools = {}
 
-        def mock_tool_decorator():
+        def mock_tool_decorator(**kwargs):
             def decorator(func):
-                stored_tools[func.__name__] = func
+                key = kwargs.get("name", func.__name__)
+                stored_tools[key] = func
                 return func
 
             return decorator
@@ -306,7 +307,7 @@ class TestExportEmailHtml:
         mock_client.fetch_email.return_value = email_with_html_and_images
 
         # Get the tool
-        export_tool = tools["export_email_html"]
+        export_tool = tools["export"]
 
         # Create a temporary file for testing
         with tempfile.NamedTemporaryFile(
@@ -357,7 +358,7 @@ class TestExportEmailHtml:
         mock_client.fetch_email.return_value = email_with_html_no_images
 
         # Get the tool
-        export_tool = tools["export_email_html"]
+        export_tool = tools["export"]
 
         # Create a temporary file for testing
         with tempfile.NamedTemporaryFile(
@@ -399,7 +400,7 @@ class TestExportEmailHtml:
         mock_client.fetch_email.return_value = email_plaintext_only
 
         # Get the tool
-        export_tool = tools["export_email_html"]
+        export_tool = tools["export"]
 
         # Call the tool
         result = await export_tool(
@@ -420,7 +421,7 @@ class TestExportEmailHtml:
         mock_client.fetch_email.return_value = None
 
         # Get the tool
-        export_tool = tools["export_email_html"]
+        export_tool = tools["export"]
 
         # Call the tool
         result = await export_tool(
@@ -443,7 +444,7 @@ class TestExportEmailHtml:
         mock_client.fetch_email.return_value = email_with_html_no_images
 
         # Get the tool
-        export_tool = tools["export_email_html"]
+        export_tool = tools["export"]
 
         # Create a temporary directory
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -472,7 +473,7 @@ class TestExportEmailHtml:
         mock_client.fetch_email.side_effect = Exception("Connection error")
 
         # Get the tool
-        export_tool = tools["export_email_html"]
+        export_tool = tools["export"]
 
         # Call the tool
         result = await export_tool(
@@ -495,7 +496,7 @@ class TestExportEmailHtml:
         mock_client.fetch_email.return_value = email_with_html_no_images
 
         # Get the tool
-        export_tool = tools["export_email_html"]
+        export_tool = tools["export"]
 
         # Create a temporary directory
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -1,4 +1,4 @@
-"""Tests for the meeting invite orchestration workflow."""
+"""Tests for the accept-invite orchestration workflow."""
 
 from datetime import datetime
 from unittest.mock import MagicMock
@@ -9,8 +9,8 @@ from mailroom.models import Email, EmailAddress, EmailContent
 from mailroom.workflows.meeting_reply import process_meeting_invite_workflow
 
 
-class TestMeetingInviteWorkflow:
-    """Tests for process_meeting_invite_workflow."""
+class TestAcceptInviteWorkflow:
+    """Tests for the accept-invite tool (process_meeting_invite_workflow)."""
 
     @pytest.fixture
     def mock_client(self):

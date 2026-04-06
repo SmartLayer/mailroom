@@ -1,4 +1,4 @@
-"""Tests for draft_reply_tool (MCP) and draft-reply (CLI)."""
+"""Tests for the reply MCP tool and CLI command."""
 
 import json
 import os
@@ -39,9 +39,10 @@ def _register_and_extract_tools():
     mcp = MagicMock(spec=FastMCP)
     stored = {}
 
-    def mock_tool_decorator():
+    def mock_tool_decorator(**kwargs):
         def decorator(func):
-            stored[func.__name__] = func
+            key = kwargs.get("name", func.__name__)
+            stored[key] = func
             return func
 
         return decorator
@@ -71,7 +72,7 @@ class TestDraftReplyTool:
     @pytest.mark.asyncio
     async def test_success_plain_text(self, tools, mock_email, ctx):
         stored, imap_client = tools
-        draft_reply = stored["draft_reply_tool"]
+        draft_reply = stored["reply"]
 
         with patch("mailroom.tools.get_client_from_context") as gc:
             gc.return_value = imap_client
@@ -100,7 +101,7 @@ class TestDraftReplyTool:
     @pytest.mark.asyncio
     async def test_reply_all_with_cc(self, tools, mock_email, ctx):
         stored, imap_client = tools
-        draft_reply = stored["draft_reply_tool"]
+        draft_reply = stored["reply"]
 
         with patch("mailroom.tools.get_client_from_context") as gc:
             gc.return_value = imap_client
@@ -130,7 +131,7 @@ class TestDraftReplyTool:
     @pytest.mark.asyncio
     async def test_html_body(self, tools, mock_email, ctx):
         stored, imap_client = tools
-        draft_reply = stored["draft_reply_tool"]
+        draft_reply = stored["reply"]
 
         with patch("mailroom.tools.get_client_from_context") as gc:
             gc.return_value = imap_client
@@ -155,7 +156,7 @@ class TestDraftReplyTool:
     @pytest.mark.asyncio
     async def test_bcc_header_added(self, tools, mock_email, ctx):
         stored, imap_client = tools
-        draft_reply = stored["draft_reply_tool"]
+        draft_reply = stored["reply"]
 
         with patch("mailroom.tools.get_client_from_context") as gc:
             gc.return_value = imap_client
@@ -185,7 +186,7 @@ class TestDraftReplyTool:
     @pytest.mark.asyncio
     async def test_email_not_found(self, tools, ctx):
         stored, imap_client = tools
-        draft_reply = stored["draft_reply_tool"]
+        draft_reply = stored["reply"]
 
         with patch("mailroom.tools.get_client_from_context") as gc:
             gc.return_value = imap_client
@@ -204,7 +205,7 @@ class TestDraftReplyTool:
     @pytest.mark.asyncio
     async def test_save_draft_failure(self, tools, mock_email, ctx):
         stored, imap_client = tools
-        draft_reply = stored["draft_reply_tool"]
+        draft_reply = stored["reply"]
 
         with patch("mailroom.tools.get_client_from_context") as gc:
             gc.return_value = imap_client
@@ -226,7 +227,7 @@ class TestDraftReplyTool:
 
 
 # ---------------------------------------------------------------------------
-# CLI draft-reply tests
+# CLI reply tests
 # ---------------------------------------------------------------------------
 
 
@@ -256,7 +257,7 @@ class TestDraftReplyCLI:
                     [
                         "--config",
                         "dummy.toml",
-                        "draft-reply",
+                        "reply",
                         "-f",
                         "INBOX",
                         "--uid",
@@ -292,7 +293,7 @@ class TestDraftReplyCLI:
                     [
                         "--config",
                         "dummy.toml",
-                        "draft-reply",
+                        "reply",
                         "-f",
                         "INBOX",
                         "--uid",
@@ -329,7 +330,7 @@ class TestDraftReplyCLI:
                     [
                         "--config",
                         "dummy.toml",
-                        "draft-reply",
+                        "reply",
                         "-f",
                         "INBOX",
                         "--uid",
@@ -366,7 +367,7 @@ class TestDraftReplyCLI:
                     [
                         "--config",
                         "dummy.toml",
-                        "draft-reply",
+                        "reply",
                         "-f",
                         "INBOX",
                         "--uid",
@@ -399,7 +400,7 @@ class TestDraftReplyCLI:
                 [
                     "--config",
                     "dummy.toml",
-                    "draft-reply",
+                    "reply",
                     "-f",
                     "INBOX",
                     "--uid",

@@ -72,7 +72,7 @@ Gmail OAuth2 setup requires a Google Cloud project with the Gmail API enabled. S
 With uv (any platform):
 
 ```bash
-uvx mailroom search-emails "subject:invoice"
+uvx mailroom search "subject:invoice"
 ```
 
 No installation step — `uvx` runs it directly. To install permanently:
@@ -89,7 +89,7 @@ sudo apt-get install python3-typer python3-dotenv python3-imapclient python3-req
 Then you can run it directly without uv
 
 ```bash
-python3 -m mailroom search-emails "subject:invoice"
+python3 -m mailroom search "subject:invoice"
 ```
 
 Mailroom looks for a config file at `~/.config/mailroom/config.toml`. Use `--config /path/to/config.toml` to point to a different location.
@@ -102,28 +102,31 @@ Every command outputs JSON to stdout. Errors go to stderr. This makes Mailroom c
 
 ```bash
 # What's unread?
-mailroom search-emails "is:unread" --folder INBOX --limit 10
+mailroom search "is:unread" --folder INBOX --limit 10
 
 # Search by subject across all folders
-mailroom search-emails 'subject:"hotel booking"'
+mailroom search 'subject:"hotel booking"'
 
-# Read an email's attachments, then download one
-mailroom list-attachments INBOX 4523
-mailroom download-attachment INBOX 4523 itinerary.pdf /tmp/itinerary.pdf
+# Read an email
+mailroom read -f INBOX -u 4523
+
+# List and download attachments
+mailroom attachments -f INBOX -u 4523
+mailroom save -f INBOX -u 4523 -i itinerary.pdf -o /tmp/itinerary.pdf
 
 # Export an HTML email as a standalone file (images embedded)
-mailroom export-email-html INBOX 4523 /tmp/email.html
+mailroom export -f INBOX -u 4523 -o /tmp/email.html
 
 # Extract all links from several emails (useful for phishing checks)
-mailroom extract-email-links INBOX 4523 4524 4525
+mailroom links -f INBOX -u 4523 -u 4524 -u 4525
 
 # Draft a threaded reply
-mailroom draft-reply INBOX 4523 "Thanks, confirmed."
+mailroom reply -f INBOX -u 4523 -b "Thanks, confirmed."
 
 # Organize
-mailroom move-email INBOX 4523 Archive
-mailroom mark-as-read INBOX 4524
-mailroom flag-email INBOX 4525
+mailroom move -f INBOX -u 4523 -t Archive
+mailroom mark-read -f INBOX -u 4524
+mailroom flag -f INBOX -u 4525
 ```
 
 Run `mailroom --help` for the full command list.
@@ -144,12 +147,12 @@ Because every command returns JSON and uses non-zero exit codes on failure, Mail
 
 ```bash
 # Forward all emails from a sender to another folder
-mailroom search-emails "from:sender@example.com" --folder INBOX \
+mailroom search "from:sender@example.com" --folder INBOX \
   | jq -r '.[].uid' \
-  | xargs -I{} mailroom move-email INBOX {} Forwarded
+  | xargs -I{} mailroom move -f INBOX -u {} -t Forwarded
 
 # Daily digest: save today's unread subjects to a file
-mailroom search-emails "is:unread" --folder INBOX \
+mailroom search "is:unread" --folder INBOX \
   | jq -r '.[].subject' > ~/daily-digest.txt
 ```
 
@@ -178,7 +181,7 @@ password = "YOUR_APP_PASSWORD"
 Select an account with `-a`:
 
 ```bash
-mailroom -a work search-emails "is:unread"
+mailroom -a work search "is:unread"
 ```
 
 ## Connection handling

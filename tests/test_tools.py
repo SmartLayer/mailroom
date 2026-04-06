@@ -66,7 +66,7 @@ class TestTools:
         # Make tool decorator store and return the decorated function
         stored_tools = {}
 
-        def mock_tool_decorator():
+        def mock_tool_decorator(**kwargs):
             def decorator(func):
                 stored_tools[func.__name__] = func
                 return func
@@ -89,13 +89,13 @@ class TestTools:
         return context
 
     @pytest.mark.asyncio
-    async def test_move_email(self, tools, mock_client, mock_context):
+    async def test_move(self, tools, mock_client, mock_context):
         """Test moving an email from one folder to another."""
-        # Get the move_email function
-        move_email = tools["move_email"]
+        # Get the move function
+        move = tools["move"]
 
-        # Call the move_email function
-        result = await move_email("INBOX", 123, "Archive", mock_context)
+        # Call the move function
+        result = await move("INBOX", 123, "Archive", mock_context)
 
         # Check the client was called correctly
         mock_client.move_email.assert_called_once_with(123, "INBOX", "Archive")
@@ -105,17 +105,17 @@ class TestTools:
 
         # Test error handling
         mock_client.move_email.side_effect = Exception("Connection error")
-        result = await move_email("INBOX", 123, "Archive", mock_context)
+        result = await move("INBOX", 123, "Archive", mock_context)
         assert "Error" in result
 
     @pytest.mark.asyncio
-    async def test_mark_as_read(self, tools, mock_client, mock_context):
+    async def test_mark_read(self, tools, mock_client, mock_context):
         """Test marking an email as read."""
-        # Get the mark_as_read function
-        mark_as_read = tools["mark_as_read"]
+        # Get the mark_read function
+        mark_read = tools["mark_read"]
 
         # Call the function
-        result = await mark_as_read("INBOX", 123, mock_context)
+        result = await mark_read("INBOX", 123, mock_context)
 
         # Check the client was called correctly
         mock_client.mark_email.assert_called_once_with(123, "INBOX", "\\Seen", True)
@@ -125,21 +125,21 @@ class TestTools:
 
         # Test failure case
         mock_client.mark_email.return_value = False
-        result = await mark_as_read("INBOX", 123, mock_context)
+        result = await mark_read("INBOX", 123, mock_context)
         assert "Failed to mark email as read" in result
 
     @pytest.mark.asyncio
-    async def test_mark_as_unread(self, tools, mock_client, mock_context):
+    async def test_mark_unread(self, tools, mock_client, mock_context):
         """Test marking an email as unread."""
-        # Get the mark_as_unread function
-        mark_as_unread = tools["mark_as_unread"]
+        # Get the mark_unread function
+        mark_unread = tools["mark_unread"]
 
         # Reset mock for this test
         mock_client.mark_email.reset_mock()
         mock_client.mark_email.return_value = True
 
         # Call the function
-        result = await mark_as_unread("INBOX", 123, mock_context)
+        result = await mark_unread("INBOX", 123, mock_context)
 
         # Check the client was called correctly
         mock_client.mark_email.assert_called_once_with(123, "INBOX", "\\Seen", False)
@@ -149,21 +149,21 @@ class TestTools:
 
         # Test error handling
         mock_client.mark_email.side_effect = Exception("Server error")
-        result = await mark_as_unread("INBOX", 123, mock_context)
+        result = await mark_unread("INBOX", 123, mock_context)
         assert "Error" in result
 
     @pytest.mark.asyncio
-    async def test_flag_email(self, tools, mock_client, mock_context):
+    async def test_flag(self, tools, mock_client, mock_context):
         """Test flagging and unflagging an email."""
-        # Get the flag_email function
-        flag_email = tools["flag_email"]
+        # Get the flag function
+        flag = tools["flag"]
 
         # Reset mock for this test
         mock_client.mark_email.reset_mock()
         mock_client.mark_email.return_value = True
 
         # Test flagging
-        result = await flag_email("INBOX", 123, mock_context, True)
+        result = await flag("INBOX", 123, mock_context, True)
         mock_client.mark_email.assert_called_once_with(123, "INBOX", "\\Flagged", True)
         assert "Email flagged" in result
 
@@ -171,18 +171,18 @@ class TestTools:
         mock_client.mark_email.reset_mock()
 
         # Test unflagging
-        result = await flag_email("INBOX", 123, mock_context, False)
+        result = await flag("INBOX", 123, mock_context, False)
         mock_client.mark_email.assert_called_once_with(123, "INBOX", "\\Flagged", False)
         assert "Email unflagged" in result
 
     @pytest.mark.asyncio
-    async def test_delete_email(self, tools, mock_client, mock_context):
+    async def test_delete(self, tools, mock_client, mock_context):
         """Test deleting an email."""
-        # Get the delete_email function
-        delete_email = tools["delete_email"]
+        # Get the delete function
+        delete = tools["delete"]
 
         # Call the function
-        result = await delete_email("INBOX", 123, mock_context)
+        result = await delete("INBOX", 123, mock_context)
 
         # Check the client was called correctly
         mock_client.delete_email.assert_called_once_with(123, "INBOX")
@@ -192,18 +192,18 @@ class TestTools:
 
         # Test failure case
         mock_client.delete_email.return_value = False
-        result = await delete_email("INBOX", 123, mock_context)
+        result = await delete("INBOX", 123, mock_context)
         assert "Failed to delete" in result
 
         # Test error handling
         mock_client.delete_email.side_effect = Exception("Permission denied")
-        result = await delete_email("INBOX", 123, mock_context)
+        result = await delete("INBOX", 123, mock_context)
         assert "Error" in result
 
     @pytest.mark.asyncio
-    async def test_search_emails(self, tools, mock_client, mock_context, mock_email):
+    async def test_search(self, tools, mock_client, mock_context, mock_email):
         """Test searching for emails via the MCP tool wrapper."""
-        search_emails = tools["search_emails"]
+        search = tools["search"]
 
         # Configure client.search_emails to return sample results
         sample_results = [
@@ -221,7 +221,7 @@ class TestTools:
         mock_client.search_emails.return_value = sample_results
 
         # Test default parameters — bare words become TEXT search
-        result = await search_emails("test query", mock_context)
+        result = await search("test query", mock_context)
         result_data = json.loads(result)
         assert isinstance(result_data, list)
         assert len(result_data) == 1
@@ -234,7 +234,7 @@ class TestTools:
 
         # Test with specific folder and Gmail-style query
         mock_client.search_emails.reset_mock()
-        result = await search_emails(
+        result = await search(
             "from:sender@example.com", mock_context, folder="INBOX"
         )
         mock_client.search_emails.assert_called_once_with(
@@ -248,14 +248,14 @@ class TestTools:
         mock_client.search_emails.side_effect = ValueError(
             "Unknown is: keyword: 'bogus'"
         )
-        result = await search_emails("is:bogus", mock_context)
+        result = await search("is:bogus", mock_context)
         assert "Unknown is: keyword" in result
         mock_client.search_emails.side_effect = None
 
         # Test numeric query is coerced to string
         mock_client.search_emails.reset_mock()
         mock_client.search_emails.return_value = sample_results
-        result = await search_emails(69172700, mock_context, folder="INBOX")
+        result = await search(69172700, mock_context, folder="INBOX")
         mock_client.search_emails.assert_called_once_with(
             "69172700",
             folder="INBOX",
@@ -263,11 +263,11 @@ class TestTools:
         )
 
     @pytest.mark.asyncio
-    async def test_search_emails_raw_imap(
+    async def test_search_raw_imap(
         self, tools, mock_client, mock_context, mock_email
     ):
         """Test searching with raw IMAP via imap: prefix delegates to client.search_emails."""
-        search_emails = tools["search_emails"]
+        search = tools["search"]
 
         sample_results = [
             {
@@ -283,7 +283,7 @@ class TestTools:
         ]
         mock_client.search_emails.return_value = sample_results
 
-        result = await search_emails(
+        result = await search(
             "imap:TEXT Edinburgh", mock_context, folder="INBOX"
         )
         result_data = json.loads(result)
@@ -295,15 +295,15 @@ class TestTools:
         )
 
     @pytest.mark.asyncio
-    async def test_process_email(self, tools, mock_client, mock_context):
+    async def test_triage(self, tools, mock_client, mock_context):
         """Test processing an email with multiple actions."""
-        process_email = tools["process_email"]
+        triage = tools["triage"]
 
         # Test move action — delegates to process_email_action
         mock_client.process_email_action.return_value = (
             "Email moved from INBOX to Archive"
         )
-        result = await process_email(
+        result = await triage(
             "INBOX", 123, "move", mock_context, target_folder="Archive"
         )
         mock_client.process_email_action.assert_called_with(
@@ -313,7 +313,7 @@ class TestTools:
 
         # Test read action
         mock_client.process_email_action.return_value = "Email marked as read"
-        result = await process_email("INBOX", 123, "read", mock_context)
+        result = await triage("INBOX", 123, "read", mock_context)
         mock_client.process_email_action.assert_called_with(
             123, "INBOX", "read", target_folder=None
         )
@@ -323,7 +323,7 @@ class TestTools:
         mock_client.process_email_action.side_effect = ValueError(
             "target_folder is required for move action"
         )
-        result = await process_email("INBOX", 123, "move", mock_context)
+        result = await triage("INBOX", 123, "move", mock_context)
         assert "target_folder" in result
         mock_client.process_email_action.side_effect = None
 
@@ -331,36 +331,36 @@ class TestTools:
         mock_client.process_email_action.side_effect = ValueError(
             "Unknown action 'invalid_action'"
         )
-        result = await process_email("INBOX", 123, "invalid_action", mock_context)
+        result = await triage("INBOX", 123, "invalid_action", mock_context)
         assert "Unknown action" in result
         mock_client.process_email_action.side_effect = None
 
         # Test email not found
         mock_client.fetch_email.return_value = None
-        result = await process_email("INBOX", 123, "read", mock_context)
+        result = await triage("INBOX", 123, "read", mock_context)
         assert "not found" in result
 
     @pytest.mark.asyncio
     async def test_tool_error_handling(self, tools, mock_client, mock_context):
         """Test error handling in tools."""
         # Get tools to test
-        move_email = tools["move_email"]
-        mark_as_read = tools["mark_as_read"]
-        search_emails = tools["search_emails"]
+        move = tools["move"]
+        mark_read = tools["mark_read"]
+        search = tools["search"]
 
-        # Test move_email error handling
+        # Test move error handling
         mock_client.move_email.side_effect = Exception("Network error")
-        result = await move_email("INBOX", 123, "Archive", mock_context)
+        result = await move("INBOX", 123, "Archive", mock_context)
         assert "Error" in result
 
-        # Test mark_as_read error handling
+        # Test mark_read error handling
         mock_client.mark_email.side_effect = Exception("Server timeout")
-        result = await mark_as_read("INBOX", 123, mock_context)
+        result = await mark_read("INBOX", 123, mock_context)
         assert "Error" in result
 
-        # Test search_emails error handling — client.search_emails raises ValueError
+        # Test search error handling — client.search_emails raises ValueError
         mock_client.search_emails.side_effect = ValueError("Search failed")
-        result = await search_emails("test", mock_context)
+        result = await search("test", mock_context)
         assert "Search failed" in result
         mock_client.search_emails.side_effect = None
 
@@ -368,29 +368,29 @@ class TestTools:
     async def test_tool_parameter_validation(self, tools, mock_client, mock_context):
         """Test parameter validation in tools."""
         # Get tools to test
-        search_emails = tools["search_emails"]
-        process_email = tools["process_email"]
+        search = tools["search"]
+        triage = tools["triage"]
 
-        # Test search_emails with invalid query — client raises ValueError
+        # Test search with invalid query — client raises ValueError
         mock_client.search_emails.side_effect = ValueError(
             "Unknown is: keyword: 'bogus'"
         )
-        result = await search_emails("is:bogus", mock_context)
+        result = await search("is:bogus", mock_context)
         assert "Unknown is: keyword" in result
         mock_client.search_emails.side_effect = None
 
-        # Test process_email with missing target folder for move action
+        # Test triage with missing target folder for move action
         mock_client.process_email_action.side_effect = ValueError(
             "target_folder is required for move action"
         )
-        result = await process_email("INBOX", 123, "move", ctx=mock_context)
+        result = await triage("INBOX", 123, "move", ctx=mock_context)
         assert "target_folder" in result
 
-        # Test process_email with invalid action
+        # Test triage with invalid action
         mock_client.process_email_action.side_effect = ValueError(
             "Unknown action 'nonexistent_action'"
         )
-        result = await process_email(
+        result = await triage(
             "INBOX", 123, "nonexistent_action", ctx=mock_context
         )
         assert "Unknown action" in result

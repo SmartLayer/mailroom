@@ -201,7 +201,7 @@ class TestMcpCliImapIntegration:
         assert process.returncode == 0, f"Command failed with code {process.returncode}"
 
         # Check expected tools are listed
-        expected_tools = ["search_emails", "get_email"]
+        expected_tools = ["search", "read"]
         stdout = process.stdout.lower()
 
         for tool in expected_tools:
@@ -248,7 +248,7 @@ def test_direct_email_search_command():
         "--server",
         "imap",
         "--tool",
-        "search_emails",
+        "search",
         "--args",
         json.dumps({"query": "is:unread", "folder": "INBOX", "limit": 5}),
     ]

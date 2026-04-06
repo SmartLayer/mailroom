@@ -196,8 +196,8 @@ class TestExtractLinksFromHtml:
 
 
 @pytest.mark.asyncio
-class TestExtractEmailLinksTool:
-    """Test the extract_email_links MCP tool."""
+class TestLinksTool:
+    """Test the links MCP tool."""
 
     async def test_extract_links_from_email(self, mock_context):
         """Test extracting links from an email with HTML content."""
@@ -237,11 +237,11 @@ class TestExtractEmailLinksTool:
         # Get the tool function
         extract_tool = None
         for tool_func in mcp._tool_manager._tools.values():
-            if tool_func.fn.__name__ == "extract_email_links":
+            if tool_func.fn.__name__ == "links":
                 extract_tool = tool_func.fn
                 break
 
-        assert extract_tool is not None, "extract_email_links tool not found"
+        assert extract_tool is not None, "links tool not found"
 
         # Call the tool with a list of UIDs
         result = await extract_tool("INBOX", [123], mock_context)
@@ -303,7 +303,7 @@ class TestExtractEmailLinksTool:
         # Get the tool function
         extract_tool = None
         for tool_func in mcp._tool_manager._tools.values():
-            if tool_func.fn.__name__ == "extract_email_links":
+            if tool_func.fn.__name__ == "links":
                 extract_tool = tool_func.fn
                 break
 
@@ -341,7 +341,7 @@ class TestExtractEmailLinksTool:
         # Get the tool function
         extract_tool = None
         for tool_func in mcp._tool_manager._tools.values():
-            if tool_func.fn.__name__ == "extract_email_links":
+            if tool_func.fn.__name__ == "links":
                 extract_tool = tool_func.fn
                 break
 
@@ -384,7 +384,7 @@ class TestExtractEmailLinksTool:
         # Get the tool function
         extract_tool = None
         for tool_func in mcp._tool_manager._tools.values():
-            if tool_func.fn.__name__ == "extract_email_links":
+            if tool_func.fn.__name__ == "links":
                 extract_tool = tool_func.fn
                 break
 
@@ -430,7 +430,7 @@ class TestExtractEmailLinksTool:
         # Get the tool function
         extract_tool = None
         for tool_func in mcp._tool_manager._tools.values():
-            if tool_func.fn.__name__ == "extract_email_links":
+            if tool_func.fn.__name__ == "links":
                 extract_tool = tool_func.fn
                 break
 
@@ -482,7 +482,7 @@ class TestExtractEmailLinksTool:
         # Get the tool function
         extract_tool = None
         for tool_func in mcp._tool_manager._tools.values():
-            if tool_func.fn.__name__ == "extract_email_links":
+            if tool_func.fn.__name__ == "links":
                 extract_tool = tool_func.fn
                 break
 

@@ -120,12 +120,12 @@ def list_accounts() -> None:
 
 
 # ---------------------------------------------------------------------------
-# server-status
+# status
 # ---------------------------------------------------------------------------
 
 
-@app.command("server-status")
-def server_status() -> None:
+@app.command("status")
+def status() -> None:
     """Show IMAP server status and configuration."""
     try:
         cfg = load_config(_config_path)
@@ -133,14 +133,14 @@ def server_status() -> None:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1)
     accounts_map: Dict[str, Any] = {}
-    status: Dict[str, Any] = {
+    status_data: Dict[str, Any] = {
         "server": "Mailroom",
         "version": "0.2.0",
         "default_account": cfg.default_account,
         "accounts": accounts_map,
     }
     for name, acct in cfg.accounts.items():
-        status["accounts"][name] = {
+        status_data["accounts"][name] = {
             "imap_host": acct.imap.host,
             "imap_port": acct.imap.port,
             "imap_user": acct.imap.username,
@@ -149,16 +149,32 @@ def server_status() -> None:
                 list(acct.allowed_folders) if acct.allowed_folders else "all"
             ),
         }
-    _out(status)
+    _out(status_data)
 
 
 # ---------------------------------------------------------------------------
-# search-emails
+# folders (NEW)
 # ---------------------------------------------------------------------------
 
 
-@app.command("search-emails")
-def search_emails(
+@app.command("folders")
+def folders() -> None:
+    """List available email folders."""
+    client = _make_client()
+    try:
+        folder_list = client.list_folders()
+        _out(folder_list)
+    finally:
+        client.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# search
+# ---------------------------------------------------------------------------
+
+
+@app.command("search")
+def search(
     query: str = typer.Argument(
         "",
         help=(
@@ -186,25 +202,86 @@ def search_emails(
 
 
 # ---------------------------------------------------------------------------
-# move-email
+# read (NEW)
 # ---------------------------------------------------------------------------
 
 
-@app.command("move-email")
-def move_email(
-    folder: str = typer.Argument(..., help="Source folder."),
-    uid: int = typer.Argument(..., help="Email UID."),
-    target_folder: str = typer.Argument(..., help="Destination folder."),
+@app.command("read")
+def read(
+    folder: str = typer.Option(
+        ..., "--folder", "-f", help="Folder name."
+    ),
+    uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
+) -> None:
+    """Read an email's content."""
+    client = _make_client()
+    try:
+        email_obj = client.fetch_email(uid, folder)
+        if not email_obj:
+            typer.echo(f"Email UID {uid} not found in {folder}", err=True)
+            raise typer.Exit(1)
+        result: Dict[str, Any] = {
+            "uid": uid,
+            "folder": folder,
+            "from": str(email_obj.from_),
+            "to": [str(to) for to in email_obj.to],
+            "subject": email_obj.subject,
+            "date": (
+                email_obj.date.isoformat() if email_obj.date else None
+            ),
+            "flags": email_obj.flags,
+            "content_type": (
+                "text/html" if email_obj.content.html else "text/plain"
+            ),
+            "body": (
+                str(email_obj.content.html)
+                if email_obj.content.html
+                else str(email_obj.content.text)
+                if email_obj.content.text
+                else None
+            ),
+        }
+        if email_obj.cc:
+            result["cc"] = [str(cc) for cc in email_obj.cc]
+        if email_obj.attachments:
+            result["attachments"] = [
+                {
+                    "index": i,
+                    "filename": att.filename,
+                    "size": att.size,
+                    "content_type": att.content_type,
+                }
+                for i, att in enumerate(email_obj.attachments)
+            ]
+        _out(result)
+    finally:
+        client.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# move
+# ---------------------------------------------------------------------------
+
+
+@app.command("move")
+def move(
+    folder: str = typer.Option(
+        ..., "--folder", "-f", help="Source folder."
+    ),
+    uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
+    target: str = typer.Option(
+        ..., "--target", "-t", help="Destination folder."
+    ),
 ) -> None:
     """Move an email to another folder."""
     client = _make_client()
     try:
-        success = client.move_email(uid, folder, target_folder)
+        success = client.move_email(uid, folder, target)
         _out(
             {
                 "success": success,
                 "message": (
-                    f"Moved from {folder} to {target_folder}"
+                    f"Moved from {folder} to {target}"
                     if success
                     else "Failed to move email"
                 ),
@@ -215,22 +292,30 @@ def move_email(
 
 
 # ---------------------------------------------------------------------------
-# import-email
+# copy
 # ---------------------------------------------------------------------------
 
 
-@app.command("import-email")
-def import_email_cmd(
-    from_account: str = typer.Argument(..., help="Source account name."),
-    from_folder: str = typer.Argument(..., help="Source folder."),
-    uid: int = typer.Argument(..., help="Email UID in the source folder."),
-    to_folder: str = typer.Option("INBOX", "--to-folder", "-t", help="Destination folder."),
-    move: bool = typer.Option(False, "--move", help="Delete from source after import."),
+@app.command("copy")
+def copy_cmd(
+    from_account: str = typer.Option(
+        ..., "--from-account", help="Source account name."
+    ),
+    from_folder: str = typer.Option(
+        ..., "--from-folder", help="Source folder."
+    ),
+    uid: int = typer.Option(..., "--uid", "-u", help="Email UID in the source folder."),
+    to_folder: str = typer.Option(
+        "INBOX", "--to-folder", "-t", help="Destination folder."
+    ),
+    move_flag: bool = typer.Option(
+        False, "--move", help="Delete from source after copy."
+    ),
     preserve_flags: bool = typer.Option(
         False, "--preserve-flags", help="Copy original flags to destination."
     ),
 ) -> None:
-    """Import an email from one account into another.
+    """Copy an email from one account into another.
 
     The global --account/-a selects the destination account.
     Fetches the raw RFC 822 message from the source and APPENDs it to the
@@ -266,7 +351,7 @@ def import_email_cmd(
 
         subject = raw_data["subject"]
 
-        if move:
+        if move_flag:
             source.delete_email(uid, from_folder)
 
         _out(
@@ -276,7 +361,7 @@ def import_email_cmd(
                 "source": f"{from_account}/{from_folder}/{uid}",
                 "destination": f"{to_folder}",
                 "new_uid": new_uid,
-                "moved": move,
+                "moved": move_flag,
             }
         )
     except typer.Exit:
@@ -290,14 +375,16 @@ def import_email_cmd(
 
 
 # ---------------------------------------------------------------------------
-# mark-as-read / mark-as-unread
+# mark-read / mark-unread
 # ---------------------------------------------------------------------------
 
 
-@app.command("mark-as-read")
-def mark_as_read(
-    folder: str = typer.Argument(..., help="Folder name."),
-    uid: int = typer.Argument(..., help="Email UID."),
+@app.command("mark-read")
+def mark_read(
+    folder: str = typer.Option(
+        ..., "--folder", "-f", help="Folder name."
+    ),
+    uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
 ) -> None:
     """Mark an email as read."""
     client = _make_client()
@@ -308,10 +395,12 @@ def mark_as_read(
         client.disconnect()
 
 
-@app.command("mark-as-unread")
-def mark_as_unread(
-    folder: str = typer.Argument(..., help="Folder name."),
-    uid: int = typer.Argument(..., help="Email UID."),
+@app.command("mark-unread")
+def mark_unread(
+    folder: str = typer.Option(
+        ..., "--folder", "-f", help="Folder name."
+    ),
+    uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
 ) -> None:
     """Mark an email as unread."""
     client = _make_client()
@@ -323,14 +412,16 @@ def mark_as_unread(
 
 
 # ---------------------------------------------------------------------------
-# flag-email
+# flag
 # ---------------------------------------------------------------------------
 
 
-@app.command("flag-email")
-def flag_email(
-    folder: str = typer.Argument(..., help="Folder name."),
-    uid: int = typer.Argument(..., help="Email UID."),
+@app.command("flag")
+def flag(
+    folder: str = typer.Option(
+        ..., "--folder", "-f", help="Folder name."
+    ),
+    uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
     unflag: bool = typer.Option(
         False, "--unflag", help="Remove the flag instead of setting it."
     ),
@@ -345,14 +436,16 @@ def flag_email(
 
 
 # ---------------------------------------------------------------------------
-# delete-email
+# delete
 # ---------------------------------------------------------------------------
 
 
-@app.command("delete-email")
-def delete_email(
-    folder: str = typer.Argument(..., help="Folder name."),
-    uid: int = typer.Argument(..., help="Email UID."),
+@app.command("delete")
+def delete(
+    folder: str = typer.Option(
+        ..., "--folder", "-f", help="Folder name."
+    ),
+    uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
 ) -> None:
     """Delete an email."""
     client = _make_client()
@@ -364,14 +457,16 @@ def delete_email(
 
 
 # ---------------------------------------------------------------------------
-# process-email
+# triage
 # ---------------------------------------------------------------------------
 
 
-@app.command("process-email")
-def process_email(
-    folder: str = typer.Argument(..., help="Folder name."),
-    uid: int = typer.Argument(..., help="Email UID."),
+@app.command("triage")
+def triage(
+    folder: str = typer.Option(
+        ..., "--folder", "-f", help="Folder name."
+    ),
+    uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
     action: str = typer.Argument(
         ..., help="Action: move, read, unread, flag, unflag, delete."
     ),
@@ -380,7 +475,7 @@ def process_email(
     ),
     notes: Optional[str] = typer.Option(None, "--notes", help="Optional notes."),
 ) -> None:
-    """Process an email with a given action."""
+    """Triage an email with a given action."""
     client = _make_client()
     try:
         email_obj = client.fetch_email(uid, folder)
@@ -400,14 +495,16 @@ def process_email(
 
 
 # ---------------------------------------------------------------------------
-# list-attachments
+# attachments
 # ---------------------------------------------------------------------------
 
 
-@app.command("list-attachments")
-def list_attachments(
-    folder: str = typer.Argument(..., help="Folder name."),
-    uid: int = typer.Argument(..., help="Email UID."),
+@app.command("attachments")
+def attachments(
+    folder: str = typer.Option(
+        ..., "--folder", "-f", help="Folder name."
+    ),
+    uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
 ) -> None:
     """List attachments for an email."""
     client = _make_client()
@@ -433,16 +530,22 @@ def list_attachments(
 
 
 # ---------------------------------------------------------------------------
-# download-attachment
+# save
 # ---------------------------------------------------------------------------
 
 
-@app.command("download-attachment")
-def download_attachment(
-    folder: str = typer.Argument(..., help="Folder name."),
-    uid: int = typer.Argument(..., help="Email UID."),
-    identifier: str = typer.Argument(..., help="Attachment filename or numeric index."),
-    save_path: str = typer.Argument(..., help="Path to save the attachment."),
+@app.command("save")
+def save(
+    folder: str = typer.Option(
+        ..., "--folder", "-f", help="Folder name."
+    ),
+    uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
+    identifier: str = typer.Option(
+        ..., "--identifier", "-i", help="Attachment filename or numeric index."
+    ),
+    save_path: str = typer.Option(
+        ..., "--save-path", "-o", help="Path to save the attachment."
+    ),
 ) -> None:
     """Download an attachment from an email."""
     client = _make_client()
@@ -461,15 +564,19 @@ def download_attachment(
 
 
 # ---------------------------------------------------------------------------
-# export-email-html
+# export
 # ---------------------------------------------------------------------------
 
 
-@app.command("export-email-html")
-def export_email_html(
-    folder: str = typer.Argument(..., help="Folder name."),
-    uid: int = typer.Argument(..., help="Email UID."),
-    save_path: str = typer.Argument(..., help="Path to save the HTML file."),
+@app.command("export")
+def export(
+    folder: str = typer.Option(
+        ..., "--folder", "-f", help="Folder name."
+    ),
+    uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
+    save_path: str = typer.Option(
+        ..., "--save-path", "-o", help="Path to save the HTML file."
+    ),
 ) -> None:
     """Export email HTML content to a standalone file with embedded images."""
     client = _make_client()
@@ -488,14 +595,18 @@ def export_email_html(
 
 
 # ---------------------------------------------------------------------------
-# extract-email-links
+# links
 # ---------------------------------------------------------------------------
 
 
-@app.command("extract-email-links")
-def extract_email_links(
-    folder: str = typer.Argument(..., help="Folder name."),
-    uids: List[int] = typer.Argument(..., help="One or more email UIDs."),
+@app.command("links")
+def links(
+    folder: str = typer.Option(
+        ..., "--folder", "-f", help="Folder name."
+    ),
+    uids: List[int] = typer.Option(
+        ..., "--uid", "-u", help="One or more email UIDs."
+    ),
 ) -> None:
     """Extract all links from email HTML content."""
     client = _make_client()
@@ -507,16 +618,16 @@ def extract_email_links(
 
 
 # ---------------------------------------------------------------------------
-# draft-reply
+# reply
 # ---------------------------------------------------------------------------
 
 
-@app.command("draft-reply")
-def draft_reply(
+@app.command("reply")
+def reply(
     folder: str = typer.Option(
         ..., "--folder", "-f", help="Folder containing the email."
     ),
-    uid: int = typer.Option(..., "--uid", help="Email UID to reply to."),
+    uid: int = typer.Option(..., "--uid", "-u", help="Email UID to reply to."),
     body: str = typer.Option(..., "--body", "-b", help="Reply body text."),
     reply_all: bool = typer.Option(
         False, "--reply-all", help="Reply to all recipients."
@@ -609,18 +720,19 @@ def draft_reply(
 
 
 # ---------------------------------------------------------------------------
-# process-meeting-invite
+# accept-invite
 # ---------------------------------------------------------------------------
 
 
-@app.command("process-meeting-invite")
-def process_meeting_invite(
-    folder: str = typer.Argument(..., help="Folder containing the invite email."),
-    uid: int = typer.Argument(..., help="Email UID."),
+@app.command("accept-invite")
+def accept_invite(
+    folder: str = typer.Option(
+        ..., "--folder", "-f", help="Folder containing the invite email."
+    ),
+    uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
     availability_mode: str = typer.Option(
         "random",
         "--availability-mode",
-        "-a",
         help="Availability mode: random, always_available, always_busy, business_hours, weekdays.",
     ),
 ) -> None:

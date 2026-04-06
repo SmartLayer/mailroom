@@ -1,5 +1,5 @@
 """
-Example demonstrating the extract_email_links tool for fraud detection.
+Example demonstrating the links tool for fraud detection.
 
 This example shows how to use the new link extraction feature to analyze
 suspicious emails without downloading the full HTML content.

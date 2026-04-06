@@ -28,7 +28,7 @@ Mailroom uses a Gmail-inspired query language for email search. Queries work ide
 Tokens without a prefix search the full message text:
 
 ```bash
-mailroom search-emails "meeting notes"
+mailroom search "meeting notes"
 # → IMAP: TEXT "meeting notes"
 ```
 
@@ -37,7 +37,7 @@ mailroom search-emails "meeting notes"
 Space-separated terms are implicitly AND-ed:
 
 ```bash
-mailroom search-emails "from:alice subject:invoice is:unread"
+mailroom search "from:alice subject:invoice is:unread"
 # → IMAP: FROM alice SUBJECT invoice UNSEEN
 ```
 
@@ -46,22 +46,22 @@ mailroom search-emails "from:alice subject:invoice is:unread"
 **OR** between terms:
 
 ```bash
-mailroom search-emails "from:alice or from:bob"
+mailroom search "from:alice or from:bob"
 # → IMAP: OR FROM alice FROM bob
 ```
 
 Chained OR right-associates:
 
 ```bash
-mailroom search-emails "from:a or from:b or from:c"
+mailroom search "from:a or from:b or from:c"
 # → IMAP: OR FROM a OR FROM b FROM c
 ```
 
 **NOT** with `-` prefix or `not` keyword:
 
 ```bash
-mailroom search-emails "-from:alice"
-mailroom search-emails "not is:read"
+mailroom search "-from:alice"
+mailroom search "not is:read"
 ```
 
 ## Dates
@@ -69,14 +69,14 @@ mailroom search-emails "not is:read"
 ISO format (`YYYY-MM-DD`) and slash format (`YYYY/MM/DD`) both work:
 
 ```bash
-mailroom search-emails "after:2025-03-01 before:2025-04-01"
+mailroom search "after:2025-03-01 before:2025-04-01"
 ```
 
 Relative dates use `d` (days), `w` (weeks), `m` (months):
 
 ```bash
-mailroom search-emails "newer:3d"     # last 3 days
-mailroom search-emails "older:2w"     # older than 2 weeks
+mailroom search "newer:3d"     # last 3 days
+mailroom search "older:2w"     # older than 2 weeks
 ```
 
 `newer_than:` and `older_than:` are accepted as synonyms.
@@ -96,8 +96,8 @@ When the entire query is one of these words, it maps to a predefined search:
 Use double or single quotes for multi-word values:
 
 ```bash
-mailroom search-emails 'subject:"hotel booking"'
-mailroom search-emails "from:'Alice Smith'"
+mailroom search 'subject:"hotel booking"'
+mailroom search "from:'Alice Smith'"
 ```
 
 ## Raw IMAP passthrough
@@ -105,7 +105,7 @@ mailroom search-emails "from:'Alice Smith'"
 Prefix with `imap:` to send a raw IMAP SEARCH expression:
 
 ```bash
-mailroom search-emails 'imap:OR TEXT "Edinburgh" OR TEXT "Berlin" TEXT "Munich"'
+mailroom search 'imap:OR TEXT "Edinburgh" OR TEXT "Berlin" TEXT "Munich"'
 ```
 
 This bypasses the query parser entirely and passes the expression to the IMAP server in Polish (prefix) notation.

@@ -141,8 +141,8 @@ class TestServer:
             async with server_lifespan(mock_server):
                 pass
 
-    def test_server_status_tool(self):
-        """Test the server_status tool."""
+    def test_status_tool(self):
+        """Test the status tool."""
         mock_config = MultiAccountConfig(
             accounts={
                 "test": AccountConfig(

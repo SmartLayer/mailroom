@@ -93,8 +93,8 @@ def create_server(config_path: Optional[str] = None, debug: bool = False) -> Fas
     register_resources(server, imap_client)
     register_tools(server, imap_client)
 
-    @server.tool()
-    def server_status() -> str:
+    @server.tool(name="status")
+    def status() -> str:
         """Get server status and configuration info."""
         lines = [
             "server: Mailroom",

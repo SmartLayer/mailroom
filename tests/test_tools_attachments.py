@@ -93,11 +93,11 @@ def email_without_attachments():
     return email
 
 
-class TestListAttachments:
-    """Tests for list_attachments tool."""
+class TestAttachments:
+    """Tests for attachments tool."""
 
     @pytest.mark.asyncio
-    async def test_list_attachments_with_multiple_attachments(
+    async def test_attachments_with_multiple_attachments(
         self, mock_context, mock_imap_client, email_with_attachments
     ):
         """Test listing attachments for an email with multiple attachments."""
@@ -112,16 +112,16 @@ class TestListAttachments:
         register_tools(mcp, mock_imap_client)
 
         # Get the tool
-        list_attachments_tool = None
+        attachments_tool = None
         for tool in mcp._tool_manager._tools.values():
-            if tool.name == "list_attachments":
-                list_attachments_tool = tool
+            if tool.name == "attachments":
+                attachments_tool = tool
                 break
 
-        assert list_attachments_tool is not None
+        assert attachments_tool is not None
 
         # Call the tool
-        result = await list_attachments_tool.fn(
+        result = await attachments_tool.fn(
             folder="INBOX", uid=123, ctx=mock_context
         )
 
@@ -149,7 +149,7 @@ class TestListAttachments:
         assert attachments[2]["content_type"] == "application/pdf"
 
     @pytest.mark.asyncio
-    async def test_list_attachments_with_no_attachments(
+    async def test_attachments_with_no_attachments(
         self, mock_context, mock_imap_client, email_without_attachments
     ):
         """Test listing attachments for an email without attachments."""
@@ -164,16 +164,16 @@ class TestListAttachments:
         register_tools(mcp, mock_imap_client)
 
         # Get the tool
-        list_attachments_tool = None
+        attachments_tool = None
         for tool in mcp._tool_manager._tools.values():
-            if tool.name == "list_attachments":
-                list_attachments_tool = tool
+            if tool.name == "attachments":
+                attachments_tool = tool
                 break
 
-        assert list_attachments_tool is not None
+        assert attachments_tool is not None
 
         # Call the tool
-        result = await list_attachments_tool.fn(
+        result = await attachments_tool.fn(
             folder="INBOX", uid=456, ctx=mock_context
         )
 
@@ -185,7 +185,7 @@ class TestListAttachments:
         assert len(attachments) == 0
 
     @pytest.mark.asyncio
-    async def test_list_attachments_email_not_found(
+    async def test_attachments_email_not_found(
         self, mock_context, mock_imap_client
     ):
         """Test listing attachments for a non-existent email."""
@@ -200,16 +200,16 @@ class TestListAttachments:
         register_tools(mcp, mock_imap_client)
 
         # Get the tool
-        list_attachments_tool = None
+        attachments_tool = None
         for tool in mcp._tool_manager._tools.values():
-            if tool.name == "list_attachments":
-                list_attachments_tool = tool
+            if tool.name == "attachments":
+                attachments_tool = tool
                 break
 
-        assert list_attachments_tool is not None
+        assert attachments_tool is not None
 
         # Call the tool
-        result = await list_attachments_tool.fn(
+        result = await attachments_tool.fn(
             folder="INBOX", uid=999, ctx=mock_context
         )
 
@@ -221,7 +221,7 @@ class TestListAttachments:
         assert "not found" in response["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_list_attachments_with_exception(
+    async def test_attachments_with_exception(
         self, mock_context, mock_imap_client
     ):
         """Test listing attachments when an exception occurs."""
@@ -236,16 +236,16 @@ class TestListAttachments:
         register_tools(mcp, mock_imap_client)
 
         # Get the tool
-        list_attachments_tool = None
+        attachments_tool = None
         for tool in mcp._tool_manager._tools.values():
-            if tool.name == "list_attachments":
-                list_attachments_tool = tool
+            if tool.name == "attachments":
+                attachments_tool = tool
                 break
 
-        assert list_attachments_tool is not None
+        assert attachments_tool is not None
 
         # Call the tool
-        result = await list_attachments_tool.fn(
+        result = await attachments_tool.fn(
             folder="INBOX", uid=123, ctx=mock_context
         )
 
@@ -257,11 +257,11 @@ class TestListAttachments:
         assert "Connection error" in response["error"]
 
 
-class TestDownloadAttachment:
-    """Tests for download_attachment tool."""
+class TestSave:
+    """Tests for save tool."""
 
     @pytest.mark.asyncio
-    async def test_download_attachment_by_filename(
+    async def test_save_by_filename(
         self, mock_context, mock_imap_client, email_with_attachments
     ):
         """Test downloading an attachment by filename."""
@@ -276,13 +276,13 @@ class TestDownloadAttachment:
         register_tools(mcp, mock_imap_client)
 
         # Get the tool
-        download_attachment_tool = None
+        save_tool = None
         for tool in mcp._tool_manager._tools.values():
-            if tool.name == "download_attachment":
-                download_attachment_tool = tool
+            if tool.name == "save":
+                save_tool = tool
                 break
 
-        assert download_attachment_tool is not None
+        assert save_tool is not None
 
         # Create a temporary file for testing
         with tempfile.NamedTemporaryFile(mode="wb", delete=False) as tmp_file:
@@ -290,7 +290,7 @@ class TestDownloadAttachment:
 
         try:
             # Call the tool
-            result = await download_attachment_tool.fn(
+            result = await save_tool.fn(
                 folder="INBOX",
                 uid=123,
                 identifier="document.pdf",
@@ -315,7 +315,7 @@ class TestDownloadAttachment:
                 os.remove(tmp_path)
 
     @pytest.mark.asyncio
-    async def test_download_attachment_by_index(
+    async def test_save_by_index(
         self, mock_context, mock_imap_client, email_with_attachments
     ):
         """Test downloading an attachment by index."""
@@ -330,13 +330,13 @@ class TestDownloadAttachment:
         register_tools(mcp, mock_imap_client)
 
         # Get the tool
-        download_attachment_tool = None
+        save_tool = None
         for tool in mcp._tool_manager._tools.values():
-            if tool.name == "download_attachment":
-                download_attachment_tool = tool
+            if tool.name == "save":
+                save_tool = tool
                 break
 
-        assert download_attachment_tool is not None
+        assert save_tool is not None
 
         # Create a temporary file for testing
         with tempfile.NamedTemporaryFile(mode="wb", delete=False) as tmp_file:
@@ -344,7 +344,7 @@ class TestDownloadAttachment:
 
         try:
             # Call the tool - download second attachment (index 1)
-            result = await download_attachment_tool.fn(
+            result = await save_tool.fn(
                 folder="INBOX",
                 uid=123,
                 identifier="1",
@@ -368,7 +368,7 @@ class TestDownloadAttachment:
                 os.remove(tmp_path)
 
     @pytest.mark.asyncio
-    async def test_download_attachment_with_colon_in_filename(
+    async def test_save_with_colon_in_filename(
         self, mock_context, mock_imap_client, email_with_attachments
     ):
         """Test downloading an attachment with colon in filename."""
@@ -383,20 +383,20 @@ class TestDownloadAttachment:
         register_tools(mcp, mock_imap_client)
 
         # Get the tool
-        download_attachment_tool = None
+        save_tool = None
         for tool in mcp._tool_manager._tools.values():
-            if tool.name == "download_attachment":
-                download_attachment_tool = tool
+            if tool.name == "save":
+                save_tool = tool
                 break
 
-        assert download_attachment_tool is not None
+        assert save_tool is not None
 
         # Create a temporary directory for testing
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = os.path.join(tmp_dir, "Life: A Test of Courage.pdf")
 
             # Call the tool
-            result = await download_attachment_tool.fn(
+            result = await save_tool.fn(
                 folder="INBOX",
                 uid=123,
                 identifier="Life: A Test of Courage.pdf",
@@ -415,7 +415,7 @@ class TestDownloadAttachment:
             assert content == b"Another PDF with colon in filename"
 
     @pytest.mark.asyncio
-    async def test_download_attachment_path_traversal_prevention(
+    async def test_save_path_traversal_prevention(
         self, mock_context, mock_imap_client, email_with_attachments
     ):
         """Test that path traversal attempts are sanitized."""
@@ -430,13 +430,13 @@ class TestDownloadAttachment:
         register_tools(mcp, mock_imap_client)
 
         # Get the tool
-        download_attachment_tool = None
+        save_tool = None
         for tool in mcp._tool_manager._tools.values():
-            if tool.name == "download_attachment":
-                download_attachment_tool = tool
+            if tool.name == "save":
+                save_tool = tool
                 break
 
-        assert download_attachment_tool is not None
+        assert save_tool is not None
 
         # Create a temporary directory
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -444,7 +444,7 @@ class TestDownloadAttachment:
             malicious_path = os.path.join(tmp_dir, "../../../evil.txt")
 
             # Call the tool
-            result = await download_attachment_tool.fn(
+            result = await save_tool.fn(
                 folder="INBOX",
                 uid=123,
                 identifier="document.pdf",
@@ -461,7 +461,7 @@ class TestDownloadAttachment:
             assert not os.path.exists("/../evil.txt")
 
     @pytest.mark.asyncio
-    async def test_download_attachment_email_not_found(
+    async def test_save_email_not_found(
         self, mock_context, mock_imap_client
     ):
         """Test downloading attachment from a non-existent email."""
@@ -476,16 +476,16 @@ class TestDownloadAttachment:
         register_tools(mcp, mock_imap_client)
 
         # Get the tool
-        download_attachment_tool = None
+        save_tool = None
         for tool in mcp._tool_manager._tools.values():
-            if tool.name == "download_attachment":
-                download_attachment_tool = tool
+            if tool.name == "save":
+                save_tool = tool
                 break
 
-        assert download_attachment_tool is not None
+        assert save_tool is not None
 
         # Call the tool
-        result = await download_attachment_tool.fn(
+        result = await save_tool.fn(
             folder="INBOX",
             uid=999,
             identifier="document.pdf",
@@ -498,7 +498,7 @@ class TestDownloadAttachment:
         assert "not found" in result.lower()
 
     @pytest.mark.asyncio
-    async def test_download_attachment_no_attachments(
+    async def test_save_no_attachments(
         self, mock_context, mock_imap_client, email_without_attachments
     ):
         """Test downloading attachment from an email with no attachments."""
@@ -513,16 +513,16 @@ class TestDownloadAttachment:
         register_tools(mcp, mock_imap_client)
 
         # Get the tool
-        download_attachment_tool = None
+        save_tool = None
         for tool in mcp._tool_manager._tools.values():
-            if tool.name == "download_attachment":
-                download_attachment_tool = tool
+            if tool.name == "save":
+                save_tool = tool
                 break
 
-        assert download_attachment_tool is not None
+        assert save_tool is not None
 
         # Call the tool
-        result = await download_attachment_tool.fn(
+        result = await save_tool.fn(
             folder="INBOX",
             uid=456,
             identifier="document.pdf",
@@ -535,7 +535,7 @@ class TestDownloadAttachment:
         assert "no attachments" in result.lower()
 
     @pytest.mark.asyncio
-    async def test_download_attachment_invalid_identifier(
+    async def test_save_invalid_identifier(
         self, mock_context, mock_imap_client, email_with_attachments
     ):
         """Test downloading attachment with invalid identifier."""
@@ -550,16 +550,16 @@ class TestDownloadAttachment:
         register_tools(mcp, mock_imap_client)
 
         # Get the tool
-        download_attachment_tool = None
+        save_tool = None
         for tool in mcp._tool_manager._tools.values():
-            if tool.name == "download_attachment":
-                download_attachment_tool = tool
+            if tool.name == "save":
+                save_tool = tool
                 break
 
-        assert download_attachment_tool is not None
+        assert save_tool is not None
 
         # Call the tool with non-existent filename
-        result = await download_attachment_tool.fn(
+        result = await save_tool.fn(
             folder="INBOX",
             uid=123,
             identifier="nonexistent.txt",
@@ -572,7 +572,7 @@ class TestDownloadAttachment:
         assert "not found" in result.lower()
 
     @pytest.mark.asyncio
-    async def test_download_attachment_invalid_index(
+    async def test_save_invalid_index(
         self, mock_context, mock_imap_client, email_with_attachments
     ):
         """Test downloading attachment with invalid index."""
@@ -587,16 +587,16 @@ class TestDownloadAttachment:
         register_tools(mcp, mock_imap_client)
 
         # Get the tool
-        download_attachment_tool = None
+        save_tool = None
         for tool in mcp._tool_manager._tools.values():
-            if tool.name == "download_attachment":
-                download_attachment_tool = tool
+            if tool.name == "save":
+                save_tool = tool
                 break
 
-        assert download_attachment_tool is not None
+        assert save_tool is not None
 
         # Call the tool with out-of-range index
-        result = await download_attachment_tool.fn(
+        result = await save_tool.fn(
             folder="INBOX",
             uid=123,
             identifier="99",
@@ -609,7 +609,7 @@ class TestDownloadAttachment:
         assert "not found" in result
 
     @pytest.mark.asyncio
-    async def test_download_attachment_with_exception(
+    async def test_save_with_exception(
         self, mock_context, mock_imap_client
     ):
         """Test downloading attachment when an exception occurs."""
@@ -624,16 +624,16 @@ class TestDownloadAttachment:
         register_tools(mcp, mock_imap_client)
 
         # Get the tool
-        download_attachment_tool = None
+        save_tool = None
         for tool in mcp._tool_manager._tools.values():
-            if tool.name == "download_attachment":
-                download_attachment_tool = tool
+            if tool.name == "save":
+                save_tool = tool
                 break
 
-        assert download_attachment_tool is not None
+        assert save_tool is not None
 
         # Call the tool
-        result = await download_attachment_tool.fn(
+        result = await save_tool.fn(
             folder="INBOX",
             uid=123,
             identifier="document.pdf",

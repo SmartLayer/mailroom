@@ -93,10 +93,10 @@ export IMAP_PASSWORD="your_secure_password"
 ### CLI commands
 
 ```bash
-mailroom search-emails "from:alice subject:invoice"
+mailroom search "from:alice subject:invoice"
 mailroom list-accounts
-mailroom move-email INBOX 123 Archive
-mailroom draft-reply --folder INBOX --uid 123 --body "Thanks for the update."
+mailroom move -f INBOX -u 123 -t Archive
+mailroom reply -f INBOX -u 123 -b "Thanks for the update."
 ```
 
 Run `mailroom --help` for the full list of commands, or `man mailroom` on systems installed via .deb.
