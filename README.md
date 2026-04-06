@@ -9,6 +9,7 @@ Give your script or AI assistant access to your email.
 ## Contents
 
 - [What your AI can do with it](#what-your-ai-can-do-with-it)
+- [Installation](#installation)
 - [Configuration](#configuration)
 - [Quick test](#quick-test)
 - [CLI usage](#cli-usage)
@@ -30,6 +31,47 @@ Mailroom lets commandline users, script authors and AI assistants search, read, 
 - Move, flag, or archive messages
 - Search across all folders at once
 - Handle a meeting invite — check availability, draft a response
+
+## Installation
+
+**uv** (any platform, no install step):
+
+```bash
+uvx mailroom search "subject:invoice"
+```
+
+To install permanently: `uv tool install mailroom`
+
+**Homebrew** (macOS / Linux):
+
+```bash
+brew install --formula https://raw.githubusercontent.com/SmartLayer/mailroom/main/formula/mailroom.rb
+```
+
+**Debian / Ubuntu** (.deb):
+
+Download `mailroom_<version>_all.deb` from the [Releases](https://github.com/SmartLayer/mailroom/releases) page, then:
+
+```bash
+sudo dpkg -i mailroom_*_all.deb
+sudo apt-get install -f
+```
+
+**Fedora / RHEL** (.rpm):
+
+Download `mailroom-<version>.noarch.rpm` from the [Releases](https://github.com/SmartLayer/mailroom/releases) page, then:
+
+```bash
+sudo rpm -i mailroom-*.noarch.rpm
+```
+
+**From source**:
+
+```bash
+git clone https://github.com/SmartLayer/mailroom.git
+cd mailroom
+uv pip install -e .
+```
 
 ## Configuration
 
