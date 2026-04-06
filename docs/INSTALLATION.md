@@ -7,6 +7,14 @@
 
 ## Installation Methods
 
+### uv (any platform, no install step)
+
+```bash
+uvx mailroom search "subject:invoice"
+```
+
+To install permanently: `uv tool install mailroom`
+
 ### pipx from GitHub (all features, all platforms)
 
 ```bash
@@ -27,10 +35,10 @@ brew install --formula https://raw.githubusercontent.com/SmartLayer/mailroom/mai
 
 ### Debian / Ubuntu (CLI-only)
 
-Download `mailroom_1.0.0_all.deb` from the [release assets](https://github.com/SmartLayer/mailroom/releases/tag/v1.0.0) and install:
+Download `mailroom_1.0.1_all.deb` from the [release assets](https://github.com/SmartLayer/mailroom/releases/tag/v1.0.1) and install:
 
 ```bash
-sudo apt install ./mailroom_1.0.0_all.deb
+sudo apt install ./mailroom_1.0.1_all.deb
 ```
 
 The .deb provides all CLI commands. The MCP server subcommand (`mailroom mcp`) is not supported in the .deb — it requires the `mcp` Python package which is not yet available as a Debian package. Users who need MCP mode should install via pipx or Homebrew.
@@ -40,7 +48,7 @@ To build the .deb from source:
 ```bash
 sudo apt install debhelper dh-python pybuild-plugin-pyproject
 dpkg-buildpackage -us -uc -b
-# produces ../mailroom_1.0.0_all.deb
+# produces ../mailroom_1.0.1_all.deb
 ```
 
 ### RPM / Fedora (CLI-only)

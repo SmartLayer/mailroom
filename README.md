@@ -34,44 +34,7 @@ Mailroom lets commandline users, script authors and AI assistants search, read, 
 
 ## Installation
 
-**uv** (any platform, no install step):
-
-```bash
-uvx mailroom search "subject:invoice"
-```
-
-To install permanently: `uv tool install mailroom`
-
-**Homebrew** (macOS / Linux):
-
-```bash
-brew install --formula https://raw.githubusercontent.com/SmartLayer/mailroom/main/formula/mailroom.rb
-```
-
-**Debian / Ubuntu** (.deb):
-
-Download `mailroom_<version>_all.deb` from the [Releases](https://github.com/SmartLayer/mailroom/releases) page, then:
-
-```bash
-sudo dpkg -i mailroom_*_all.deb
-sudo apt-get install -f
-```
-
-**Fedora / RHEL** (.rpm):
-
-Download `mailroom-<version>.noarch.rpm` from the [Releases](https://github.com/SmartLayer/mailroom/releases) page, then:
-
-```bash
-sudo rpm -i mailroom-*.noarch.rpm
-```
-
-**From source**:
-
-```bash
-git clone https://github.com/SmartLayer/mailroom.git
-cd mailroom
-uv pip install -e .
-```
+See [INSTALLATION.md](docs/INSTALLATION.md) for Homebrew, Debian/Ubuntu (.deb), Fedora/RHEL (.rpm), and source installs.
 
 ## Configuration
 
