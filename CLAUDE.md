@@ -1,5 +1,10 @@
 # Mailroom Server Development Guide
 
+## Versioning and Packaging
+- Version is defined in `pyproject.toml` (single source of truth) and mirrored in `mailroom/__init__.py`, `mailroom/__main__.py`, and `mailroom/mcp_server.py`. Do not hardcode version numbers in documentation — use generic references like "latest" or `<version>` placeholders.
+- Do not bump the version unless the user asks for it.
+- Packaging: `debian/` for .deb, `mailroom.spec` for .rpm, `formula/mailroom.rb` for Homebrew.
+
 ## Environment Setup and Build Commands with `uv`
 - Create virtual environment: `uv venv`
 - Activate virtual environment: `source .venv/bin/activate` (Unix/macOS) or `.venv\Scripts\activate` (Windows)

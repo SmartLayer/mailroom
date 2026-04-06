@@ -35,10 +35,10 @@ brew install --formula https://raw.githubusercontent.com/SmartLayer/mailroom/mai
 
 ### Debian / Ubuntu (CLI-only)
 
-Download `mailroom_1.0.1_all.deb` from the [release assets](https://github.com/SmartLayer/mailroom/releases/tag/v1.0.1) and install:
+Download the latest `.deb` from the [Releases](https://github.com/SmartLayer/mailroom/releases) page and install:
 
 ```bash
-sudo apt install ./mailroom_1.0.1_all.deb
+sudo apt install ./mailroom_*_all.deb
 ```
 
 The .deb provides all CLI commands. The MCP server subcommand (`mailroom mcp`) is not supported in the .deb — it requires the `mcp` Python package which is not yet available as a Debian package. Users who need MCP mode should install via pipx or Homebrew.
@@ -48,7 +48,7 @@ To build the .deb from source:
 ```bash
 sudo apt install debhelper dh-python pybuild-plugin-pyproject
 dpkg-buildpackage -us -uc -b
-# produces ../mailroom_1.0.1_all.deb
+# produces ../mailroom_<version>_all.deb
 ```
 
 ### RPM / Fedora (CLI-only)
