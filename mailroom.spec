@@ -1,5 +1,5 @@
 Name:           mailroom
-Version:        1.0.0
+Version:        1.0.1
 Release:        1%{?dist}
 Summary:        Email toolkit for AI assistants and command-line scripting
 License:        MIT
@@ -65,5 +65,5 @@ install -Dpm 644 debian/mailroom.1 %{buildroot}%{_mandir}/man1/mailroom.1
 %{_mandir}/man1/mailroom.1*
 
 %changelog
-* Fri Apr 03 2026 Weiwu Zhang <weiwu@zhangweiwu.com> - 1.0.0-1
+* Fri Apr 03 2026 Weiwu Zhang <a@colourful.land> - 1.0.0-1
 - Initial package

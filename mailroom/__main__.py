@@ -135,7 +135,7 @@ def status() -> None:
     accounts_map: Dict[str, Any] = {}
     status_data: Dict[str, Any] = {
         "server": "Mailroom",
-        "version": "0.2.0",
+        "version": "1.0.1",
         "default_account": cfg.default_account,
         "accounts": accounts_map,
     }
@@ -767,7 +767,7 @@ def mcp_serve(
 ) -> None:
     """Start the MCP server (Model Context Protocol)."""
     if version:
-        print("Mailroom MCP server version 0.2.0")
+        print("Mailroom MCP server version 1.0.1")
         raise typer.Exit()
     from mailroom.mcp_server import create_server
 

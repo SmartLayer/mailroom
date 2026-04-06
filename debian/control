@@ -1,7 +1,7 @@
 Source: mailroom
 Section: mail
 Priority: optional
-Maintainer: Weiwu Zhang <weiwu@zhangweiwu.com>
+Maintainer: Weiwu Zhang <a@colourful.land>
 Build-Depends:
  debhelper-compat (= 13),
  dh-python,

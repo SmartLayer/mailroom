@@ -1,5 +1,17 @@
+mailroom (1.0.1) unstable; urgency=medium
+
+  * Rename CLI commands to aerc-aligned short verbs (search, move, reply, etc.)
+  * Rename MCP tools to kebab-case (search, move, mark-read, etc.)
+  * Add read command to view email content
+  * Add folders command to list email folders
+  * Normalize all commands to use --folder/-f and --uid/-u named flags
+  * Rename import-email to copy (JMAP alignment)
+  * Rename process-email to triage, download-attachment to save, etc.
+
+ -- Weiwu Zhang <a@colourful.land>  Sun, 06 Apr 2026 00:00:00 +0000
+
 mailroom (1.0.0) unstable; urgency=medium
 
   * Initial release.
 
- -- Weiwu Zhang <weiwu@zhangweiwu.com>  Fri, 03 Apr 2026 00:00:00 +0000
+ -- Weiwu Zhang <a@colourful.land>  Fri, 03 Apr 2026 00:00:00 +0000
