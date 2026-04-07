@@ -30,6 +30,7 @@
 - One-line execution with dependencies: `uvx mailroom mcp`
 
 ## Code Style Guidelines
+- **Formatting gate**: CI runs `black --check` and will reject code that is not Black-formatted. After editing any Python file, run `uv run black <changed files>` before committing. This is not optional — CI will fail even if the code is functionally correct.
 - Use Black with 88 character line length
 - Imports: Use isort with Black profile
 - Types: All functions must have type hints (mypy enforces this)

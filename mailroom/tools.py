@@ -587,9 +587,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
                 "from": str(email_obj.from_),
                 "to": [str(to) for to in email_obj.to],
                 "subject": email_obj.subject,
-                "date": (
-                    email_obj.date.isoformat() if email_obj.date else None
-                ),
+                "date": (email_obj.date.isoformat() if email_obj.date else None),
                 "flags": email_obj.flags,
                 "content_type": (
                     "text/html" if email_obj.content.html else "text/plain"
@@ -597,9 +595,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
                 "body": (
                     str(email_obj.content.html)
                     if email_obj.content.html
-                    else str(email_obj.content.text)
-                    if email_obj.content.text
-                    else None
+                    else str(email_obj.content.text) if email_obj.content.text else None
                 ),
             }
             if email_obj.cc:

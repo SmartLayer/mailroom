@@ -121,9 +121,7 @@ class TestAttachments:
         assert attachments_tool is not None
 
         # Call the tool
-        result = await attachments_tool.fn(
-            folder="INBOX", uid=123, ctx=mock_context
-        )
+        result = await attachments_tool.fn(folder="INBOX", uid=123, ctx=mock_context)
 
         # Parse result
         attachments = json.loads(result)
@@ -173,9 +171,7 @@ class TestAttachments:
         assert attachments_tool is not None
 
         # Call the tool
-        result = await attachments_tool.fn(
-            folder="INBOX", uid=456, ctx=mock_context
-        )
+        result = await attachments_tool.fn(folder="INBOX", uid=456, ctx=mock_context)
 
         # Parse result
         attachments = json.loads(result)
@@ -185,9 +181,7 @@ class TestAttachments:
         assert len(attachments) == 0
 
     @pytest.mark.asyncio
-    async def test_attachments_email_not_found(
-        self, mock_context, mock_imap_client
-    ):
+    async def test_attachments_email_not_found(self, mock_context, mock_imap_client):
         """Test listing attachments for a non-existent email."""
         # Setup
         mock_imap_client.fetch_email.return_value = None
@@ -209,9 +203,7 @@ class TestAttachments:
         assert attachments_tool is not None
 
         # Call the tool
-        result = await attachments_tool.fn(
-            folder="INBOX", uid=999, ctx=mock_context
-        )
+        result = await attachments_tool.fn(folder="INBOX", uid=999, ctx=mock_context)
 
         # Parse result
         response = json.loads(result)
@@ -221,9 +213,7 @@ class TestAttachments:
         assert "not found" in response["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_attachments_with_exception(
-        self, mock_context, mock_imap_client
-    ):
+    async def test_attachments_with_exception(self, mock_context, mock_imap_client):
         """Test listing attachments when an exception occurs."""
         # Setup
         mock_imap_client.fetch_email.side_effect = Exception("Connection error")
@@ -245,9 +235,7 @@ class TestAttachments:
         assert attachments_tool is not None
 
         # Call the tool
-        result = await attachments_tool.fn(
-            folder="INBOX", uid=123, ctx=mock_context
-        )
+        result = await attachments_tool.fn(folder="INBOX", uid=123, ctx=mock_context)
 
         # Parse result
         response = json.loads(result)
@@ -461,9 +449,7 @@ class TestSave:
             assert not os.path.exists("/../evil.txt")
 
     @pytest.mark.asyncio
-    async def test_save_email_not_found(
-        self, mock_context, mock_imap_client
-    ):
+    async def test_save_email_not_found(self, mock_context, mock_imap_client):
         """Test downloading attachment from a non-existent email."""
         # Setup
         mock_imap_client.fetch_email.return_value = None
@@ -609,9 +595,7 @@ class TestSave:
         assert "not found" in result
 
     @pytest.mark.asyncio
-    async def test_save_with_exception(
-        self, mock_context, mock_imap_client
-    ):
+    async def test_save_with_exception(self, mock_context, mock_imap_client):
         """Test downloading attachment when an exception occurs."""
         # Setup
         mock_imap_client.fetch_email.side_effect = Exception("Connection error")

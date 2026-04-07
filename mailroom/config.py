@@ -228,9 +228,7 @@ def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
                     with open(expanded_path, "rb") as f:
                         config_data = tomllib.load(f)
                 except tomllib.TOMLDecodeError as e:
-                    raise ValueError(
-                        f"Invalid TOML in {expanded_path}: {e}"
-                    ) from e
+                    raise ValueError(f"Invalid TOML in {expanded_path}: {e}") from e
                 logger.info(f"Loaded configuration from {expanded_path}")
                 break
 

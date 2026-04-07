@@ -890,13 +890,9 @@ class ImapClient:
                     match = re.search(rb"APPENDUID\s+\d+\s+(\d+)", response)
                     if match:
                         uid = int(match.group(1))
-                        logger.debug(
-                            f"Message appended to {folder} with UID: {uid}"
-                        )
+                        logger.debug(f"Message appended to {folder} with UID: {uid}")
                 except (IndexError, ValueError) as e:
-                    logger.warning(
-                        f"Could not parse UID from response: {e}"
-                    )
+                    logger.warning(f"Could not parse UID from response: {e}")
 
             if uid is None:
                 logger.warning(

@@ -208,9 +208,7 @@ def search(
 
 @app.command("read")
 def read(
-    folder: str = typer.Option(
-        ..., "--folder", "-f", help="Folder name."
-    ),
+    folder: str = typer.Option(..., "--folder", "-f", help="Folder name."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
 ) -> None:
     """Read an email's content."""
@@ -226,19 +224,13 @@ def read(
             "from": str(email_obj.from_),
             "to": [str(to) for to in email_obj.to],
             "subject": email_obj.subject,
-            "date": (
-                email_obj.date.isoformat() if email_obj.date else None
-            ),
+            "date": (email_obj.date.isoformat() if email_obj.date else None),
             "flags": email_obj.flags,
-            "content_type": (
-                "text/html" if email_obj.content.html else "text/plain"
-            ),
+            "content_type": ("text/html" if email_obj.content.html else "text/plain"),
             "body": (
                 str(email_obj.content.html)
                 if email_obj.content.html
-                else str(email_obj.content.text)
-                if email_obj.content.text
-                else None
+                else str(email_obj.content.text) if email_obj.content.text else None
             ),
         }
         if email_obj.cc:
@@ -265,13 +257,9 @@ def read(
 
 @app.command("move")
 def move(
-    folder: str = typer.Option(
-        ..., "--folder", "-f", help="Source folder."
-    ),
+    folder: str = typer.Option(..., "--folder", "-f", help="Source folder."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
-    target: str = typer.Option(
-        ..., "--target", "-t", help="Destination folder."
-    ),
+    target: str = typer.Option(..., "--target", "-t", help="Destination folder."),
 ) -> None:
     """Move an email to another folder."""
     client = _make_client()
@@ -301,9 +289,7 @@ def copy_cmd(
     from_account: str = typer.Option(
         ..., "--from-account", help="Source account name."
     ),
-    from_folder: str = typer.Option(
-        ..., "--from-folder", help="Source folder."
-    ),
+    from_folder: str = typer.Option(..., "--from-folder", help="Source folder."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID in the source folder."),
     to_folder: str = typer.Option(
         "INBOX", "--to-folder", "-t", help="Destination folder."
@@ -381,9 +367,7 @@ def copy_cmd(
 
 @app.command("mark-read")
 def mark_read(
-    folder: str = typer.Option(
-        ..., "--folder", "-f", help="Folder name."
-    ),
+    folder: str = typer.Option(..., "--folder", "-f", help="Folder name."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
 ) -> None:
     """Mark an email as read."""
@@ -397,9 +381,7 @@ def mark_read(
 
 @app.command("mark-unread")
 def mark_unread(
-    folder: str = typer.Option(
-        ..., "--folder", "-f", help="Folder name."
-    ),
+    folder: str = typer.Option(..., "--folder", "-f", help="Folder name."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
 ) -> None:
     """Mark an email as unread."""
@@ -418,9 +400,7 @@ def mark_unread(
 
 @app.command("flag")
 def flag(
-    folder: str = typer.Option(
-        ..., "--folder", "-f", help="Folder name."
-    ),
+    folder: str = typer.Option(..., "--folder", "-f", help="Folder name."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
     unflag: bool = typer.Option(
         False, "--unflag", help="Remove the flag instead of setting it."
@@ -442,9 +422,7 @@ def flag(
 
 @app.command("delete")
 def delete(
-    folder: str = typer.Option(
-        ..., "--folder", "-f", help="Folder name."
-    ),
+    folder: str = typer.Option(..., "--folder", "-f", help="Folder name."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
 ) -> None:
     """Delete an email."""
@@ -463,9 +441,7 @@ def delete(
 
 @app.command("triage")
 def triage(
-    folder: str = typer.Option(
-        ..., "--folder", "-f", help="Folder name."
-    ),
+    folder: str = typer.Option(..., "--folder", "-f", help="Folder name."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
     action: str = typer.Argument(
         ..., help="Action: move, read, unread, flag, unflag, delete."
@@ -501,9 +477,7 @@ def triage(
 
 @app.command("attachments")
 def attachments(
-    folder: str = typer.Option(
-        ..., "--folder", "-f", help="Folder name."
-    ),
+    folder: str = typer.Option(..., "--folder", "-f", help="Folder name."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
 ) -> None:
     """List attachments for an email."""
@@ -536,9 +510,7 @@ def attachments(
 
 @app.command("save")
 def save(
-    folder: str = typer.Option(
-        ..., "--folder", "-f", help="Folder name."
-    ),
+    folder: str = typer.Option(..., "--folder", "-f", help="Folder name."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
     identifier: str = typer.Option(
         ..., "--identifier", "-i", help="Attachment filename or numeric index."
@@ -570,9 +542,7 @@ def save(
 
 @app.command("export")
 def export(
-    folder: str = typer.Option(
-        ..., "--folder", "-f", help="Folder name."
-    ),
+    folder: str = typer.Option(..., "--folder", "-f", help="Folder name."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
     save_path: str = typer.Option(
         ..., "--save-path", "-o", help="Path to save the HTML file."
@@ -601,12 +571,8 @@ def export(
 
 @app.command("links")
 def links(
-    folder: str = typer.Option(
-        ..., "--folder", "-f", help="Folder name."
-    ),
-    uids: List[int] = typer.Option(
-        ..., "--uid", "-u", help="One or more email UIDs."
-    ),
+    folder: str = typer.Option(..., "--folder", "-f", help="Folder name."),
+    uids: List[int] = typer.Option(..., "--uid", "-u", help="One or more email UIDs."),
 ) -> None:
     """Extract all links from email HTML content."""
     client = _make_client()

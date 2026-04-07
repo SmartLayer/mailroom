@@ -234,9 +234,7 @@ class TestTools:
 
         # Test with specific folder and Gmail-style query
         mock_client.search_emails.reset_mock()
-        result = await search(
-            "from:sender@example.com", mock_context, folder="INBOX"
-        )
+        result = await search("from:sender@example.com", mock_context, folder="INBOX")
         mock_client.search_emails.assert_called_once_with(
             "from:sender@example.com",
             folder="INBOX",
@@ -263,9 +261,7 @@ class TestTools:
         )
 
     @pytest.mark.asyncio
-    async def test_search_raw_imap(
-        self, tools, mock_client, mock_context, mock_email
-    ):
+    async def test_search_raw_imap(self, tools, mock_client, mock_context, mock_email):
         """Test searching with raw IMAP via imap: prefix delegates to client.search_emails."""
         search = tools["search"]
 
@@ -283,9 +279,7 @@ class TestTools:
         ]
         mock_client.search_emails.return_value = sample_results
 
-        result = await search(
-            "imap:TEXT Edinburgh", mock_context, folder="INBOX"
-        )
+        result = await search("imap:TEXT Edinburgh", mock_context, folder="INBOX")
         result_data = json.loads(result)
         assert isinstance(result_data, list)
         mock_client.search_emails.assert_called_once_with(
@@ -390,9 +384,7 @@ class TestTools:
         mock_client.process_email_action.side_effect = ValueError(
             "Unknown action 'nonexistent_action'"
         )
-        result = await triage(
-            "INBOX", 123, "nonexistent_action", ctx=mock_context
-        )
+        result = await triage("INBOX", 123, "nonexistent_action", ctx=mock_context)
         assert "Unknown action" in result
         mock_client.process_email_action.side_effect = None
 
