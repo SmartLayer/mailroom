@@ -24,6 +24,7 @@ wheels/
 .coverage
 .coverage.*
 coverage_data/
+coverage.json
 htmlcov/
 .tox/
 .nox/
