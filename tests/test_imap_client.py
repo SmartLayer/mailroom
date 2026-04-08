@@ -986,3 +986,71 @@ class TestImapClient:
 
             # Verify result is failure
             assert result is False
+
+
+class TestProcessEmailAction:
+    """Tests for ImapClient.process_email_action dispatcher."""
+
+    def _make_client(self):
+        config = ImapConfig(
+            host="imap.example.com",
+            port=993,
+            username="test@example.com",
+            password="password",
+            use_ssl=True,
+        )
+        return ImapClient(config)
+
+    def test_move(self):
+        client = self._make_client()
+        with patch.object(client, "move_email") as mock_move:
+            result = client.process_email_action(
+                1, "INBOX", "move", target_folder="Archive"
+            )
+            mock_move.assert_called_once_with(1, "INBOX", "Archive")
+            assert result == "Email moved from INBOX to Archive"
+
+    def test_read(self):
+        client = self._make_client()
+        with patch.object(client, "mark_email") as mock_mark:
+            result = client.process_email_action(1, "INBOX", "read")
+            mock_mark.assert_called_once_with(1, "INBOX", r"\Seen", True)
+            assert result == "Email marked as read"
+
+    def test_unread(self):
+        client = self._make_client()
+        with patch.object(client, "mark_email") as mock_mark:
+            result = client.process_email_action(1, "INBOX", "unread")
+            mock_mark.assert_called_once_with(1, "INBOX", r"\Seen", False)
+            assert result == "Email marked as unread"
+
+    def test_flag(self):
+        client = self._make_client()
+        with patch.object(client, "mark_email") as mock_mark:
+            result = client.process_email_action(1, "INBOX", "flag")
+            mock_mark.assert_called_once_with(1, "INBOX", r"\Flagged", True)
+            assert result == "Email flagged"
+
+    def test_unflag(self):
+        client = self._make_client()
+        with patch.object(client, "mark_email") as mock_mark:
+            result = client.process_email_action(1, "INBOX", "unflag")
+            mock_mark.assert_called_once_with(1, "INBOX", r"\Flagged", False)
+            assert result == "Email unflagged"
+
+    def test_delete(self):
+        client = self._make_client()
+        with patch.object(client, "delete_email") as mock_delete:
+            result = client.process_email_action(1, "INBOX", "delete")
+            mock_delete.assert_called_once_with(1, "INBOX")
+            assert result == "Email deleted"
+
+    def test_move_missing_target_folder(self):
+        client = self._make_client()
+        with pytest.raises(ValueError, match="target_folder is required"):
+            client.process_email_action(1, "INBOX", "move")
+
+    def test_unknown_action(self):
+        client = self._make_client()
+        with pytest.raises(ValueError, match="Unknown action 'archive'"):
+            client.process_email_action(1, "INBOX", "archive")
