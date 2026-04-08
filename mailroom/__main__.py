@@ -307,47 +307,31 @@ def copy_cmd(
     Fetches the raw RFC 822 message from the source and APPENDs it to the
     destination, preserving the message byte-for-byte and its original date.
     """
+    from mailroom.imap_client import copy_email_between_accounts
+
     source = _make_client(account_override=from_account)
     dest = _make_client()
     try:
-        raw_data = source.fetch_raw(uid, from_folder)
-        if raw_data is None:
-            typer.echo(
-                f"Error: UID {uid} not found in {from_account}/{from_folder}",
-                err=True,
-            )
-            raise typer.Exit(1)
-
-        # Determine flags
-        flags: tuple = ()
-        if preserve_flags:
-            raw_flags = raw_data["flags"]
-            flags = tuple(
-                f.decode("utf-8") if isinstance(f, bytes) else f
-                for f in raw_flags
-                if f not in (b"\\Recent", "\\Recent")
-            )
-
-        new_uid = dest.append_raw(
-            to_folder,
-            raw_data["raw"],
-            flags=flags,
-            msg_time=raw_data["date"],
+        result = copy_email_between_accounts(
+            source,
+            dest,
+            uid,
+            from_folder,
+            to_folder=to_folder,
+            move=move_flag,
+            preserve_flags=preserve_flags,
         )
-
-        subject = raw_data["subject"]
-
-        if move_flag:
-            source.delete_email(uid, from_folder)
-
+        if not result["success"]:
+            typer.echo(f"Error: {result['error']}", err=True)
+            raise typer.Exit(1)
         _out(
             {
                 "success": True,
-                "subject": subject,
+                "subject": result["subject"],
                 "source": f"{from_account}/{from_folder}/{uid}",
-                "destination": f"{to_folder}",
-                "new_uid": new_uid,
-                "moved": move_flag,
+                "destination": to_folder,
+                "new_uid": result["new_uid"],
+                "moved": result["moved"],
             }
         )
     except typer.Exit:

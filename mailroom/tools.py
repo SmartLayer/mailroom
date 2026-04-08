@@ -479,42 +479,28 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         Returns:
             Status message with the UID assigned by the destination server.
         """
+        from mailroom.imap_client import copy_email_between_accounts
+
         source_client = get_client_from_context(ctx, from_account)
         dest_client = get_client_from_context(ctx, account)
 
         try:
-            # Fetch raw message from source
-            raw_data = source_client.fetch_raw(uid, from_folder)
-            if raw_data is None:
-                return (
-                    f"Error: Email UID {uid} not found in "
-                    f"{from_account}/{from_folder}"
-                )
-
-            # Determine flags for destination
-            flags: tuple = ()
-            if preserve_flags:
-                raw_flags = raw_data["flags"]
-                flags = tuple(
-                    f.decode("utf-8") if isinstance(f, bytes) else f
-                    for f in raw_flags
-                    if f not in (b"\\Recent", "\\Recent")
-                )
-
-            # Append to destination
-            new_uid = dest_client.append_raw(
-                to_folder,
-                raw_data["raw"],
-                flags=flags,
-                msg_time=raw_data["date"],
+            result = copy_email_between_accounts(
+                source_client,
+                dest_client,
+                uid,
+                from_folder,
+                to_folder=to_folder,
+                move=move,
+                preserve_flags=preserve_flags,
             )
+            if not result["success"]:
+                return f"Error: {result['error']}"
 
-            subject = raw_data["subject"]
-            uid_info = f" as UID {new_uid}" if new_uid else ""
+            subject = result["subject"]
+            uid_info = f" as UID {result['new_uid']}" if result["new_uid"] else ""
 
-            # Optionally delete from source
-            if move:
-                source_client.delete_email(uid, from_folder)
+            if result["moved"]:
                 return (
                     f'Imported and removed from source: "{subject}" '
                     f"(UID {uid} from {from_account}/{from_folder}) → "

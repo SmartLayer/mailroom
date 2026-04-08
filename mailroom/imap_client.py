@@ -986,3 +986,71 @@ class ImapClient:
 
         results.sort(key=lambda x: x.get("date") or "0", reverse=True)
         return results
+
+
+def copy_email_between_accounts(
+    source: "ImapClient",
+    dest: "ImapClient",
+    uid: int,
+    from_folder: str,
+    to_folder: str = "INBOX",
+    move: bool = False,
+    preserve_flags: bool = False,
+) -> Dict[str, Any]:
+    """Copy (or move) an email from one IMAP account to another.
+
+    Fetches the raw RFC 822 message from *source*, applies optional flag
+    filtering, and APPENDs it to *dest*.  The original INTERNALDATE is
+    always preserved.  If *move* is True the source message is deleted
+    after a successful append.
+
+    Args:
+        source: IMAP client connected to the source account.
+        dest: IMAP client connected to the destination account.
+        uid: UID of the email in the source folder.
+        from_folder: Folder in the source account containing the email.
+        to_folder: Destination folder (default: INBOX).
+        move: If True, delete the email from the source after copy.
+        preserve_flags: If True, copy original flags (excluding \\Recent)
+            to the destination.  If False, no flags are set.
+
+    Returns:
+        Dict with keys: success (bool), subject (str), new_uid (int | None),
+        moved (bool), error (str | None).
+    """
+    raw_data = source.fetch_raw(uid, from_folder)
+    if raw_data is None:
+        return {
+            "success": False,
+            "subject": "",
+            "new_uid": None,
+            "moved": False,
+            "error": f"UID {uid} not found in {from_folder}",
+        }
+
+    flags: tuple = ()
+    if preserve_flags:
+        raw_flags = raw_data["flags"]
+        flags = tuple(
+            f.decode("utf-8") if isinstance(f, bytes) else f
+            for f in raw_flags
+            if f not in (b"\\Recent", "\\Recent")
+        )
+
+    new_uid = dest.append_raw(
+        to_folder,
+        raw_data["raw"],
+        flags=flags,
+        msg_time=raw_data["date"],
+    )
+
+    if move:
+        source.delete_email(uid, from_folder)
+
+    return {
+        "success": True,
+        "subject": raw_data["subject"],
+        "new_uid": new_uid,
+        "moved": move,
+        "error": None,
+    }
