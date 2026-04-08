@@ -20,7 +20,9 @@ Give your script or AI assistant access to your email.
 - [Security](#security)
 - [License](#license)
 
-Mailroom lets commandline users, script authors and AI assistants search, read, download, reply to, and organize email. It works with any IMAP provider (Gmail, Outlook, Fastmail, self-hosted). Two interfaces serve different environments: a CLI that outputs JSON (for terminal-based agents, scripts, and automation) and an MCP server (for web-based AI chats and MCP clients). Both expose the same operations.
+Mailroom connects to your existing mailbox — Gmail, Outlook, Fastmail, or any IMAP provider. It does not create new email addresses or route mail through a third-party service.
+
+Commandline users, script authors and AI assistants can search, read, download, reply to, and organize email. Two interfaces serve different environments: a CLI that outputs JSON (for terminal-based agents, scripts, and automation) and an MCP server (for web-based AI chats and MCP clients). Both expose the same operations.
 
 ## What your AI can do with it
 
