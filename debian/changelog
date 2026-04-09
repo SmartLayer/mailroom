@@ -8,7 +8,7 @@ mailroom (1.0.1) unstable; urgency=medium
   * Rename import-email to copy (JMAP alignment)
   * Rename process-email to triage, download-attachment to save, etc.
 
- -- Weiwu Zhang <a@colourful.land>  Sun, 06 Apr 2026 00:00:00 +0000
+ -- Weiwu Zhang <a@colourful.land>  Mon, 06 Apr 2026 00:00:00 +0000
 
 mailroom (1.0.0) unstable; urgency=medium
 

@@ -1,5 +1,5 @@
 # Homebrew formula for mailroom.
-# Install: brew install --formula ./formula/mailroom.rb
+# Install: brew tap SmartLayer/mailroom https://github.com/SmartLayer/mailroom && brew install mailroom
 
 class Mailroom < Formula
   include Language::Python::Virtualenv

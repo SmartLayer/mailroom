@@ -30,7 +30,8 @@ pipx install "git+https://github.com/SmartLayer/mailroom"
 ### Homebrew (all features, macOS and Linux)
 
 ```bash
-brew install --formula https://raw.githubusercontent.com/SmartLayer/mailroom/main/formula/mailroom.rb
+brew tap SmartLayer/mailroom https://github.com/SmartLayer/mailroom
+brew install mailroom
 ```
 
 ### Debian / Ubuntu (CLI-only)
