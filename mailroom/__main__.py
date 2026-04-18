@@ -615,6 +615,104 @@ def links(
 
 
 # ---------------------------------------------------------------------------
+# compose
+# ---------------------------------------------------------------------------
+
+
+def _write_raw_output(mime_message: Any, output: str) -> None:
+    """Serialise *mime_message* and write to *output* path (``-`` is stdout)."""
+    if hasattr(mime_message, "as_bytes"):
+        raw = mime_message.as_bytes()
+    else:
+        raw = mime_message.as_string().encode("utf-8")
+    if output == "-":
+        sys.stdout.buffer.write(raw)
+        return
+    dir_part = os.path.dirname(output)
+    if dir_part:
+        os.makedirs(dir_part, exist_ok=True)
+    with open(output, "wb") as fh:
+        fh.write(raw)
+    typer.echo(f"Wrote {len(raw)} bytes to {output}", err=True)
+
+
+@app.command("compose")
+def compose(
+    to: List[str] = typer.Option(
+        ..., "--to", help="Recipient email address. Repeatable."
+    ),
+    body: str = typer.Option(..., "--body", "-b", help="Plain-text body."),
+    subject: str = typer.Option("", "--subject", "-s", help="Subject line."),
+    cc: Optional[List[str]] = typer.Option(None, "--cc", help="CC recipients."),
+    bcc: Optional[List[str]] = typer.Option(
+        None,
+        "--bcc",
+        help="BCC recipients (added to raw message; stripped by sending agents).",
+    ),
+    body_html: Optional[str] = typer.Option(
+        None, "--body-html", help="HTML version of body."
+    ),
+    attach: Optional[List[str]] = typer.Option(
+        None, "--attach", help="Path to a file to attach. Repeatable."
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output path for raw RFC 822 message. Use '-' for stdout (suitable for piping).",
+    ),
+) -> None:
+    """Compose a new email.
+
+    By default, saves the draft to the IMAP drafts folder.
+    With -o, writes the raw RFC 822 message to a file or stdout instead.
+    """
+    from mailroom.models import EmailAddress
+    from mailroom.smtp_client import compose_and_save_draft, create_mime
+
+    client = _make_client()
+    try:
+        if output is not None:
+            from_addr = EmailAddress(name="", address=client.config.username)
+            to_addrs = [EmailAddress.parse(a) for a in to]
+            cc_addrs = [EmailAddress.parse(a) for a in cc] if cc else None
+            bcc_addrs = [EmailAddress.parse(a) for a in bcc] if bcc else None
+
+            mime_message = create_mime(
+                from_addr=from_addr,
+                body=body,
+                to=to_addrs,
+                subject=subject,
+                cc=cc_addrs,
+                bcc=bcc_addrs,
+                html_body=body_html,
+                attachments=attach,
+            )
+            _write_raw_output(mime_message, output)
+        else:
+            result = compose_and_save_draft(
+                client,
+                to,
+                subject,
+                body,
+                cc=cc,
+                bcc=bcc,
+                body_html=body_html,
+                attachments=attach,
+            )
+            if result["status"] == "success":
+                _out(result)
+            else:
+                typer.echo(result.get("message", "Failed to save draft"), err=True)
+                raise typer.Exit(1)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1)
+    finally:
+        client.disconnect()
+
+
+# ---------------------------------------------------------------------------
 # reply
 # ---------------------------------------------------------------------------
 
@@ -660,7 +758,7 @@ def reply(
         if output is not None:
             # --output path: build MIME locally and write raw bytes
             from mailroom.models import EmailAddress
-            from mailroom.smtp_client import _find_reply_from_address, create_reply_mime
+            from mailroom.smtp_client import _find_reply_from_address, create_mime
 
             email_obj = client.fetch_email(uid, folder)
             if not email_obj:
@@ -669,34 +767,19 @@ def reply(
 
             reply_from = _find_reply_from_address(email_obj, client.config.username)
             cc_addresses = [EmailAddress.parse(addr) for addr in cc] if cc else None
+            bcc_addresses = [EmailAddress.parse(addr) for addr in bcc] if bcc else None
 
-            mime_message = create_reply_mime(
+            mime_message = create_mime(
                 original_email=email_obj,
-                reply_to=reply_from,
+                from_addr=reply_from,
                 body=body,
                 reply_all=reply_all,
                 cc=cc_addresses,
+                bcc=bcc_addresses,
                 html_body=body_html,
                 attachments=attach,
             )
-            if bcc:
-                mime_message["Bcc"] = ", ".join(bcc)
-
-            if hasattr(mime_message, "as_bytes"):
-                raw = mime_message.as_bytes()
-            else:
-                raw = mime_message.as_string().encode("utf-8")
-
-            if output == "-":
-                sys.stdout.buffer.write(raw)
-            else:
-                os.makedirs(
-                    os.path.dirname(output) if os.path.dirname(output) else ".",
-                    exist_ok=True,
-                )
-                with open(output, "wb") as fh:
-                    fh.write(raw)
-                typer.echo(f"Wrote {len(raw)} bytes to {output}", err=True)
+            _write_raw_output(mime_message, output)
         else:
             # Default path: save as draft via domain function
             from mailroom.smtp_client import compose_and_save_reply_draft

@@ -33,6 +33,53 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         imap_client: IMAP client
     """
 
+    @mcp.tool(name="compose")
+    async def compose(
+        to: List[str],
+        body: str,
+        ctx: Context,
+        subject: str = "",
+        cc: Optional[List[str]] = None,
+        bcc: Optional[List[str]] = None,
+        body_html: Optional[str] = None,
+        attachments: Optional[List[str]] = None,
+        account: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Composes a new email and saves it as a draft.
+
+        Unlike ``reply``, this produces a fresh email with no threading
+        headers and no quoted original. The From address is taken from the
+        account configuration.
+
+        Args:
+            to: List of recipient email addresses
+            body: Plain-text body
+            ctx: MCP context
+            subject: Subject line (default: empty)
+            cc: Optional CC recipients
+            bcc: Optional BCC recipients
+            body_html: Optional HTML version of the body
+            attachments: Optional list of filesystem paths to attach. Paths
+                are read by the MCP server process.
+            account: Account name (None for default account)
+
+        Returns:
+            Dictionary with status and the UID of the created draft
+        """
+        from mailroom.smtp_client import compose_and_save_draft
+
+        client = get_client_from_context(ctx, account)
+        return compose_and_save_draft(
+            client,
+            to,
+            subject,
+            body,
+            cc=cc,
+            bcc=bcc,
+            body_html=body_html,
+            attachments=attachments,
+        )
+
     @mcp.tool(name="reply")
     async def reply(
         folder: str,

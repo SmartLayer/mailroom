@@ -49,35 +49,99 @@ def _attach_file(container: MIMEMultipart, path: str) -> None:
     container.attach(part)
 
 
-def create_reply_mime(
-    original_email: Email,
-    reply_to: EmailAddress,
+def _quoted_reply_text(body: str, original_email: Email) -> str:
+    """Append a quoted copy of the original plain-text body to *body*."""
+    if not original_email.content.text:
+        return body
+    quoted_original = "\n".join(
+        f"> {line}" for line in original_email.content.text.split("\n")
+    )
+    attribution = (
+        f"On {email.utils.format_datetime(original_email.date or datetime.now())}, "
+        f"{original_email.from_} wrote:"
+    )
+    return f"{body}\n\n{attribution}\n{quoted_original}"
+
+
+def _quoted_reply_html(html_body: str, original_email: Email) -> str:
+    """Append a quoted copy of the original HTML (or escaped plain text) to *html_body*."""
+    attribution = (
+        f"On {email.utils.format_datetime(original_email.date or datetime.now())}, "
+        f"{original_email.from_} wrote:"
+    )
+    if original_email.content.html:
+        quoted_block = original_email.content.html
+    else:
+        original_text = original_email.content.get_best_content()
+        if not original_text:
+            return html_body
+        quoted_block = (
+            original_text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br>")
+        )
+    return (
+        f"{html_body}\n"
+        f'<div style="border-top: 1px solid #ccc; margin-top: 20px; padding-top: 10px;">\n'
+        f"<p>{attribution}</p>\n"
+        f'<blockquote style="margin: 0 0 0 .8ex; border-left: 1px solid #ccc; padding-left: 1ex;">\n'
+        f"{quoted_block}\n"
+        f"</blockquote>\n"
+        f"</div>"
+    )
+
+
+def create_mime(
+    from_addr: EmailAddress,
     body: str,
+    to: Optional[List[EmailAddress]] = None,
     subject: Optional[str] = None,
     cc: Optional[List[EmailAddress]] = None,
-    reply_all: bool = False,
+    bcc: Optional[List[EmailAddress]] = None,
     html_body: Optional[str] = None,
     attachments: Optional[List[str]] = None,
+    original_email: Optional[Email] = None,
+    reply_all: bool = False,
 ) -> Union[EmailMessage, MIMEMultipart]:
-    """Create a MIME message for replying to an email.
+    """Create an RFC 822 MIME message.
+
+    When *original_email* is None the function produces a fresh email with the
+    given *to* / *subject* / *body*. When it is provided the function produces
+    a reply: threading headers (``In-Reply-To``, ``References``) are added, the
+    subject is prefixed with ``"Re: "`` if needed, and the original body is
+    quoted under an attribution line. *reply_all* extends recipients to include
+    the original To/Cc (minus the sender).
 
     Args:
-        original_email: Original email to reply to
-        reply_to: Address to send the reply from
-        body: Plain text body of the reply
-        subject: Subject for the reply (default: prepend "Re: " to original)
-        cc: List of CC recipients (default: none)
-        reply_all: Whether to reply to all recipients (default: False)
-        html_body: Optional HTML version of the body
+        from_addr: Address that appears in the ``From`` header.
+        body: Plain-text body.
+        to: Recipients (required when *original_email* is None).
+        subject: Subject (required when *original_email* is None; optional for
+            replies — defaults to the original subject with ``"Re: "`` prefix).
+        cc: CC recipients. For replies with *reply_all*, defaults to the
+            original email's Cc list.
+        bcc: BCC recipients. Written to the ``Bcc`` header; most sending agents
+            strip it before transmission.
+        html_body: Optional HTML body. Triggers a ``multipart/alternative``
+            child inside ``multipart/mixed``.
         attachments: Optional list of filesystem paths to attach. Duplicate
             basenames are accepted but may confuse some clients on save.
+        original_email: If given, produce a reply to this message.
+        reply_all: Reply-only. Include original To/Cc in recipients.
 
     Returns:
-        MIME message ready for sending
+        An ``EmailMessage`` (plain text, no attachments) or ``MIMEMultipart``
+        (otherwise), ready to serialise with ``.as_bytes()``.
 
     Raises:
-        ValueError: If any attachment path is not a readable regular file.
+        ValueError: If *original_email* is None and *to* is missing/empty, or
+            if any attachment path is not a readable regular file.
     """
+    is_reply = original_email is not None
+    if not is_reply and not to:
+        raise ValueError("to is required when original_email is not provided")
+
     multipart_mode = bool(html_body) or bool(attachments)
     msg: Union[EmailMessage, MIMEMultipart]
     if multipart_mode:
@@ -85,147 +149,92 @@ def create_reply_mime(
     else:
         msg = EmailMessage()
 
-    # Set the From header
-    msg["From"] = str(reply_to)
+    msg["From"] = str(from_addr)
 
-    # Set the To header
-    to_recipients = [original_email.from_]
-    if reply_all and original_email.to:
-        # Add original recipients excluding the sender
-        to_recipients.extend(
-            [
+    if is_reply:
+        assert original_email is not None  # for type checkers
+        to_recipients = [original_email.from_]
+        if reply_all and original_email.to:
+            to_recipients.extend(
                 recipient
                 for recipient in original_email.to
-                if recipient.address != reply_to.address
-            ]
-        )
-
+                if recipient.address != from_addr.address
+            )
+        if to:
+            to_recipients.extend(to)
+    else:
+        to_recipients = list(to or [])
     msg["To"] = ", ".join(str(recipient) for recipient in to_recipients)
 
-    # Set the CC header if applicable
-    cc_recipients = []
+    cc_recipients: List[EmailAddress] = []
     if cc:
         cc_recipients.extend(cc)
-    elif reply_all and original_email.cc:
+    elif is_reply and reply_all and original_email and original_email.cc:
         cc_recipients.extend(
-            [
-                recipient
-                for recipient in original_email.cc
-                if recipient.address != reply_to.address
-            ]
+            recipient
+            for recipient in original_email.cc
+            if recipient.address != from_addr.address
         )
-
     if cc_recipients:
         msg["Cc"] = ", ".join(str(recipient) for recipient in cc_recipients)
 
-    # Set the subject
+    if bcc:
+        msg["Bcc"] = ", ".join(str(recipient) for recipient in bcc)
+
     if subject:
         msg["Subject"] = subject
-    else:
-        # Add "Re: " prefix if not already present
-        # Unfold any MIME-folded subject (strip CR/LF and collapse whitespace)
+    elif is_reply:
+        assert original_email is not None
         original_subject = " ".join(original_email.subject.split())
-        if not original_subject.startswith("Re:"):
-            msg["Subject"] = f"Re: {original_subject}"
-        else:
+        if original_subject.startswith("Re:"):
             msg["Subject"] = original_subject
-
-    # Set references for threading
-    references = []
-    if "References" in original_email.headers:
-        # Unfold any wrapped header values (remove CR/LF/extra whitespace)
-        refs_value = " ".join(original_email.headers["References"].split())
-        references.append(refs_value)
-    if original_email.message_id:
-        msg_id = " ".join(original_email.message_id.split())
-        references.append(msg_id)
-
-    if references:
-        msg["References"] = " ".join(references)
-
-    # Set In-Reply-To header
-    if original_email.message_id:
-        msg["In-Reply-To"] = " ".join(original_email.message_id.split())
-
-    # Prepare content
-    if html_body:
-        # Create multipart/alternative for text and HTML
-        alternative = MIMEMultipart("alternative")
-
-        # Add plain text part
-        plain_text = body
-        if original_email.content.text:
-            # Quote original plain text
-            quoted_original = "\n".join(
-                f"> {line}" for line in original_email.content.text.split("\n")
-            )
-            plain_text += f"\n\nOn {email.utils.format_datetime(original_email.date or datetime.now())}, {original_email.from_} wrote:\n{quoted_original}"
-
-        text_part = MIMEText(plain_text, "plain", "utf-8")
-        alternative.attach(text_part)
-
-        # Add HTML part
-        html_content = html_body
-        if original_email.content.html:
-            # Add original HTML with a divider
-            html_content += (
-                f'\n<div style="border-top: 1px solid #ccc; margin-top: 20px; padding-top: 10px;">'
-                f"\n<p>On {email.utils.format_datetime(original_email.date or datetime.now())}, {original_email.from_} wrote:</p>"
-                f'\n<blockquote style="margin: 0 0 0 .8ex; border-left: 1px solid #ccc; padding-left: 1ex;">'
-                f"\n{original_email.content.html}"
-                f"\n</blockquote>"
-                f"\n</div>"
-            )
         else:
-            # Convert plain text to HTML for quoting
-            original_text = original_email.content.get_best_content()
-            if original_text:
-                escaped_text = (
-                    original_text.replace("&", "&amp;")
-                    .replace("<", "&lt;")
-                    .replace(">", "&gt;")
-                )
-                escaped_text = escaped_text.replace("\n", "<br>")
-                html_content += (
-                    f'\n<div style="border-top: 1px solid #ccc; margin-top: 20px; padding-top: 10px;">'
-                    f"\n<p>On {email.utils.format_datetime(original_email.date or datetime.now())}, {original_email.from_} wrote:</p>"
-                    f'\n<blockquote style="margin: 0 0 0 .8ex; border-left: 1px solid #ccc; padding-left: 1ex;">'
-                    f"\n{escaped_text}"
-                    f"\n</blockquote>"
-                    f"\n</div>"
-                )
+            msg["Subject"] = f"Re: {original_subject}"
+    else:
+        msg["Subject"] = ""
 
-        html_part = MIMEText(html_content, "html", "utf-8")
-        alternative.attach(html_part)
+    if is_reply:
+        assert original_email is not None
+        references = []
+        if "References" in original_email.headers:
+            references.append(" ".join(original_email.headers["References"].split()))
+        if original_email.message_id:
+            references.append(" ".join(original_email.message_id.split()))
+        if references:
+            msg["References"] = " ".join(references)
+        if original_email.message_id:
+            msg["In-Reply-To"] = " ".join(original_email.message_id.split())
 
-        # Attach the alternative part to the message
+    plain_text = (
+        _quoted_reply_text(body, original_email)
+        if is_reply and original_email
+        else body
+    )
+
+    if html_body:
+        alternative = MIMEMultipart("alternative")
+        alternative.attach(MIMEText(plain_text, "plain", "utf-8"))
+        html_content = (
+            _quoted_reply_html(html_body, original_email)
+            if is_reply and original_email
+            else html_body
+        )
+        alternative.attach(MIMEText(html_content, "html", "utf-8"))
         assert isinstance(msg, MIMEMultipart)
         msg.attach(alternative)
+    elif multipart_mode:
+        assert isinstance(msg, MIMEMultipart)
+        msg.attach(MIMEText(plain_text, "plain", "utf-8"))
     else:
-        # Plain text body (with or without attachments)
-        plain_text = body
-        if original_email.content.text:
-            # Quote original plain text
-            quoted_original = "\n".join(
-                f"> {line}" for line in original_email.content.text.split("\n")
-            )
-            plain_text += f"\n\nOn {email.utils.format_datetime(original_email.date or datetime.now())}, {original_email.from_} wrote:\n{quoted_original}"
-
-        if multipart_mode:
-            assert isinstance(msg, MIMEMultipart)
-            msg.attach(MIMEText(plain_text, "plain", "utf-8"))
-        else:
-            assert isinstance(msg, EmailMessage)
-            msg.set_content(plain_text)
+        assert isinstance(msg, EmailMessage)
+        msg.set_content(plain_text)
 
     if attachments:
         assert isinstance(msg, MIMEMultipart)
         for path in attachments:
             _attach_file(msg, path)
 
-    # Add Date header
     msg["Date"] = email.utils.formatdate(localtime=True)
-
     return msg
 
 
@@ -291,18 +300,17 @@ def compose_and_save_reply_draft(
         if cc:
             cc_addresses = [EmailAddress.parse(addr) for addr in cc]
 
-        mime_message = create_reply_mime(
+        bcc_addresses = [EmailAddress.parse(addr) for addr in bcc] if bcc else None
+        mime_message = create_mime(
             original_email=email_obj,
-            reply_to=reply_from,
+            from_addr=reply_from,
             body=reply_body,
             reply_all=reply_all,
             cc=cc_addresses,
+            bcc=bcc_addresses,
             html_body=body_html,
             attachments=attachments,
         )
-
-        if bcc:
-            mime_message["Bcc"] = ", ".join(bcc)
 
         draft_uid = client.save_draft_mime(mime_message)
         if draft_uid:
@@ -315,6 +323,79 @@ def compose_and_save_reply_draft(
             result["message"] = "Failed to save draft"
     except Exception as e:
         logger.error(f"Error drafting reply: {e}")
+        result["message"] = f"Error: {e}"
+
+    return result
+
+
+def compose_and_save_draft(
+    client: Any,
+    to: List[str],
+    subject: str,
+    body: str,
+    cc: Optional[List[str]] = None,
+    bcc: Optional[List[str]] = None,
+    body_html: Optional[str] = None,
+    attachments: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Compose a new email and save it as a draft.
+
+    Unlike ``compose_and_save_reply_draft`` this does not thread off an
+    existing message: no In-Reply-To/References headers, no quoted-original
+    body. The From address is taken from ``client.config.username``.
+
+    Args:
+        client: An ``ImapClient`` instance (duck-typed to avoid circular import).
+        to: Recipients as strings.
+        subject: Subject line.
+        body: Plain-text body.
+        cc: Optional CC addresses as strings.
+        bcc: Optional BCC addresses as strings.
+        body_html: Optional HTML body.
+        attachments: Optional list of filesystem paths to attach.
+
+    Returns:
+        Dict with keys ``status``, ``message``, ``draft_uid``, ``draft_folder``.
+    """
+    result: Dict[str, Any] = {
+        "status": "error",
+        "message": "",
+        "draft_uid": None,
+        "draft_folder": None,
+    }
+
+    if not to:
+        result["message"] = "At least one recipient is required"
+        return result
+
+    try:
+        from_addr = EmailAddress(name="", address=client.config.username)
+        to_addresses = [EmailAddress.parse(addr) for addr in to]
+        cc_addresses = [EmailAddress.parse(addr) for addr in cc] if cc else None
+        bcc_addresses = [EmailAddress.parse(addr) for addr in bcc] if bcc else None
+
+        mime_message = create_mime(
+            from_addr=from_addr,
+            body=body,
+            to=to_addresses,
+            subject=subject,
+            cc=cc_addresses,
+            bcc=bcc_addresses,
+            html_body=body_html,
+            attachments=attachments,
+        )
+
+        draft_uid = client.save_draft_mime(mime_message)
+        if draft_uid:
+            drafts_folder = client._get_drafts_folder()
+            result["status"] = "success"
+            result["message"] = "Draft saved"
+            result["draft_uid"] = draft_uid
+            result["draft_folder"] = drafts_folder
+        else:
+            result["message"] = "Failed to save draft"
+    except Exception as e:
+        logger.error(f"Error composing draft: {e}")
         result["message"] = f"Error: {e}"
 
     return result

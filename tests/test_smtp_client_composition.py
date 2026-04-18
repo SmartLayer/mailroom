@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 
 from mailroom.models import Email, EmailAddress, EmailContent
-from mailroom.smtp_client import create_reply_mime
+from mailroom.smtp_client import create_mime
 
 
 class TestCreateReplyMime:
-    """Tests for create_reply_mime function."""
+    """Tests for create_mime function."""
 
     @pytest.fixture
     def sample_email(self) -> Email:
@@ -35,8 +35,8 @@ class TestCreateReplyMime:
         subject = "Re: Test Subject"
         body = "This is a reply."
 
-        mime_message = create_reply_mime(
-            original_email=sample_email, reply_to=reply_to, subject=subject, body=body
+        mime_message = create_mime(
+            original_email=sample_email, from_addr=reply_to, subject=subject, body=body
         )
 
         # Check basic properties
@@ -62,9 +62,9 @@ class TestCreateReplyMime:
         subject = "Re: Test Subject"
         body = "This is a reply to all."
 
-        mime_message = create_reply_mime(
+        mime_message = create_mime(
             original_email=sample_email,
-            reply_to=reply_to,
+            from_addr=reply_to,
             subject=subject,
             body=body,
             reply_all=True,
@@ -87,9 +87,9 @@ class TestCreateReplyMime:
             EmailAddress(name="Another CC", address="another@example.com"),
         ]
 
-        mime_message = create_reply_mime(
+        mime_message = create_mime(
             original_email=sample_email,
-            reply_to=reply_to,
+            from_addr=reply_to,
             subject=subject,
             body=body,
             cc=cc,
@@ -107,17 +107,17 @@ class TestCreateReplyMime:
         body = "This is a reply with custom subject prefix."
 
         # No prefix provided, but original doesn't start with Re:
-        mime_message = create_reply_mime(
-            original_email=sample_email, reply_to=reply_to, body=body
+        mime_message = create_mime(
+            original_email=sample_email, from_addr=reply_to, body=body
         )
 
         assert mime_message["Subject"].startswith("Re: ")
 
         # Custom subject provided
         custom_subject = "Custom: Test Subject"
-        mime_message = create_reply_mime(
+        mime_message = create_mime(
             original_email=sample_email,
-            reply_to=reply_to,
+            from_addr=reply_to,
             body=body,
             subject=custom_subject,
         )
@@ -126,8 +126,8 @@ class TestCreateReplyMime:
 
         # Original already has Re: prefix
         sample_email.subject = "Re: Already Prefixed"
-        mime_message = create_reply_mime(
-            original_email=sample_email, reply_to=reply_to, body=body
+        mime_message = create_mime(
+            original_email=sample_email, from_addr=reply_to, body=body
         )
 
         assert mime_message["Subject"] == "Re: Already Prefixed"
@@ -138,9 +138,9 @@ class TestCreateReplyMime:
         body = "This is a plain text reply."
         html_body = "<p>This is an <b>HTML</b> reply.</p>"
 
-        mime_message = create_reply_mime(
+        mime_message = create_mime(
             original_email=sample_email,
-            reply_to=reply_to,
+            from_addr=reply_to,
             body=body,
             html_body=html_body,
         )
@@ -160,8 +160,8 @@ class TestCreateReplyMime:
         reply_to = EmailAddress(name="Reply To", address="sender@example.com")
         body = "This is a reply with original content quoted."
 
-        mime_message = create_reply_mime(
-            original_email=sample_email, reply_to=reply_to, body=body
+        mime_message = create_mime(
+            original_email=sample_email, from_addr=reply_to, body=body
         )
 
         # Check content
@@ -186,9 +186,9 @@ class TestCreateReplyMime:
         pdf = tmp_path / "report.pdf"
         pdf.write_bytes(b"%PDF-1.4 dummy")
 
-        mime_message = create_reply_mime(
+        mime_message = create_mime(
             original_email=sample_email,
-            reply_to=reply_to,
+            from_addr=reply_to,
             body="see attached",
             attachments=[str(pdf)],
         )
@@ -208,9 +208,9 @@ class TestCreateReplyMime:
         f2 = tmp_path / "b.log"
         f2.write_text("bravo")
 
-        mime_message = create_reply_mime(
+        mime_message = create_mime(
             original_email=sample_email,
-            reply_to=reply_to,
+            from_addr=reply_to,
             body="two files",
             attachments=[str(f1), str(f2)],
         )
@@ -227,9 +227,9 @@ class TestCreateReplyMime:
         pdf = tmp_path / "x.pdf"
         pdf.write_bytes(b"pdf")
 
-        mime_message = create_reply_mime(
+        mime_message = create_mime(
             original_email=sample_email,
-            reply_to=reply_to,
+            from_addr=reply_to,
             body="plain",
             html_body="<p>html</p>",
             attachments=[str(pdf)],
@@ -248,9 +248,9 @@ class TestCreateReplyMime:
         missing = str(tmp_path / "does_not_exist.pdf")
 
         with pytest.raises(ValueError) as excinfo:
-            create_reply_mime(
+            create_mime(
                 original_email=sample_email,
-                reply_to=reply_to,
+                from_addr=reply_to,
                 body="x",
                 attachments=[missing],
             )
@@ -263,9 +263,9 @@ class TestCreateReplyMime:
         reply_to = EmailAddress(name="Reply To", address="sender@example.com")
 
         with pytest.raises(ValueError):
-            create_reply_mime(
+            create_mime(
                 original_email=sample_email,
-                reply_to=reply_to,
+                from_addr=reply_to,
                 body="x",
                 attachments=[str(tmp_path)],
             )
@@ -278,9 +278,9 @@ class TestCreateReplyMime:
         blob = tmp_path / "mystery.zzz"
         blob.write_bytes(b"\x00\x01")
 
-        mime_message = create_reply_mime(
+        mime_message = create_mime(
             original_email=sample_email,
-            reply_to=reply_to,
+            from_addr=reply_to,
             body="x",
             attachments=[str(blob)],
         )
@@ -298,9 +298,9 @@ class TestCreateReplyMime:
         f = nested / "inner.txt"
         f.write_text("hi")
 
-        mime_message = create_reply_mime(
+        mime_message = create_mime(
             original_email=sample_email,
-            reply_to=reply_to,
+            from_addr=reply_to,
             body="x",
             attachments=[str(f)],
         )
@@ -315,9 +315,9 @@ class TestCreateReplyMime:
         f = tmp_path / "报告.pdf"
         f.write_bytes(b"pdf")
 
-        mime_message = create_reply_mime(
+        mime_message = create_mime(
             original_email=sample_email,
-            reply_to=reply_to,
+            from_addr=reply_to,
             body="x",
             attachments=[str(f)],
         )

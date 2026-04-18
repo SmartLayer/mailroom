@@ -80,7 +80,7 @@ class TestDraftReplyTool:
             imap_client.save_draft_mime.return_value = 100
             imap_client._get_drafts_folder.return_value = "Drafts"
 
-            with patch("mailroom.smtp_client.create_reply_mime") as mock_create:
+            with patch("mailroom.smtp_client.create_mime") as mock_create:
                 mime_msg = MagicMock()
                 mock_create.return_value = mime_msg
 
@@ -109,7 +109,7 @@ class TestDraftReplyTool:
             imap_client.save_draft_mime.return_value = 101
             imap_client._get_drafts_folder.return_value = "Drafts"
 
-            with patch("mailroom.smtp_client.create_reply_mime") as mock_create:
+            with patch("mailroom.smtp_client.create_mime") as mock_create:
                 mock_create.return_value = MagicMock()
 
                 result = await draft_reply(
@@ -122,7 +122,7 @@ class TestDraftReplyTool:
                 )
 
         assert result["status"] == "success"
-        # Verify create_reply_mime received reply_all=True and cc as EmailAddress list
+        # Verify create_mime received reply_all=True and cc as EmailAddress list
         kw = mock_create.call_args
         assert kw.kwargs["reply_all"] is True
         assert len(kw.kwargs["cc"]) == 1
@@ -139,7 +139,7 @@ class TestDraftReplyTool:
             imap_client.save_draft_mime.return_value = 102
             imap_client._get_drafts_folder.return_value = "Drafts"
 
-            with patch("mailroom.smtp_client.create_reply_mime") as mock_create:
+            with patch("mailroom.smtp_client.create_mime") as mock_create:
                 mock_create.return_value = MagicMock()
 
                 result = await draft_reply(
@@ -157,6 +157,7 @@ class TestDraftReplyTool:
     async def test_bcc_header_added(self, tools, mock_email, ctx):
         stored, imap_client = tools
         draft_reply = stored["reply"]
+        imap_client.config.username = "recipient@example.com"
 
         with patch("mailroom.tools.get_client_from_context") as gc:
             gc.return_value = imap_client
@@ -164,22 +165,15 @@ class TestDraftReplyTool:
             imap_client.save_draft_mime.return_value = 103
             imap_client._get_drafts_folder.return_value = "Drafts"
 
-            from email.message import EmailMessage
-
-            mime_msg = EmailMessage()
-            mime_msg.set_content("test")
-
-            with patch("mailroom.smtp_client.create_reply_mime", return_value=mime_msg):
-                result = await draft_reply(
-                    folder="INBOX",
-                    uid=42,
-                    reply_body="Thanks",
-                    ctx=ctx,
-                    bcc=["copy@example.com"],
-                )
+            result = await draft_reply(
+                folder="INBOX",
+                uid=42,
+                reply_body="Thanks",
+                ctx=ctx,
+                bcc=["copy@example.com"],
+            )
 
         assert result["status"] == "success"
-        # Verify BCC header was added to the MIME message before saving
         saved_msg = imap_client.save_draft_mime.call_args[0][0]
         assert "copy@example.com" in saved_msg["Bcc"]
 
@@ -212,7 +206,7 @@ class TestDraftReplyTool:
             imap_client.fetch_email.return_value = mock_email
             imap_client.save_draft_mime.return_value = None
 
-            with patch("mailroom.smtp_client.create_reply_mime") as mock_create:
+            with patch("mailroom.smtp_client.create_mime") as mock_create:
                 mock_create.return_value = MagicMock()
 
                 result = await draft_reply(
@@ -250,7 +244,7 @@ class TestDraftReplyCLI:
         runner = CliRunner()
 
         with patch("mailroom.__main__._make_client", return_value=mock_client):
-            with patch("mailroom.smtp_client.create_reply_mime") as mock_create:
+            with patch("mailroom.smtp_client.create_mime") as mock_create:
                 mock_create.return_value = MagicMock()
                 result = runner.invoke(
                     app,
@@ -287,7 +281,7 @@ class TestDraftReplyCLI:
         mime_msg["Subject"] = "Re: Test"
 
         with patch("mailroom.__main__._make_client", return_value=mock_client):
-            with patch("mailroom.smtp_client.create_reply_mime", return_value=mime_msg):
+            with patch("mailroom.smtp_client.create_mime", return_value=mime_msg):
                 result = runner.invoke(
                     app,
                     [
@@ -324,7 +318,7 @@ class TestDraftReplyCLI:
         mime_msg["Subject"] = "Re: Stdout"
 
         with patch("mailroom.__main__._make_client", return_value=mock_client):
-            with patch("mailroom.smtp_client.create_reply_mime", return_value=mime_msg):
+            with patch("mailroom.smtp_client.create_mime", return_value=mime_msg):
                 result = runner.invoke(
                     app,
                     [
@@ -347,8 +341,6 @@ class TestDraftReplyCLI:
         assert "Re: Stdout" in result.output
 
     def test_bcc_in_raw_output(self, mock_client, mock_email, tmp_path):
-        from email.message import EmailMessage
-
         from typer.testing import CliRunner
 
         from mailroom.__main__ import app
@@ -356,30 +348,25 @@ class TestDraftReplyCLI:
         runner = CliRunner()
         out_path = str(tmp_path / "reply_bcc.eml")
 
-        mime_msg = EmailMessage()
-        mime_msg.set_content("Body")
-        mime_msg["Subject"] = "Re: Bcc test"
-
         with patch("mailroom.__main__._make_client", return_value=mock_client):
-            with patch("mailroom.smtp_client.create_reply_mime", return_value=mime_msg):
-                result = runner.invoke(
-                    app,
-                    [
-                        "--config",
-                        "dummy.toml",
-                        "reply",
-                        "-f",
-                        "INBOX",
-                        "--uid",
-                        "42",
-                        "--body",
-                        "Body",
-                        "--bcc",
-                        "copy@example.com",
-                        "-o",
-                        out_path,
-                    ],
-                )
+            result = runner.invoke(
+                app,
+                [
+                    "--config",
+                    "dummy.toml",
+                    "reply",
+                    "-f",
+                    "INBOX",
+                    "--uid",
+                    "42",
+                    "--body",
+                    "Body",
+                    "--bcc",
+                    "copy@example.com",
+                    "-o",
+                    out_path,
+                ],
+            )
 
         assert result.exit_code == 0
         raw = open(out_path, "rb").read()
@@ -413,7 +400,7 @@ class TestDraftReplyCLI:
         assert result.exit_code != 0
 
     def test_attach_forwarded_to_draft_path(self, mock_client, mock_email, tmp_path):
-        """CLI --attach plumbs through to create_reply_mime in draft branch."""
+        """CLI --attach plumbs through to create_mime in draft branch."""
         from typer.testing import CliRunner
 
         from mailroom.__main__ import app
@@ -423,7 +410,7 @@ class TestDraftReplyCLI:
         f.write_text("x")
 
         with patch("mailroom.__main__._make_client", return_value=mock_client):
-            with patch("mailroom.smtp_client.create_reply_mime") as mock_create:
+            with patch("mailroom.smtp_client.create_mime") as mock_create:
                 mock_create.return_value = MagicMock()
                 result = runner.invoke(
                     app,

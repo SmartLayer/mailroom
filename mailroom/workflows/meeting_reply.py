@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from mailroom.models import EmailAddress
-from mailroom.smtp_client import create_reply_mime
+from mailroom.smtp_client import create_mime
 from mailroom.workflows.calendar_mock import check_mock_availability
 from mailroom.workflows.invite_parser import identify_meeting_invite_details
 
@@ -235,9 +235,9 @@ def process_meeting_invite_workflow(
             else EmailAddress(name="Me", address=client.config.username)
         )
 
-        mime_message = create_reply_mime(
+        mime_message = create_mime(
             original_email=email_obj,
-            reply_to=reply_from,
+            from_addr=reply_from,
             body=reply_content["reply_body"],
             subject=reply_content["reply_subject"],
             reply_all=False,
