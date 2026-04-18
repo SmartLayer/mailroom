@@ -29,7 +29,7 @@ Commandline users, script authors and AI assistants can search, read, download, 
 - Find a booking confirmation buried in your inbox
 - Download the PDF attachment from an invoice
 - Check all the links in a suspicious email
-- Draft a reply that lands in the right thread
+- Draft a reply (with attachments) that lands in the right thread (CLI can also emit raw RFC 822 to stdout for piping into another tool)
 - Move, flag, or archive messages
 - Search across all folders at once
 - Handle a meeting invite — check availability, draft a response
@@ -123,12 +123,14 @@ mailroom save -f INBOX -u 4523 -i itinerary.pdf -o /tmp/itinerary.pdf
 
 # Export an HTML email as a standalone file (images embedded)
 mailroom export -f INBOX -u 4523 -o /tmp/email.html
+mailroom export -f INBOX -u 4523 -o /tmp/email.eml --raw  # raw RFC 822 bytes; use -o - to stream
 
 # Extract all links from several emails (useful for phishing checks)
 mailroom links -f INBOX -u 4523 -u 4524 -u 4525
 
 # Draft a threaded reply
 mailroom reply -f INBOX -u 4523 -b "Thanks, confirmed."
+mailroom reply -f INBOX -u 4523 -b "Invoice attached." --attach /tmp/invoice.pdf
 
 # Organize
 mailroom move -f INBOX -u 4523 -t Archive

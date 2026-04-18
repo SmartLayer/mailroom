@@ -2,8 +2,12 @@
 
 import email.utils
 import logging
+import mimetypes
+import os
 from datetime import datetime
+from email import encoders
 from email.message import EmailMessage
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional, Union
@@ -11,6 +15,38 @@ from typing import Any, Dict, List, Optional, Union
 from mailroom.models import Email, EmailAddress
 
 logger = logging.getLogger(__name__)
+
+
+def _attach_file(container: MIMEMultipart, path: str) -> None:
+    """Attach a file to a multipart/mixed container.
+
+    Args:
+        container: Outer ``multipart/mixed`` message to attach into.
+        path: Filesystem path to the file.
+
+    Raises:
+        ValueError: If *path* is not a readable regular file.
+    """
+    if not os.path.isfile(path):
+        raise ValueError(f"Attachment not found or not a regular file: {path}")
+
+    ctype, encoding = mimetypes.guess_type(path)
+    if ctype is None or encoding is not None:
+        ctype = "application/octet-stream"
+    maintype, subtype = ctype.split("/", 1)
+
+    with open(path, "rb") as fh:
+        payload = fh.read()
+
+    part = MIMEBase(maintype, subtype)
+    part.set_payload(payload)
+    encoders.encode_base64(part)
+    part.add_header(
+        "Content-Disposition",
+        "attachment",
+        filename=("utf-8", "", os.path.basename(path)),
+    )
+    container.attach(part)
 
 
 def create_reply_mime(
@@ -21,6 +57,7 @@ def create_reply_mime(
     cc: Optional[List[EmailAddress]] = None,
     reply_all: bool = False,
     html_body: Optional[str] = None,
+    attachments: Optional[List[str]] = None,
 ) -> Union[EmailMessage, MIMEMultipart]:
     """Create a MIME message for replying to an email.
 
@@ -32,13 +69,18 @@ def create_reply_mime(
         cc: List of CC recipients (default: none)
         reply_all: Whether to reply to all recipients (default: False)
         html_body: Optional HTML version of the body
+        attachments: Optional list of filesystem paths to attach. Duplicate
+            basenames are accepted but may confuse some clients on save.
 
     Returns:
         MIME message ready for sending
+
+    Raises:
+        ValueError: If any attachment path is not a readable regular file.
     """
-    # Start with a multipart/mixed message
+    multipart_mode = bool(html_body) or bool(attachments)
     msg: Union[EmailMessage, MIMEMultipart]
-    if html_body:
+    if multipart_mode:
         msg = MIMEMultipart("mixed")
     else:
         msg = EmailMessage()
@@ -160,7 +202,7 @@ def create_reply_mime(
         assert isinstance(msg, MIMEMultipart)
         msg.attach(alternative)
     else:
-        # Plain text only
+        # Plain text body (with or without attachments)
         plain_text = body
         if original_email.content.text:
             # Quote original plain text
@@ -169,8 +211,17 @@ def create_reply_mime(
             )
             plain_text += f"\n\nOn {email.utils.format_datetime(original_email.date or datetime.now())}, {original_email.from_} wrote:\n{quoted_original}"
 
-        assert isinstance(msg, EmailMessage)
-        msg.set_content(plain_text)
+        if multipart_mode:
+            assert isinstance(msg, MIMEMultipart)
+            msg.attach(MIMEText(plain_text, "plain", "utf-8"))
+        else:
+            assert isinstance(msg, EmailMessage)
+            msg.set_content(plain_text)
+
+    if attachments:
+        assert isinstance(msg, MIMEMultipart)
+        for path in attachments:
+            _attach_file(msg, path)
 
     # Add Date header
     msg["Date"] = email.utils.formatdate(localtime=True)
@@ -203,6 +254,7 @@ def compose_and_save_reply_draft(
     cc: Optional[List[str]] = None,
     bcc: Optional[List[str]] = None,
     body_html: Optional[str] = None,
+    attachments: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Fetch an email, compose a reply, and save it as a draft.
 
@@ -215,6 +267,7 @@ def compose_and_save_reply_draft(
         cc: Optional CC addresses as strings.
         bcc: Optional BCC addresses as strings.
         body_html: Optional HTML reply body.
+        attachments: Optional list of filesystem paths to attach to the draft.
 
     Returns:
         Dict with keys ``status``, ``message``, ``draft_uid``, ``draft_folder``.
@@ -245,6 +298,7 @@ def compose_and_save_reply_draft(
             reply_all=reply_all,
             cc=cc_addresses,
             html_body=body_html,
+            attachments=attachments,
         )
 
         if bcc:

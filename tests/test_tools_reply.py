@@ -411,3 +411,112 @@ class TestDraftReplyCLI:
             )
 
         assert result.exit_code != 0
+
+    def test_attach_forwarded_to_draft_path(self, mock_client, mock_email, tmp_path):
+        """CLI --attach plumbs through to create_reply_mime in draft branch."""
+        from typer.testing import CliRunner
+
+        from mailroom.__main__ import app
+
+        runner = CliRunner()
+        f = tmp_path / "file.txt"
+        f.write_text("x")
+
+        with patch("mailroom.__main__._make_client", return_value=mock_client):
+            with patch("mailroom.smtp_client.create_reply_mime") as mock_create:
+                mock_create.return_value = MagicMock()
+                result = runner.invoke(
+                    app,
+                    [
+                        "--config",
+                        "dummy.toml",
+                        "reply",
+                        "-f",
+                        "INBOX",
+                        "--uid",
+                        "42",
+                        "--body",
+                        "See attached",
+                        "--attach",
+                        str(f),
+                    ],
+                )
+
+        assert result.exit_code == 0
+        assert mock_create.call_args.kwargs["attachments"] == [str(f)]
+
+    def test_attach_in_output_branch_produces_attachment_part(
+        self, mock_client, mock_email, tmp_path
+    ):
+        """--attach with --output emits a real MIME part into stdout."""
+        from typer.testing import CliRunner
+
+        from mailroom.__main__ import app
+
+        runner = CliRunner()
+        f = tmp_path / "doc.txt"
+        f.write_text("hello")
+
+        with patch("mailroom.__main__._make_client", return_value=mock_client):
+            result = runner.invoke(
+                app,
+                [
+                    "--config",
+                    "dummy.toml",
+                    "reply",
+                    "-f",
+                    "INBOX",
+                    "--uid",
+                    "42",
+                    "--body",
+                    "Body",
+                    "--attach",
+                    str(f),
+                    "-o",
+                    "-",
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert "Content-Disposition" in result.output
+        assert 'filename="doc.txt"' in result.output or "doc.txt" in result.output
+
+
+class TestMcpReplyAttachments:
+    """MCP reply tool forwards attachments through to compose_and_save_reply_draft."""
+
+    @pytest.mark.asyncio
+    async def test_attachments_forwarded(self, mock_email, tmp_path):
+        mcp = MagicMock(spec=FastMCP)
+        stored = {}
+
+        def mock_tool_decorator(**kwargs):
+            def decorator(func):
+                stored[kwargs.get("name", func.__name__)] = func
+                return func
+
+            return decorator
+
+        mcp.tool = mock_tool_decorator
+        imap_client = MagicMock()
+        register_tools(mcp, imap_client)
+        draft_reply = stored["reply"]
+
+        ctx = MagicMock(spec=Context)
+        f = tmp_path / "a.txt"
+        f.write_text("hi")
+
+        with patch("mailroom.tools.get_client_from_context", return_value=imap_client):
+            with patch(
+                "mailroom.smtp_client.compose_and_save_reply_draft"
+            ) as mock_compose:
+                mock_compose.return_value = {"status": "success", "draft_uid": 1}
+                await draft_reply(
+                    folder="INBOX",
+                    uid=42,
+                    reply_body="hi",
+                    ctx=ctx,
+                    attachments=[str(f)],
+                )
+
+        assert mock_compose.call_args.kwargs["attachments"] == [str(f)]

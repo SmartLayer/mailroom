@@ -7,6 +7,7 @@ importing the mcp package.
 
 import json
 import logging
+import os
 import sys
 from typing import Any, Dict, List, Optional
 
@@ -135,7 +136,7 @@ def status() -> None:
     accounts_map: Dict[str, Any] = {}
     status_data: Dict[str, Any] = {
         "server": "Mailroom",
-        "version": "1.0.1",
+        "version": "1.0.2",
         "default_account": cfg.default_account,
         "accounts": accounts_map,
     }
@@ -524,23 +525,69 @@ def save(
 # ---------------------------------------------------------------------------
 
 
+def _export_raw(client: ImapClient, folder: str, uid: int, save_path: str) -> None:
+    """Export raw RFC 822 bytes to *save_path* (or stdout if ``-``)."""
+    fetched = client.fetch_raw(uid, folder)
+    if not fetched:
+        typer.echo(f"Email UID {uid} not found in {folder}", err=True)
+        raise typer.Exit(1)
+
+    raw_bytes = fetched["raw"]
+    if save_path == "-":
+        sys.stdout.buffer.write(raw_bytes)
+        return
+
+    dir_part = os.path.dirname(save_path)
+    if dir_part:
+        os.makedirs(dir_part, exist_ok=True)
+    with open(save_path, "wb") as fh:
+        fh.write(raw_bytes)
+    _out(
+        {
+            "success": True,
+            "save_path": save_path,
+            "size": len(raw_bytes),
+            "subject": fetched.get("subject"),
+        }
+    )
+
+
+def _export_html(client: ImapClient, folder: str, uid: int, save_path: str) -> None:
+    """Export HTML with embedded images to *save_path*."""
+    email_obj = client.fetch_email(uid, folder)
+    if not email_obj:
+        typer.echo(f"Email UID {uid} not found in {folder}", err=True)
+        raise typer.Exit(1)
+    _out(email_obj.export_html_to_file(save_path))
+
+
 @app.command("export")
 def export(
     folder: str = typer.Option(..., "--folder", "-f", help="Folder name."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
     save_path: str = typer.Option(
-        ..., "--save-path", "-o", help="Path to save the HTML file."
+        ...,
+        "--save-path",
+        "-o",
+        help="Path to save to. Use '-' with --raw to stream raw RFC 822 to stdout.",
+    ),
+    raw: bool = typer.Option(
+        False,
+        "--raw",
+        help="Export the raw RFC 822 message bytes instead of HTML.",
     ),
 ) -> None:
-    """Export email HTML content to a standalone file with embedded images."""
+    """Export email content to a standalone file.
+
+    Default: HTML with embedded images.
+    With --raw: the raw RFC 822 message as stored on the IMAP server.
+    """
     client = _make_client()
     try:
-        email_obj = client.fetch_email(uid, folder)
-        if not email_obj:
-            typer.echo(f"Email UID {uid} not found in {folder}", err=True)
-            raise typer.Exit(1)
-        result = email_obj.export_html_to_file(save_path)
-        _out(result)
+        if raw:
+            _export_raw(client, folder, uid, save_path)
+        else:
+            _export_html(client, folder, uid, save_path)
     except ValueError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(1)
@@ -591,6 +638,11 @@ def reply(
     body_html: Optional[str] = typer.Option(
         None, "--body-html", help="HTML version of reply body."
     ),
+    attach: Optional[List[str]] = typer.Option(
+        None,
+        "--attach",
+        help="Path to a file to attach. Repeatable.",
+    ),
     output: Optional[str] = typer.Option(
         None,
         "--output",
@@ -625,6 +677,7 @@ def reply(
                 reply_all=reply_all,
                 cc=cc_addresses,
                 html_body=body_html,
+                attachments=attach,
             )
             if bcc:
                 mime_message["Bcc"] = ", ".join(bcc)
@@ -637,8 +690,6 @@ def reply(
             if output == "-":
                 sys.stdout.buffer.write(raw)
             else:
-                import os
-
                 os.makedirs(
                     os.path.dirname(output) if os.path.dirname(output) else ".",
                     exist_ok=True,
@@ -659,6 +710,7 @@ def reply(
                 cc=cc,
                 bcc=bcc,
                 body_html=body_html,
+                attachments=attach,
             )
             if result["status"] == "success":
                 _out(result)
@@ -717,7 +769,7 @@ def mcp_serve(
 ) -> None:
     """Start the MCP server (Model Context Protocol)."""
     if version:
-        print("Mailroom MCP server version 1.0.1")
+        print("Mailroom MCP server version 1.0.2")
         raise typer.Exit()
     from mailroom.mcp_server import create_server
 

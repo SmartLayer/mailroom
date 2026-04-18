@@ -98,7 +98,7 @@ def create_server(config_path: Optional[str] = None, debug: bool = False) -> Fas
         """Get server status and configuration info."""
         lines = [
             "server: Mailroom",
-            "version: 1.0.1",
+            "version: 1.0.2",
             f"default_account: {config.default_account}",
             f"accounts: {', '.join(config.accounts.keys())}",
         ]
@@ -141,7 +141,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.version:
-        print("Mailroom MCP server version 1.0.1")
+        print("Mailroom MCP server version 1.0.2")
         return
 
     if args.debug:

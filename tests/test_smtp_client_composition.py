@@ -1,6 +1,7 @@
 """Tests for SMTP client MIME composition functionality."""
 
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -176,3 +177,150 @@ class TestCreateReplyMime:
         lines = payload.split("\n")
         quoted_lines = [line for line in lines if line.startswith(">")]
         assert any("> Original message content" in line for line in quoted_lines)
+
+    def test_reply_with_single_attachment_is_multipart_mixed(
+        self, sample_email: Email, tmp_path: Path
+    ):
+        """Attaching one file produces multipart/mixed with body + attachment."""
+        reply_to = EmailAddress(name="Reply To", address="sender@example.com")
+        pdf = tmp_path / "report.pdf"
+        pdf.write_bytes(b"%PDF-1.4 dummy")
+
+        mime_message = create_reply_mime(
+            original_email=sample_email,
+            reply_to=reply_to,
+            body="see attached",
+            attachments=[str(pdf)],
+        )
+
+        assert mime_message.get_content_type() == "multipart/mixed"
+        parts = mime_message.get_payload()
+        assert len(parts) == 2
+        assert parts[0].get_content_type() == "text/plain"
+        assert parts[1].get_content_type() == "application/pdf"
+        assert parts[1].get_filename() == "report.pdf"
+
+    def test_reply_with_multiple_attachments(self, sample_email: Email, tmp_path: Path):
+        """Two attachments appear as siblings of the body."""
+        reply_to = EmailAddress(name="Reply To", address="sender@example.com")
+        f1 = tmp_path / "a.txt"
+        f1.write_text("alpha")
+        f2 = tmp_path / "b.log"
+        f2.write_text("bravo")
+
+        mime_message = create_reply_mime(
+            original_email=sample_email,
+            reply_to=reply_to,
+            body="two files",
+            attachments=[str(f1), str(f2)],
+        )
+
+        parts = mime_message.get_payload()
+        filenames = [p.get_filename() for p in parts if p.get_filename()]
+        assert filenames == ["a.txt", "b.log"]
+
+    def test_reply_with_attachment_and_html_body(
+        self, sample_email: Email, tmp_path: Path
+    ):
+        """html_body + attachments → mixed[alternative, attachment]."""
+        reply_to = EmailAddress(name="Reply To", address="sender@example.com")
+        pdf = tmp_path / "x.pdf"
+        pdf.write_bytes(b"pdf")
+
+        mime_message = create_reply_mime(
+            original_email=sample_email,
+            reply_to=reply_to,
+            body="plain",
+            html_body="<p>html</p>",
+            attachments=[str(pdf)],
+        )
+
+        assert mime_message.get_content_type() == "multipart/mixed"
+        parts = mime_message.get_payload()
+        assert parts[0].get_content_type() == "multipart/alternative"
+        assert parts[1].get_content_type() == "application/pdf"
+
+    def test_reply_with_attachment_missing_file_raises_value_error(
+        self, sample_email: Email, tmp_path: Path
+    ):
+        """Missing path surfaces a clear ValueError with the offending path."""
+        reply_to = EmailAddress(name="Reply To", address="sender@example.com")
+        missing = str(tmp_path / "does_not_exist.pdf")
+
+        with pytest.raises(ValueError) as excinfo:
+            create_reply_mime(
+                original_email=sample_email,
+                reply_to=reply_to,
+                body="x",
+                attachments=[missing],
+            )
+        assert missing in str(excinfo.value)
+
+    def test_reply_with_attachment_directory_raises_value_error(
+        self, sample_email: Email, tmp_path: Path
+    ):
+        """Passing a directory path is rejected."""
+        reply_to = EmailAddress(name="Reply To", address="sender@example.com")
+
+        with pytest.raises(ValueError):
+            create_reply_mime(
+                original_email=sample_email,
+                reply_to=reply_to,
+                body="x",
+                attachments=[str(tmp_path)],
+            )
+
+    def test_attachment_mime_type_defaults_to_octet_stream_for_unknown_ext(
+        self, sample_email: Email, tmp_path: Path
+    ):
+        """Unknown extensions fall back to application/octet-stream."""
+        reply_to = EmailAddress(name="Reply To", address="sender@example.com")
+        blob = tmp_path / "mystery.zzz"
+        blob.write_bytes(b"\x00\x01")
+
+        mime_message = create_reply_mime(
+            original_email=sample_email,
+            reply_to=reply_to,
+            body="x",
+            attachments=[str(blob)],
+        )
+
+        att = mime_message.get_payload()[1]
+        assert att.get_content_type() == "application/octet-stream"
+
+    def test_attachment_filename_uses_basename_only(
+        self, sample_email: Email, tmp_path: Path
+    ):
+        """Full paths never leak into the Content-Disposition filename."""
+        reply_to = EmailAddress(name="Reply To", address="sender@example.com")
+        nested = tmp_path / "nested"
+        nested.mkdir()
+        f = nested / "inner.txt"
+        f.write_text("hi")
+
+        mime_message = create_reply_mime(
+            original_email=sample_email,
+            reply_to=reply_to,
+            body="x",
+            attachments=[str(f)],
+        )
+
+        assert mime_message.get_payload()[1].get_filename() == "inner.txt"
+
+    def test_attachment_non_ascii_filename_uses_rfc2231_encoding(
+        self, sample_email: Email, tmp_path: Path
+    ):
+        """Non-ASCII filenames serialise as RFC 2231 filename*=utf-8''..."""
+        reply_to = EmailAddress(name="Reply To", address="sender@example.com")
+        f = tmp_path / "报告.pdf"
+        f.write_bytes(b"pdf")
+
+        mime_message = create_reply_mime(
+            original_email=sample_email,
+            reply_to=reply_to,
+            body="x",
+            attachments=[str(f)],
+        )
+
+        raw = mime_message.as_string()
+        assert "filename*=utf-8''" in raw

@@ -139,3 +139,25 @@ class TestComposeAndSaveReplyDraft:
         assert result["status"] == "success"
         mime_msg = mock_client.save_draft_mime.call_args[0][0]
         assert "bcc@example.com" in str(mime_msg.get("Bcc", ""))
+
+    def test_with_attachments(self, mock_client, original_email, tmp_path):
+        """Attachments are forwarded into the composed MIME."""
+        mock_client.fetch_email.return_value = original_email
+        f = tmp_path / "note.txt"
+        f.write_text("hi")
+
+        result = compose_and_save_reply_draft(
+            mock_client,
+            "INBOX",
+            1,
+            "Reply",
+            attachments=[str(f)],
+        )
+
+        assert result["status"] == "success"
+        mime_msg = mock_client.save_draft_mime.call_args[0][0]
+        assert mime_msg.get_content_type() == "multipart/mixed"
+        filenames = [
+            p.get_filename() for p in mime_msg.get_payload() if p.get_filename()
+        ]
+        assert "note.txt" in filenames

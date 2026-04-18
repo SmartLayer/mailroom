@@ -519,3 +519,176 @@ class TestExport:
             with open(nested_path, "r", encoding="utf-8") as f:
                 content = f.read()
             assert "<h1>Newsletter</h1>" in content
+
+    @pytest.mark.asyncio
+    async def test_export_raw_writes_bytes(
+        self, tools, mock_client, mock_context, tmp_path
+    ):
+        """raw=True writes the exact bytes returned by client.fetch_raw."""
+        raw_bytes = b"From: a@x\r\nSubject: hi\r\n\r\nhello\r\n"
+        mock_client.fetch_raw.return_value = {
+            "raw": raw_bytes,
+            "flags": (),
+            "date": None,
+            "subject": "hi",
+        }
+        out_file = tmp_path / "msg.eml"
+
+        result = await tools["export"](
+            folder="INBOX",
+            uid=42,
+            save_path=str(out_file),
+            ctx=mock_context,
+            raw=True,
+        )
+
+        assert "Success" in result
+        assert out_file.read_bytes() == raw_bytes
+        mock_client.fetch_raw.assert_called_once_with(42, "INBOX")
+        mock_client.fetch_email.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_export_raw_email_not_found(
+        self, tools, mock_client, mock_context, tmp_path
+    ):
+        """raw=True surfaces a clear error when fetch_raw returns None."""
+        mock_client.fetch_raw.return_value = None
+
+        result = await tools["export"](
+            folder="INBOX",
+            uid=999,
+            save_path=str(tmp_path / "x.eml"),
+            ctx=mock_context,
+            raw=True,
+        )
+
+        assert "Error" in result
+        assert "not found" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_export_raw_creates_directories(
+        self, tools, mock_client, mock_context, tmp_path
+    ):
+        """raw=True creates intermediate directories."""
+        raw_bytes = b"raw-bytes"
+        mock_client.fetch_raw.return_value = {
+            "raw": raw_bytes,
+            "flags": (),
+            "date": None,
+            "subject": "s",
+        }
+        nested = tmp_path / "a" / "b" / "msg.eml"
+
+        result = await tools["export"](
+            folder="INBOX",
+            uid=1,
+            save_path=str(nested),
+            ctx=mock_context,
+            raw=True,
+        )
+
+        assert "Success" in result
+        assert nested.read_bytes() == raw_bytes
+
+
+class TestExportRawCLI:
+    """Tests for `mailroom export --raw`."""
+
+    def test_raw_writes_bytes_to_file(self, tmp_path):
+        from typer.testing import CliRunner
+
+        from mailroom.__main__ import app
+
+        runner = CliRunner()
+        raw_bytes = b"From: a@x\r\nSubject: test\r\n\r\nbody\r\n"
+        client = MagicMock()
+        client.fetch_raw.return_value = {
+            "raw": raw_bytes,
+            "flags": (),
+            "date": None,
+            "subject": "test",
+        }
+        out_file = tmp_path / "out.eml"
+
+        with patch("mailroom.__main__._make_client", return_value=client):
+            result = runner.invoke(
+                app,
+                [
+                    "--config",
+                    "dummy.toml",
+                    "export",
+                    "-f",
+                    "INBOX",
+                    "-u",
+                    "42",
+                    "-o",
+                    str(out_file),
+                    "--raw",
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert out_file.read_bytes() == raw_bytes
+
+    def test_raw_streams_to_stdout(self):
+        from typer.testing import CliRunner
+
+        from mailroom.__main__ import app
+
+        runner = CliRunner()
+        raw_bytes = b"From: a@x\r\nSubject: streamed\r\n\r\nbody\r\n"
+        client = MagicMock()
+        client.fetch_raw.return_value = {
+            "raw": raw_bytes,
+            "flags": (),
+            "date": None,
+            "subject": "streamed",
+        }
+
+        with patch("mailroom.__main__._make_client", return_value=client):
+            result = runner.invoke(
+                app,
+                [
+                    "--config",
+                    "dummy.toml",
+                    "export",
+                    "-f",
+                    "INBOX",
+                    "-u",
+                    "42",
+                    "-o",
+                    "-",
+                    "--raw",
+                ],
+            )
+
+        assert result.exit_code == 0
+        assert "Subject: streamed" in result.output
+
+    def test_raw_email_not_found(self, tmp_path):
+        from typer.testing import CliRunner
+
+        from mailroom.__main__ import app
+
+        runner = CliRunner()
+        client = MagicMock()
+        client.fetch_raw.return_value = None
+
+        with patch("mailroom.__main__._make_client", return_value=client):
+            result = runner.invoke(
+                app,
+                [
+                    "--config",
+                    "dummy.toml",
+                    "export",
+                    "-f",
+                    "INBOX",
+                    "-u",
+                    "999",
+                    "-o",
+                    str(tmp_path / "nope.eml"),
+                    "--raw",
+                ],
+            )
+
+        assert result.exit_code != 0

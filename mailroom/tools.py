@@ -13,6 +13,7 @@ of the domain modules listed above, not here.
 import asyncio
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional, Union
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -42,6 +43,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         cc: Optional[List[str]] = None,
         bcc: Optional[List[str]] = None,
         body_html: Optional[str] = None,
+        attachments: Optional[List[str]] = None,
         account: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Creates a draft reply to an email and saves it to the drafts folder.
@@ -55,6 +57,8 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             cc: Optional CC recipients
             bcc: Optional BCC recipients
             body_html: Optional HTML version of the reply
+            attachments: Optional list of filesystem paths to attach to the
+                draft. Paths are read by the MCP server process.
             account: Account name (None for default account)
 
         Returns:
@@ -72,6 +76,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             cc=cc,
             bcc=bcc,
             body_html=body_html,
+            attachments=attachments,
         )
 
     @mcp.tool(name="move")
@@ -417,15 +422,21 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         uid: int,
         save_path: str,
         ctx: Context,
+        raw: bool = False,
         account: Optional[str] = None,
     ) -> str:
-        """Export email HTML content to a standalone file with embedded images.
+        """Export an email to a standalone file.
+
+        Default exports HTML with embedded images. With ``raw=True`` exports
+        the raw RFC 822 message bytes as stored on the IMAP server, suitable
+        for bounces, archival, or feeding into another MIME-processing tool.
 
         Args:
             folder: Folder name
             uid: Email UID
-            save_path: Path where to save the HTML file
+            save_path: Path where to save the exported file
             ctx: MCP context
+            raw: If True, save the raw RFC 822 bytes instead of HTML
             account: Account name (None for default account)
 
         Returns:
@@ -433,6 +444,20 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         """
         client = get_client_from_context(ctx, account)
         try:
+            if raw:
+                fetched = client.fetch_raw(uid, folder)
+                if not fetched:
+                    return f"Error: Email with UID {uid} not found in folder {folder}"
+                raw_bytes = fetched["raw"]
+                dir_part = os.path.dirname(save_path)
+                if dir_part:
+                    os.makedirs(dir_part, exist_ok=True)
+                with open(save_path, "wb") as fh:
+                    fh.write(raw_bytes)
+                size = len(raw_bytes)
+                logger.info(f"Exported raw message ({size} bytes) to {save_path}")
+                return f"Success: Exported raw message ({size} bytes) to {save_path}"
+
             email_obj = client.fetch_email(uid, folder)
             if not email_obj:
                 return f"Error: Email with UID {uid} not found in folder {folder}"
@@ -444,7 +469,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         except ValueError as e:
             return f"Error: {e}"
         except Exception as e:
-            logger.error(f"Error exporting HTML: {e}")
+            logger.error(f"Error exporting: {e}")
             return f"Error: {e}"
 
     @mcp.tool(name="copy")
