@@ -27,7 +27,16 @@ def _version_callback(value: bool) -> None:
 
 app = typer.Typer(
     name="mailroom",
-    help="Email toolkit for AI assistants and command-line scripting.",
+    help=(
+        "Email toolkit for AI assistants and command-line scripting.\n\n"
+        "Exit codes for data-returning commands (search, attachments, links): "
+        "0 on success with results, 1 on success with zero results. "
+        "This makes shell idioms work:\n\n"
+        "  mailroom search 'from:alice@x' || mailroom search 'alice'\n"
+        "  ( mailroom -a A search Q ; mailroom -a B search Q ) | jq -s add\n\n"
+        "Multi-account search (-a A -a B or --all-accounts) makes the second "
+        "idiom unnecessary in most cases."
+    ),
     no_args_is_help=True,
 )
 
@@ -301,6 +310,10 @@ def search(
     Single-account searches return ``{"acct-name": [...]}``; multi-account
     searches (``-a A -a B`` or ``--all-accounts``) return one key per
     account searched. ``--limit`` is applied per account.
+
+    Exit code: 0 on hits, 1 when every account returned zero results, so
+    shell fallback chains work: ``mailroom search 'from:x' || mailroom
+    search 'x'``.
     """
     effective = query_opt if query_opt is not None else query
     names = _resolve_accounts()
@@ -314,13 +327,15 @@ def search(
             results[name] = client.search_emails(effective, folder=folder, limit=limit)
         except ValueError as exc:
             typer.echo(str(exc), err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(2)
         except Exception as exc:
             typer.echo(f"warning: search failed for '{name}': {exc}", err=True)
             results[name] = []
         finally:
             client.disconnect()
     _out(results)
+    if not any(results.values()):
+        raise typer.Exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -586,13 +601,18 @@ def attachments(
     folder: str = typer.Option(..., "--folder", "-f", help="Folder name."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
 ) -> None:
-    """List attachments for an email."""
+    """List attachments for an email.
+
+    Exit code: 0 if at least one attachment is found, 1 if the email has
+    none. Shell idiom: ``mailroom attachments -f INBOX -u 1 || echo none``.
+    """
     client = _make_client()
+    empty = False
     try:
         email_obj = client.fetch_email(uid, folder)
         if not email_obj:
             _out({"error": f"Email UID {uid} not found in {folder}"})
-            return
+            raise typer.Exit(1)
         result = []
         for i, att in enumerate(email_obj.attachments):
             entry = {
@@ -605,8 +625,11 @@ def attachments(
                 entry["content_id"] = att.content_id
             result.append(entry)
         _out(result)
+        empty = not result
     finally:
         client.disconnect()
+    if empty:
+        raise typer.Exit(1)
 
 
 # ---------------------------------------------------------------------------
