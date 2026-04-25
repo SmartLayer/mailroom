@@ -206,6 +206,53 @@ def _out(data: object) -> None:
         print(json.dumps(data, indent=2, default=str))
 
 
+def _email_only(s: str) -> str:
+    """Strip display name from ``Display Name <addr@host>``."""
+    if "<" in s and ">" in s:
+        return s.split("<", 1)[1].rsplit(">", 1)[0]
+    return s
+
+
+def _format_search_text(results: Dict[str, List[Dict[str, Any]]]) -> str:
+    """Render search results as multi-line, prompt-friendly text."""
+    blocks: List[str] = []
+    for account, hits in results.items():
+        block = [f"== {account} =="]
+        if not hits:
+            block.append("(no results)")
+        else:
+            for r in hits:
+                date = str(r.get("date", ""))[:10]
+                subject = r.get("subject", "")
+                from_ = r.get("from", "")
+                to_list = r.get("to") or [""]
+                to = to_list[0]
+                folder = r.get("folder", "")
+                block.append(f"{date}  {subject}")
+                block.append(f"            from: {from_}")
+                block.append(f"            to:   {to}")
+                block.append(f"            folder: {folder}")
+        blocks.append("\n".join(block))
+    return "\n\n".join(blocks)
+
+
+def _format_search_oneline(results: Dict[str, List[Dict[str, Any]]]) -> str:
+    """Render search results as one tab-separated line per result."""
+    lines: List[str] = []
+    for account, hits in results.items():
+        if not hits:
+            lines.append(f"{account}\t(no results)")
+            continue
+        for r in hits:
+            date = str(r.get("date", ""))[:10]
+            subject = r.get("subject", "")
+            from_addr = _email_only(r.get("from", ""))
+            to_list = r.get("to") or [""]
+            to_addr = _email_only(to_list[0]) if to_list[0] else ""
+            lines.append(f"{account}\t{date}\t{subject}\t{from_addr} → {to_addr}")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # list-accounts
 # ---------------------------------------------------------------------------
@@ -304,12 +351,23 @@ def search(
         None, "--folder", "-f", help="Folder to search (default: all)."
     ),
     limit: int = typer.Option(10, "--limit", "-n", help="Maximum number of results."),
+    output_format: str = typer.Option(
+        "json",
+        "--format",
+        "-F",
+        help="Output format: json (default), text, or oneline.",
+    ),
 ) -> None:
     """Search for emails. Returns a dict keyed by account name.
 
     Single-account searches return ``{"acct-name": [...]}``; multi-account
     searches (``-a A -a B`` or ``--all-accounts``) return one key per
     account searched. ``--limit`` is applied per account.
+
+    ``--format text`` renders multi-line, prompt-friendly output grouped
+    by account; ``--format oneline`` renders one tab-separated line per
+    result (account in column 1) for shell pipelines like
+    ``awk -F'\\t'``.
 
     Exit code: 0 on hits, 1 when every account returned zero results, so
     shell fallback chains work: ``mailroom search 'from:x' || mailroom
@@ -333,7 +391,18 @@ def search(
             results[name] = []
         finally:
             client.disconnect()
-    _out(results)
+    if output_format == "json":
+        _out(results)
+    elif output_format == "text":
+        typer.echo(_format_search_text(results))
+    elif output_format == "oneline":
+        typer.echo(_format_search_oneline(results))
+    else:
+        typer.echo(
+            f"Error: unknown --format '{output_format}'. Use json, text, or oneline.",
+            err=True,
+        )
+        raise typer.Exit(2)
     if not any(results.values()):
         raise typer.Exit(1)
 
