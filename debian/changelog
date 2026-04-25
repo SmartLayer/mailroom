@@ -1,3 +1,22 @@
+mailroom (1.0.3) unstable; urgency=medium
+
+  * search: AI-friendly CLI compat. Soft-redirect of search-variant subcommand
+    names (email_search, email-search, search_email, search-email) to 'search'
+    with a stderr note. Accept --account/-a both before and after the
+    subcommand. Add --query/-q as alias for the positional query.
+  * search: fix Gmail default-folder failure. list_folders now skips
+    \\Noselect / \\NonExistent entries, so the [Gmail] parent no longer enters
+    the folder list. When --folder is omitted, prefer the SPECIAL-USE \\All
+    folder (Gmail's [Gmail]/All Mail, Fastmail's Archive, etc.) — one SELECT
+    instead of iterating every folder.
+  * search: multi-account support. --account/-a accepted multiply;
+    --all-accounts/-A searches every configured account. Output is now
+    always nested by account name ({"acct": [...]}) — breaking change for
+    consumers that previously parsed a flat array. --limit applies per
+    account.
+
+ -- Weiwu Zhang <a@colourful.land>  Sat, 25 Apr 2026 00:00:00 +0000
+
 mailroom (1.0.2) unstable; urgency=medium
 
   * reply: add attachment support. CLI gains --attach (repeatable), MCP reply

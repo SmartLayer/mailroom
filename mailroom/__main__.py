@@ -13,9 +13,17 @@ from typing import Any, Dict, List, Optional
 
 import typer
 
+from mailroom import __version__
 from mailroom.config import load_config
 from mailroom.imap_client import ImapClient
 from mailroom.models import extract_links_batch
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"mailroom {__version__}")
+        raise typer.Exit()
+
 
 app = typer.Typer(
     name="mailroom",
@@ -57,6 +65,13 @@ def _global_options(
     ),
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Enable verbose logging."
+    ),
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show version and exit.",
     ),
 ) -> None:
     global _config_path, _account_names, _all_accounts
@@ -224,7 +239,7 @@ def status() -> None:
     accounts_map: Dict[str, Any] = {}
     status_data: Dict[str, Any] = {
         "server": "Mailroom",
-        "version": "1.0.2",
+        "version": "1.0.3",
         "default_account": cfg.default_account,
         "accounts": accounts_map,
     }
@@ -958,7 +973,7 @@ def mcp_serve(
 ) -> None:
     """Start the MCP server (Model Context Protocol)."""
     if version:
-        print("Mailroom MCP server version 1.0.2")
+        print("Mailroom MCP server version 1.0.3")
         raise typer.Exit()
     from mailroom.mcp_server import create_server
 
