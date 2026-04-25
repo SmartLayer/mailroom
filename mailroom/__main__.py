@@ -25,7 +25,8 @@ app = typer.Typer(
 
 # Module-level state set by the --config callback.
 _config_path: Optional[str] = None
-_account_name: Optional[str] = None
+_account_names: List[str] = []
+_all_accounts: bool = False
 
 logger = logging.getLogger(__name__)
 
@@ -39,21 +40,68 @@ def _global_options(
         help="Path to TOML configuration file.",
         envvar="MAILROOM_CONFIG",
     ),
-    account: Optional[str] = typer.Option(
-        None,
+    accounts: List[str] = typer.Option(
+        [],
         "--account",
         "-a",
-        help="Account name (for multi-account configs). Uses default if omitted.",
+        help=(
+            "Account name (for multi-account configs). Uses default if omitted. "
+            "Pass multiple times with 'search' to query several accounts."
+        ),
+    ),
+    all_accounts: bool = typer.Option(
+        False,
+        "--all-accounts",
+        "-A",
+        help="Search every configured account. Only meaningful for 'search'.",
     ),
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Enable verbose logging."
     ),
 ) -> None:
-    global _config_path, _account_name
+    global _config_path, _account_names, _all_accounts
     _config_path = config
-    _account_name = account
+    _account_names = list(accounts)
+    _all_accounts = all_accounts
     level = logging.DEBUG if verbose else logging.WARNING
     logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
+
+
+def _resolve_accounts() -> List[str]:
+    """Resolve module-level account flags to a deduplicated list of names.
+
+    Returns the list of account names to search, validated against the
+    config. Errors hard if a name is unknown or if ``--all-accounts`` is
+    set with no accounts configured. Emits a stderr note when
+    ``--all-accounts`` overrides explicit ``-a`` flags.
+    """
+    try:
+        cfg = load_config(_config_path)
+    except (ValueError, FileNotFoundError, Exception) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+    if _all_accounts:
+        if not cfg.accounts:
+            typer.echo("Error: no accounts configured", err=True)
+            raise typer.Exit(1)
+        if _account_names:
+            typer.echo("note: --all-accounts overrides --account values", err=True)
+        return list(cfg.accounts.keys())
+    if not _account_names:
+        return [cfg.default_account]
+    seen: set = set()
+    resolved: List[str] = []
+    for name in _account_names:
+        if name not in cfg.accounts:
+            available = list(cfg.accounts.keys())
+            typer.echo(
+                f"Error: unknown account '{name}'. Available: {available}", err=True
+            )
+            raise typer.Exit(1)
+        if name not in seen:
+            resolved.append(name)
+            seen.add(name)
+    return resolved
 
 
 def _make_client(account_override: Optional[str] = None) -> ImapClient:
@@ -62,18 +110,33 @@ def _make_client(account_override: Optional[str] = None) -> ImapClient:
     Args:
         account_override: If given, use this account name instead of the
             global ``--account`` flag.
+
+    Raises:
+        typer.Exit: On config error, unknown account, multi-account misuse,
+            or IMAP connect failure.
     """
     try:
         cfg = load_config(_config_path)
     except (ValueError, FileNotFoundError, Exception) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1)
-    name = account_override or _account_name or cfg.default_account
+    if account_override is None:
+        if _all_accounts or len(_account_names) > 1:
+            typer.echo(
+                "Error: this command does not support multi-account flags "
+                "(--all-accounts or repeated --account)",
+                err=True,
+            )
+            raise typer.Exit(1)
+        single = _account_names[0] if _account_names else None
+        name = single or cfg.default_account
+    else:
+        name = account_override
     if name not in cfg.accounts:
         available = list(cfg.accounts.keys())
         typer.echo(f"Error: unknown account '{name}'. Available: {available}", err=True)
         raise typer.Exit(1)
-    if not _account_name and not account_override:
+    if not _account_names and account_override is None:
         typer.echo(f"Using account '{name}'", err=True)
     acct = cfg.accounts[name]
     client = ImapClient(acct.imap, acct.allowed_folders)
@@ -82,6 +145,31 @@ def _make_client(account_override: Optional[str] = None) -> ImapClient:
     except Exception as exc:
         typer.echo(f"Error: failed to connect to IMAP server: {exc}", err=True)
         raise typer.Exit(1)
+    return client
+
+
+def _make_client_soft(name: str) -> Optional[ImapClient]:
+    """Connect for one account, returning None on failure (with stderr warning).
+
+    Used by the multi-account search loop so one unreachable account does
+    not abort the whole command.
+    """
+    try:
+        cfg = load_config(_config_path)
+    except (ValueError, FileNotFoundError, Exception) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+    if name not in cfg.accounts:
+        available = list(cfg.accounts.keys())
+        typer.echo(f"Error: unknown account '{name}'. Available: {available}", err=True)
+        raise typer.Exit(1)
+    acct = cfg.accounts[name]
+    client = ImapClient(acct.imap, acct.allowed_folders)
+    try:
+        client.connect()
+    except Exception as exc:
+        typer.echo(f"warning: connect failed for '{name}': {exc}", err=True)
+        return None
     return client
 
 
@@ -193,17 +281,31 @@ def search(
     ),
     limit: int = typer.Option(10, "--limit", "-n", help="Maximum number of results."),
 ) -> None:
-    """Search for emails."""
+    """Search for emails. Returns a dict keyed by account name.
+
+    Single-account searches return ``{"acct-name": [...]}``; multi-account
+    searches (``-a A -a B`` or ``--all-accounts``) return one key per
+    account searched. ``--limit`` is applied per account.
+    """
     effective = query_opt if query_opt is not None else query
-    client = _make_client()
-    try:
-        results = client.search_emails(effective, folder=folder, limit=limit)
-        _out(results)
-    except ValueError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1)
-    finally:
-        client.disconnect()
+    names = _resolve_accounts()
+    results: Dict[str, List[Dict[str, Any]]] = {}
+    for name in names:
+        client = _make_client_soft(name)
+        if client is None:
+            results[name] = []
+            continue
+        try:
+            results[name] = client.search_emails(effective, folder=folder, limit=limit)
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1)
+        except Exception as exc:
+            typer.echo(f"warning: search failed for '{name}': {exc}", err=True)
+            results[name] = []
+        finally:
+            client.disconnect()
+    _out(results)
 
 
 # ---------------------------------------------------------------------------
@@ -915,23 +1017,26 @@ def _rewrite_argv(argv: List[str]) -> List[str]:
     if sub in _SEARCH_ALIASES:
         sys.stderr.write(f"note: no such subcommand {sub!r}; running 'search'\n")
         out[sub_idx] = "search"
-    account: Optional[str] = None
+    accounts: List[str] = []
     tail: List[str] = []
     j = sub_idx + 1
     while j < len(out):
         tok = out[j]
         if tok in ("--account", "-a") and j + 1 < len(out):
-            account = out[j + 1]
+            accounts.append(out[j + 1])
             j += 2
             continue
         if tok.startswith("--account=") or tok.startswith("-a="):
-            account = tok.split("=", 1)[1]
+            accounts.append(tok.split("=", 1)[1])
             j += 1
             continue
         tail.append(tok)
         j += 1
-    if account is not None:
-        return out[:sub_idx] + ["--account", account] + [out[sub_idx]] + tail
+    if accounts:
+        flat: List[str] = []
+        for a in accounts:
+            flat.extend(["--account", a])
+        return out[:sub_idx] + flat + [out[sub_idx]] + tail
     return out
 
 
