@@ -1,5 +1,5 @@
 Name:           mailroom
-Version:        1.0.1
+Version:        1.0.3
 Release:        1%{?dist}
 Summary:        Email toolkit for AI assistants and command-line scripting
 License:        MIT
@@ -65,6 +65,25 @@ install -Dpm 644 debian/mailroom.1 %{buildroot}%{_mandir}/man1/mailroom.1
 %{_mandir}/man1/mailroom.1*
 
 %changelog
+* Sat Apr 25 2026 Weiwu Zhang <a@colourful.land> - 1.0.3-1
+- search: optional local-cache backend via mu (Xapian); when a [local_cache]
+  block is configured and an account names a maildir, search serves from
+  `mu find` over a subprocess instead of IMAP with transparent IMAP fallback
+- Search response now wraps {"results", "provenance"}; provenance reports
+  source, indexed_at, and any fall-back reason (breaking change for
+  consumers that indexed the bare result list)
+- Route Gmail header queries (from:/to:/cc:/bcc:) through X-GM-RAW so
+  Gmail's All Mail filters correctly for values containing "@"/"."
+- search: --format text and --format oneline output; --format json (the
+  default) is unchanged
+- search: multi-account support via --account/-a (repeatable) and
+  --all-accounts/-A; output is nested by account name
+- search: skip \\Noselect / \\NonExistent folders; prefer SPECIAL-USE \\All
+- search: soft-redirect search-variant subcommand names; --account
+  accepted before or after the subcommand; --query/-q alias
+- Exit code 1 on zero results for search and attachments
+- Top-level --version flag
+
 * Mon Apr 06 2026 Weiwu Zhang <a@colourful.land> - 1.0.1-1
 - Rename CLI commands to aerc-aligned short verbs (search, move, reply, etc.)
 - Rename MCP tools to kebab-case (search, move, mark-read, etc.)

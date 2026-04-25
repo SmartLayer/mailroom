@@ -11,11 +11,24 @@ mailroom (1.0.3) unstable; urgency=medium
     instead of iterating every folder.
   * search: multi-account support. --account/-a accepted multiply;
     --all-accounts/-A searches every configured account. Output is now
-    always nested by account name ({"acct": [...]}) — breaking change for
-    consumers that previously parsed a flat array. --limit applies per
-    account.
+    always nested by account name ({"acct": {...}}) — breaking change
+    for consumers that previously parsed a flat array. --limit applies
+    per account.
+  * search: optional local-cache backend via mu (Xapian).  When a
+    [local_cache] block is configured and an account names a maildir,
+    the search MCP tool and CLI command serve from `mu find` over a
+    subprocess instead of IMAP, with transparent fallback on stale,
+    untranslatable, or folder-scoped queries.  Every search response
+    now wraps {"results", "provenance"}; provenance reports the source,
+    indexed_at, and any fall-back reason.  This is a breaking change
+    in result shape for consumers that indexed the bare result list.
+  * search: route Gmail header queries (from:/to:/cc:/bcc:) through
+    X-GM-RAW.  Standard IMAP `SEARCH TO foo@bar` against Gmail's All
+    Mail did not filter by header for values containing "@"/"."; the
+    X-GM-RAW dispatch evaluates with web-UI semantics and filters
+    correctly.
 
- -- Weiwu Zhang <a@colourful.land>  Sat, 25 Apr 2026 00:00:00 +0000
+ -- Weiwu Zhang <a@colourful.land>  Sat, 25 Apr 2026 22:30:00 +0000
 
 mailroom (1.0.2) unstable; urgency=medium
 
