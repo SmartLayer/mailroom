@@ -988,6 +988,126 @@ class TestImapClient:
             assert result is False
 
 
+class TestGmailSearchDispatch:
+    """Regression tests for issue #17 — Gmail X-GM-RAW dispatch.
+
+    Standard IMAP ``SEARCH TO foo@example.com`` against Gmail's All Mail
+    folder empirically does not filter by To header (returns the full
+    folder).  ``search_emails`` must therefore route header searches
+    through Gmail's ``X-GM-RAW`` extension when the configured host is
+    Gmail; non-Gmail hosts and the ``imap:`` raw escape continue to use
+    the standard ``parse_query`` emitter.
+    """
+
+    def _make_client(self, host: str = "imap.gmail.com") -> ImapClient:
+        config = ImapConfig(
+            host=host,
+            port=993,
+            username="test@example.com",
+            password="password",
+            use_ssl=True,
+        )
+        return ImapClient(config)
+
+    def test_gmail_to_uses_x_gm_raw(self):
+        client = self._make_client()
+        spec = client._build_search_spec("to:foo@example.com")
+        assert spec == [b"X-GM-RAW", "to:foo@example.com"]
+
+    def test_gmail_from_uses_x_gm_raw(self):
+        client = self._make_client()
+        spec = client._build_search_spec("from:alice@example.com")
+        assert spec == [b"X-GM-RAW", "from:alice@example.com"]
+
+    def test_gmail_cc_uses_x_gm_raw(self):
+        client = self._make_client()
+        spec = client._build_search_spec("cc:team@example.com")
+        assert spec == [b"X-GM-RAW", "cc:team@example.com"]
+
+    def test_gmail_bcc_uses_x_gm_raw(self):
+        client = self._make_client()
+        spec = client._build_search_spec("bcc:bob@example.com")
+        assert spec == [b"X-GM-RAW", "bcc:bob@example.com"]
+
+    def test_gmail_or_with_to_uses_x_gm_raw(self):
+        client = self._make_client()
+        spec = client._build_search_spec("from:foo@example.com OR to:foo@example.com")
+        assert spec == [
+            b"X-GM-RAW",
+            "from:foo@example.com OR to:foo@example.com",
+        ]
+
+    def test_gmail_negated_to_uses_x_gm_raw(self):
+        client = self._make_client()
+        spec = client._build_search_spec("-to:foo@example.com")
+        assert spec == [b"X-GM-RAW", "-to:foo@example.com"]
+
+    def test_gmail_pure_flag_query_uses_imap(self):
+        """is:unread alone has no header prefix → standard IMAP search."""
+        client = self._make_client()
+        spec = client._build_search_spec("is:unread")
+        assert spec == "UNSEEN"
+
+    def test_gmail_pure_subject_query_uses_imap(self):
+        """SUBJECT search works correctly on standard IMAP — no need for X-GM-RAW."""
+        client = self._make_client()
+        spec = client._build_search_spec("subject:invoice")
+        assert spec == ["SUBJECT", "invoice"]
+
+    def test_gmail_imap_escape_uses_imap(self):
+        client = self._make_client()
+        spec = client._build_search_spec("imap:UNSEEN")
+        assert spec == "UNSEEN"
+
+    def test_gmail_bare_word_uses_imap(self):
+        client = self._make_client()
+        spec = client._build_search_spec("hello")
+        assert spec == ["TEXT", "hello"]
+
+    def test_non_gmail_to_uses_imap(self):
+        """Non-Gmail hosts go through the parser unchanged."""
+        client = self._make_client(host="imap.fastmail.com")
+        spec = client._build_search_spec("to:foo@example.com")
+        assert spec == ["TO", "foo@example.com"]
+
+    def test_non_gmail_from_uses_imap(self):
+        client = self._make_client(host="mail.example.com")
+        spec = client._build_search_spec("from:foo@example.com")
+        assert spec == ["FROM", "foo@example.com"]
+
+    def test_gmail_quoted_value_with_to_uses_x_gm_raw(self):
+        """Quoted address values still trip the dispatch."""
+        client = self._make_client()
+        spec = client._build_search_spec('to:"Bob Smith <bob@example.com>"')
+        assert spec == [b"X-GM-RAW", 'to:"Bob Smith <bob@example.com>"']
+
+    def test_gmail_to_with_extra_terms_uses_x_gm_raw(self):
+        """Mixed header + flag/date queries route via X-GM-RAW; Gmail
+        understands these prefixes natively."""
+        client = self._make_client()
+        spec = client._build_search_spec("to:foo@example.com is:unread")
+        assert spec == [b"X-GM-RAW", "to:foo@example.com is:unread"]
+
+    def test_search_emails_to_on_gmail_invokes_x_gm_raw(self, mock_imap_client):
+        """End-to-end behaviour test: ``search_emails('to:foo@example.com')``
+        on a Gmail host must pass ``X-GM-RAW`` (not bare ``TO``) to the
+        underlying imapclient.search call.  Bare ``TO`` is the wire form
+        that triggers issue #17.
+        """
+        client = self._make_client()
+        with patch("imapclient.IMAPClient") as mock_client_class:
+            mock_client_class.return_value = mock_imap_client
+            mock_imap_client.list_folders.return_value = [
+                ((b"\\HasNoChildren", b"\\All"), b"/", "[Gmail]/All Mail"),
+            ]
+            mock_imap_client.search.return_value = []
+            client.connect()
+            client.search_emails("to:foo@example.com")
+            mock_imap_client.search.assert_called_once_with(
+                [b"X-GM-RAW", "to:foo@example.com"], charset=None
+            )
+
+
 class TestProcessEmailAction:
     """Tests for ImapClient.process_email_action dispatcher."""
 

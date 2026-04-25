@@ -3,6 +3,7 @@
 import email
 import logging
 import re
+import shlex
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -932,6 +933,71 @@ class ImapClient:
             logger.error(f"Failed to append message to {folder}: {e}")
             raise
 
+    # Header search prefixes whose presence triggers the Gmail X-GM-RAW
+    # dispatch.  Standard IMAP SEARCH FROM/TO/CC/BCC against Gmail's All
+    # Mail empirically does not filter by header content for values that
+    # contain "@"/"."; X-GM-RAW evaluates the query the way Gmail's web UI
+    # does and produces the expected filter (issue #17).
+    _GMAIL_RAW_TRIGGER_PREFIXES = ("from:", "to:", "cc:", "bcc:")
+
+    def _build_search_spec(self, query: str) -> Union[str, List[Any]]:
+        """Translate a user query into IMAP search criteria.
+
+        For Gmail accounts the function returns ``[b"X-GM-RAW", query]`` when
+        the query contains a header search prefix, so Gmail evaluates the
+        query with web-UI semantics.  All other queries (and the ``imap:``
+        raw escape) go through the standard ``parse_query`` emitter.
+
+        Args:
+            query: Raw user query string.
+
+        Returns:
+            A criteria value suitable for ``imapclient.IMAPClient.search``.
+
+        Raises:
+            ValueError: Propagated from ``parse_query`` on malformed queries.
+        """
+        if self._should_use_gmail_raw(query):
+            return [b"X-GM-RAW", query.strip()]
+        return parse_query(query)
+
+    def _should_use_gmail_raw(self, query: str) -> bool:
+        """Decide whether a query should be sent via ``X-GM-RAW``.
+
+        Returns ``True`` only when the server is Gmail, the query is not a
+        raw IMAP escape, and at least one whitespace-separated token starts
+        with a header search prefix (``from:``/``to:``/``cc:``/``bcc:``).
+        Pure flag/date queries continue to use standard IMAP search so
+        non-Gmail capability assumptions (no ``X-GM-EXT-1`` requirement)
+        and existing tests remain unchanged.
+
+        Args:
+            query: Raw user query string.
+
+        Returns:
+            ``True`` when the Gmail X-GM-RAW dispatch should be used.
+        """
+        host = (self.config.host or "").lower()
+        if "gmail" not in host:
+            return False
+        stripped = query.strip()
+        if stripped.lower().startswith("imap:"):
+            return False
+        try:
+            tokens = shlex.split(stripped)
+        except ValueError:
+            tokens = stripped.split()
+        for tok in tokens:
+            tok_lower = tok.lower()
+            if any(tok_lower.startswith(p) for p in self._GMAIL_RAW_TRIGGER_PREFIXES):
+                return True
+            # Also catch negated prefixes like -to:foo.
+            if tok_lower.startswith("-") and any(
+                tok_lower[1:].startswith(p) for p in self._GMAIL_RAW_TRIGGER_PREFIXES
+            ):
+                return True
+        return False
+
     def search_emails(
         self,
         query: str,
@@ -946,6 +1012,16 @@ class ImapClient:
             meeting notes                     # bare words → TEXT search
             imap:OR TEXT foo SUBJECT bar       # raw IMAP passthrough
 
+        On Gmail accounts (host contains ``gmail``), the query is dispatched
+        through Gmail's ``X-GM-RAW`` extension whenever it contains a header
+        search prefix (``from:``/``to:``/``cc:``/``bcc:``).  Standard IMAP
+        ``SEARCH TO foo@example.com`` against Gmail's All Mail folder
+        empirically matches every recent message rather than filtering by
+        the To header (issue #17); ``X-GM-RAW`` evaluates the query with
+        the same semantics as Gmail's web UI and filters correctly.
+        Queries without header prefixes (pure flag/date searches) and the
+        ``imap:`` raw escape continue to use standard IMAP search.
+
         Args:
             query: Gmail-style search query string.
             folder: Folder to search (``None`` searches all folders).
@@ -958,7 +1034,7 @@ class ImapClient:
         Raises:
             ValueError: On malformed queries.
         """
-        search_spec = parse_query(query)
+        search_spec = self._build_search_spec(query)
 
         if folder:
             folders_to_search = [folder]
