@@ -236,6 +236,11 @@ class ImapClient:
                 # Convert bytes to string if necessary
                 name = name.decode("utf-8")
 
+            # Skip non-selectable folders (e.g. Gmail's '[Gmail]' parent has
+            # \Noselect; SELECTing it returns NONEXISTENT).
+            if b"\\Noselect" in flags or b"\\NonExistent" in flags:
+                continue
+
             # Filter folders if allowed_folders is set
             if self.allowed_folders is not None and name not in self.allowed_folders:
                 continue
@@ -246,6 +251,27 @@ class ImapClient:
         self._update_activity()
         logger.debug(f"Listed {len(folders)} folders")
         return folders
+
+    def find_special_use_folder(self, role: bytes) -> Optional[str]:
+        """Return the folder marked with the given SPECIAL-USE flag.
+
+        IMAP SPECIAL-USE (RFC 6154) advertises folders by role:
+        ``\\All``, ``\\Sent``, ``\\Drafts``, ``\\Trash``, ``\\Junk``,
+        ``\\Flagged``, ``\\Important``. Gmail tags ``[Gmail]/All Mail`` with
+        ``\\All``; Fastmail uses ``Archive``; etc.
+
+        Args:
+            role: The SPECIAL-USE flag as bytes, e.g. ``b'\\\\All'``.
+
+        Returns:
+            The folder name, or ``None`` if no folder advertises that role.
+        """
+        if not self.folder_cache:
+            self.list_folders()
+        for name, flags in self.folder_cache.items():
+            if role in flags:
+                return name
+        return None
 
     def _is_folder_allowed(self, folder: str) -> bool:
         """Check if a folder is allowed.
@@ -934,7 +960,14 @@ class ImapClient:
         """
         search_spec = parse_query(query)
 
-        folders_to_search = [folder] if folder else self.list_folders()
+        if folder:
+            folders_to_search = [folder]
+        else:
+            # Prefer the SPECIAL-USE \All folder when the server advertises one
+            # (Gmail's [Gmail]/All Mail, Fastmail's Archive, etc.) — one SELECT
+            # instead of iterating every folder. Falls back to all selectable.
+            all_mail = self.find_special_use_folder(b"\\All")
+            folders_to_search = [all_mail] if all_mail else self.list_folders()
 
         # Pass 1: collect (uid, folder, date) using a lightweight fetch
         candidates: List[tuple] = []
