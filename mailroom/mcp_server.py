@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 
 from mailroom.config import MultiAccountConfig, load_config
 from mailroom.imap_client import ImapClient
+from mailroom.local_cache import MuBackend
 from mailroom.mcp_protocol import extend_server
 from mailroom.resources import register_resources
 from mailroom.tools import register_tools
@@ -44,11 +45,18 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict]:
     else:
         raise TypeError("Invalid server configuration")
 
+    mu_backend = MuBackend(config.local_cache) if config.local_cache else None
+
     clients: Dict[str, ImapClient] = {}
     try:
         for name, acct in config.accounts.items():
             logger.info(f"Connecting to IMAP server for account '{name}'...")
-            client = ImapClient(acct.imap, acct.allowed_folders)
+            client = ImapClient(
+                acct.imap,
+                acct.allowed_folders,
+                local_cache=mu_backend,
+                account_cfg=acct,
+            )
             client.connect()
             clients[name] = client
 
@@ -88,7 +96,13 @@ def create_server(config_path: Optional[str] = None, debug: bool = False) -> Fas
 
     # Create a throwaway client for tool/resource registration (not used at runtime)
     first_acct = config.accounts[config.default_account]
-    imap_client = ImapClient(first_acct.imap, first_acct.allowed_folders)
+    mu_backend = MuBackend(config.local_cache) if config.local_cache else None
+    imap_client = ImapClient(
+        first_acct.imap,
+        first_acct.allowed_folders,
+        local_cache=mu_backend,
+        account_cfg=first_acct,
+    )
 
     register_resources(server, imap_client)
     register_tools(server, imap_client)

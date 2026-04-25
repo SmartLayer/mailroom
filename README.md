@@ -16,6 +16,7 @@ Give your script or AI assistant access to your email.
 - [MCP server](#mcp-server)
 - [Scripting and automation](#scripting-and-automation)
 - [Multi-account](#multi-account)
+- [Local cache (mu)](#local-cache-mu)
 - [Connection handling](#connection-handling)
 - [Security](#security)
 - [License](#license)
@@ -192,6 +193,24 @@ Select an account with `-a`:
 ```bash
 mailroom -a work search "is:unread"
 ```
+
+## Local cache (mu)
+
+If you already have your maildir indexed by [mu](https://www.djcbsoftware.nl/code/mu/), `search` can be served from the local Xapian index instead of IMAP — orders of magnitude faster. Opt in by adding a `[local_cache]` block plus a per-account `maildir`:
+
+```toml
+[local_cache]
+indexer = "mu"
+max_staleness_seconds = 4000   # ~67 minutes; bypassed if older
+
+[accounts.gmail]
+host = "imap.gmail.com"
+username = "you@gmail.com"
+maildir = "/var/local/mail/you-gmail-com"   # opts this account in
+# ... existing fields ...
+```
+
+The contract is "a maildir exists and mu indexes it" — mailroom does not run `mbsync`, `offlineimap`, or `mu index`. When the index is stale, the query is untranslatable (`imap:` raw escape), the call is folder-scoped, mu is missing, or any error occurs, the search falls back to IMAP transparently. Every `search` response carries a `provenance` field reporting `source` (`"local"` or `"remote"`), the index `indexed_at` timestamp, and a `fell_back_reason` tag when applicable.
 
 ## Connection handling
 
