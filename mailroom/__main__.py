@@ -185,15 +185,19 @@ def search(
             "'imap:OR TEXT foo SUBJECT bar' (raw IMAP)."
         ),
     ),
+    query_opt: Optional[str] = typer.Option(
+        None, "--query", "-q", help="Alias for the positional query (overrides if set)."
+    ),
     folder: Optional[str] = typer.Option(
         None, "--folder", "-f", help="Folder to search (default: all)."
     ),
     limit: int = typer.Option(10, "--limit", "-n", help="Maximum number of results."),
 ) -> None:
     """Search for emails."""
+    effective = query_opt if query_opt is not None else query
     client = _make_client()
     try:
-        results = client.search_emails(query, folder=folder, limit=limit)
+        results = client.search_emails(effective, folder=folder, limit=limit)
         _out(results)
     except ValueError as exc:
         typer.echo(str(exc), err=True)
@@ -865,7 +869,74 @@ def mcp_serve(
 # ---------------------------------------------------------------------------
 
 
+_SEARCH_ALIASES = {"search-email", "search_email", "email-search", "email_search"}
+
+
+def _rewrite_argv(argv: List[str]) -> List[str]:
+    """Rewrite argv for AI-friendly invocation.
+
+    Two transformations:
+    1. If the subcommand is one of the known search aliases
+       (``email_search``, ``email-search``, ``search_email``, ``search-email``),
+       rewrite it to ``search`` and emit a note to stderr.
+    2. If ``-a``/``--account`` appears after the subcommand, hoist it to
+       before the subcommand so Typer's global callback sees it.
+
+    Skips when ``_MAILROOM_COMPLETE`` is set so shell-completion is undisturbed.
+    """
+    if os.environ.get("_MAILROOM_COMPLETE"):
+        return argv
+    out = list(argv)
+    globals_with_value = {"--config", "-c", "--account", "-a"}
+    sub_idx: Optional[int] = None
+    i = 0
+    while i < len(out):
+        tok = out[i]
+        if tok == "--":
+            break
+        if tok in globals_with_value:
+            i += 2
+            continue
+        if (
+            tok.startswith("--")
+            and "=" in tok
+            and tok.split("=", 1)[0] in globals_with_value
+        ):
+            i += 1
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        sub_idx = i
+        break
+    if sub_idx is None:
+        return out
+    sub = out[sub_idx]
+    if sub in _SEARCH_ALIASES:
+        sys.stderr.write(f"note: no such subcommand {sub!r}; running 'search'\n")
+        out[sub_idx] = "search"
+    account: Optional[str] = None
+    tail: List[str] = []
+    j = sub_idx + 1
+    while j < len(out):
+        tok = out[j]
+        if tok in ("--account", "-a") and j + 1 < len(out):
+            account = out[j + 1]
+            j += 2
+            continue
+        if tok.startswith("--account=") or tok.startswith("-a="):
+            account = tok.split("=", 1)[1]
+            j += 1
+            continue
+        tail.append(tok)
+        j += 1
+    if account is not None:
+        return out[:sub_idx] + ["--account", account] + [out[sub_idx]] + tail
+    return out
+
+
 def main() -> None:
+    sys.argv[1:] = _rewrite_argv(sys.argv[1:])
     app()
 
 
