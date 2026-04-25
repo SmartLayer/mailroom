@@ -4,7 +4,11 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
-from mailroom.query_parser import parse_query
+from mailroom.query_parser import (
+    UntranslatableQuery,
+    parse_query,
+    parse_query_to_mu,
+)
 
 
 class TestBareWords:
@@ -315,3 +319,133 @@ class TestEdgeCases:
     def test_numeric_query(self):
         """Numeric strings are TEXT searches."""
         assert parse_query("69172700") == ["TEXT", "69172700"]
+
+
+class TestMuEmit:
+    """parse_query_to_mu translates mailroom queries into mu CLI strings."""
+
+    # ------------------------------------------------------------------
+    # prefix:value terms
+    # ------------------------------------------------------------------
+
+    def test_from(self):
+        assert parse_query_to_mu("from:alice") == "from:alice"
+
+    def test_to(self):
+        assert parse_query_to_mu("to:bob@example.com") == "to:bob@example.com"
+
+    def test_subject_unquoted_single_token(self):
+        """`subject:meeting notes` — first token is `subject:meeting`,
+        second `notes` is a bare word; concatenation reads naturally."""
+        assert parse_query_to_mu("subject:meeting notes") == "subject:meeting notes"
+
+    def test_subject_quoted_phrase(self):
+        assert parse_query_to_mu('subject:"meeting notes"') == 'subject:"meeting notes"'
+
+    # ------------------------------------------------------------------
+    # is:keyword → flag:X
+    # ------------------------------------------------------------------
+
+    def test_is_unread(self):
+        assert parse_query_to_mu("is:unread") == "flag:unread"
+
+    def test_is_read(self):
+        assert parse_query_to_mu("is:read") == "flag:seen"
+
+    def test_is_flagged(self):
+        assert parse_query_to_mu("is:flagged") == "flag:flagged"
+
+    def test_is_starred(self):
+        assert parse_query_to_mu("is:starred") == "flag:flagged"
+
+    def test_is_answered(self):
+        assert parse_query_to_mu("is:answered") == "flag:replied"
+
+    def test_is_unflagged(self):
+        assert parse_query_to_mu("is:unflagged") == "NOT flag:flagged"
+
+    def test_is_unanswered(self):
+        assert parse_query_to_mu("is:unanswered") == "NOT flag:replied"
+
+    # ------------------------------------------------------------------
+    # date operators
+    # ------------------------------------------------------------------
+
+    def test_after(self):
+        assert parse_query_to_mu("after:2025-03-01") == "date:20250301.."
+
+    def test_before(self):
+        assert parse_query_to_mu("before:2025-03-01") == "date:..20250301"
+
+    def test_on(self):
+        assert parse_query_to_mu("on:2025-03-01") == "date:20250301..20250301"
+
+    # ------------------------------------------------------------------
+    # boolean operators
+    # ------------------------------------------------------------------
+
+    def test_or_lowercase_becomes_uppercase(self):
+        assert parse_query_to_mu("from:alice OR to:bob") == "from:alice OR to:bob"
+
+    def test_not_keyword(self):
+        assert parse_query_to_mu("not is:unread") == "NOT flag:unread"
+
+    def test_dash_negation(self):
+        assert parse_query_to_mu("-from:alice") == "NOT from:alice"
+
+    # ------------------------------------------------------------------
+    # bare words and special inputs
+    # ------------------------------------------------------------------
+
+    def test_bare_words(self):
+        assert parse_query_to_mu("meeting notes") == "meeting notes"
+
+    def test_empty(self):
+        assert parse_query_to_mu("") == ""
+
+    def test_standalone_all(self):
+        """`all` is mu's match-all (empty query)."""
+        assert parse_query_to_mu("all") == ""
+
+    def test_today_format(self):
+        """`today` produces date:YYYYMMDD..; the date is variable so we
+        only assert structure."""
+        result = parse_query_to_mu("today")
+        assert result.startswith("date:")
+        assert result.endswith("..")
+
+    # ------------------------------------------------------------------
+    # untranslatable cases
+    # ------------------------------------------------------------------
+
+    def test_imap_escape_raises_untranslatable(self):
+        with pytest.raises(UntranslatableQuery) as excinfo:
+            parse_query_to_mu("imap:OR TEXT foo SUBJECT bar")
+        assert excinfo.value.reason == "untranslatable"
+
+    def test_imap_prefix_token_raises_untranslatable(self):
+        """A non-leading token with imap: prefix also surfaces as
+        untranslatable so the caller can fall back to IMAP."""
+        with pytest.raises(UntranslatableQuery) as excinfo:
+            parse_query_to_mu("foo imap:RAW")
+        assert excinfo.value.reason == "untranslatable"
+
+    # ------------------------------------------------------------------
+    # malformed queries → ValueError
+    # ------------------------------------------------------------------
+
+    def test_unknown_is_keyword_raises(self):
+        with pytest.raises(ValueError, match="Unknown is: keyword"):
+            parse_query_to_mu("is:bogus")
+
+    def test_invalid_date_raises(self):
+        with pytest.raises(ValueError, match="Invalid date"):
+            parse_query_to_mu("after:not-a-date")
+
+    def test_dangling_or_raises(self):
+        with pytest.raises(ValueError, match="[Oo]r"):
+            parse_query_to_mu("from:alice or")
+
+    def test_dangling_not_raises(self):
+        with pytest.raises(ValueError, match="[Nn]ot"):
+            parse_query_to_mu("not")

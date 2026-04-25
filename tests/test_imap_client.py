@@ -1,12 +1,14 @@
 """Tests for the IMAP client."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mailroom.config import ImapConfig
+from mailroom.config import AccountConfig, ImapConfig
 from mailroom.imap_client import ImapClient
+from mailroom.local_cache import EligibilityResult, MuFailure
 from mailroom.models import Email
+from mailroom.query_parser import UntranslatableQuery
 
 
 class TestImapClient:
@@ -1106,6 +1108,155 @@ class TestGmailSearchDispatch:
             mock_imap_client.search.assert_called_once_with(
                 [b"X-GM-RAW", "to:foo@example.com"], charset=None
             )
+
+
+class TestSearchEmailsDispatch:
+    """Wrapping and local-cache dispatch behaviour of search_emails.
+
+    ``search_emails`` always returns a wrapped ``{"results", "provenance"}``
+    dict and dispatches to the local-cache backend when configured and
+    eligible, falling back to IMAP otherwise.  These tests pin the
+    wrapping shape and the fallback-reason vocabulary.
+    """
+
+    def _make_config(self, host: str = "imap.example.com") -> ImapConfig:
+        return ImapConfig(
+            host=host,
+            port=993,
+            username="test@example.com",
+            password="password",
+            use_ssl=True,
+        )
+
+    def _make_account_cfg(
+        self, config: ImapConfig, maildir: str = "/var/local/mail/test-account"
+    ) -> AccountConfig:
+        return AccountConfig(imap=config, maildir=maildir)
+
+    def test_search_emails_wraps_with_provenance_imap_path(self):
+        """No local_cache configured → IMAP path runs and result is wrapped."""
+        config = self._make_config()
+        client = ImapClient(config)
+
+        with patch.object(client, "_search_emails_imap", return_value=[]) as mock_imap:
+            result = client.search_emails("from:alice")
+
+        mock_imap.assert_called_once_with("from:alice", None, 10)
+        assert result == {
+            "results": [],
+            "provenance": {
+                "source": "remote",
+                "indexed_at": None,
+                "fell_back_reason": None,
+            },
+        }
+
+    def test_search_emails_dispatches_to_mu_when_eligible(self):
+        """Eligible local_cache short-circuits the IMAP path."""
+        config = self._make_config()
+        account_cfg = self._make_account_cfg(config)
+
+        canned = [
+            {
+                "message_id": "<m@x>",
+                "path": "/var/local/mail/test-account/cur/123",
+                "folder": "INBOX",
+                "from": "Alice <a@b.com>",
+                "to": ["c@d.com"],
+                "subject": "Hi",
+                "date": "2025-01-01T00:00:00+00:00",
+                "flags": ["seen"],
+                "has_attachments": False,
+            }
+        ]
+        mu = MagicMock()
+        mu.is_eligible.return_value = EligibilityResult(True)
+        mu.search.return_value = canned
+        mu.index_mtime_iso.return_value = "2025-04-01T12:00:00+00:00"
+
+        client = ImapClient(config, local_cache=mu, account_cfg=account_cfg)
+
+        with patch.object(client, "_search_emails_imap") as mock_imap:
+            result = client.search_emails("from:alice")
+
+        mock_imap.assert_not_called()
+        mu.search.assert_called_once_with(account_cfg, "from:alice", 10)
+        assert result["results"] == canned
+        assert result["provenance"]["source"] == "local"
+        assert result["provenance"]["indexed_at"] == "2025-04-01T12:00:00+00:00"
+        assert result["provenance"]["fell_back_reason"] is None
+
+    def test_search_emails_falls_back_on_mu_exception(self):
+        """A MuFailure from the backend triggers an IMAP fallback."""
+        config = self._make_config()
+        account_cfg = self._make_account_cfg(config)
+
+        mu = MagicMock()
+        mu.is_eligible.return_value = EligibilityResult(True)
+        mu.search.side_effect = MuFailure("boom")
+
+        client = ImapClient(config, local_cache=mu, account_cfg=account_cfg)
+
+        with patch.object(client, "_search_emails_imap", return_value=[]) as mock_imap:
+            result = client.search_emails("from:alice")
+
+        mock_imap.assert_called_once_with("from:alice", None, 10)
+        assert result["provenance"]["source"] == "remote"
+        assert result["provenance"]["fell_back_reason"] == "exception"
+
+    def test_search_emails_falls_back_on_untranslatable(self):
+        """An UntranslatableQuery from the backend triggers an IMAP fallback."""
+        config = self._make_config()
+        account_cfg = self._make_account_cfg(config)
+
+        mu = MagicMock()
+        mu.is_eligible.return_value = EligibilityResult(True)
+        mu.search.side_effect = UntranslatableQuery("untranslatable")
+
+        client = ImapClient(config, local_cache=mu, account_cfg=account_cfg)
+
+        with patch.object(client, "_search_emails_imap", return_value=[]) as mock_imap:
+            result = client.search_emails("imap:UNSEEN")
+
+        mock_imap.assert_called_once()
+        assert result["provenance"]["source"] == "remote"
+        assert result["provenance"]["fell_back_reason"] == "untranslatable"
+
+    def test_search_emails_folder_scope_forces_imap(self):
+        """A non-None folder argument always routes to IMAP."""
+        config = self._make_config()
+        account_cfg = self._make_account_cfg(config)
+
+        mu = MagicMock()
+        mu.is_eligible.return_value = EligibilityResult(True)
+
+        client = ImapClient(config, local_cache=mu, account_cfg=account_cfg)
+
+        with patch.object(client, "_search_emails_imap", return_value=[]) as mock_imap:
+            result = client.search_emails("from:alice", folder="INBOX")
+
+        mock_imap.assert_called_once_with("from:alice", "INBOX", 10)
+        # mu.search must not have been invoked because folder_scope precedes
+        # eligibility/search.
+        mu.search.assert_not_called()
+        assert result["provenance"]["fell_back_reason"] == "folder_scope"
+
+    def test_search_emails_falls_back_on_mu_missing(self):
+        """is_eligible returning ``mu_missing`` forces an IMAP fallback."""
+        config = self._make_config()
+        account_cfg = self._make_account_cfg(config)
+
+        mu = MagicMock()
+        mu.is_eligible.return_value = EligibilityResult(False, "mu_missing")
+
+        client = ImapClient(config, local_cache=mu, account_cfg=account_cfg)
+
+        with patch.object(client, "_search_emails_imap", return_value=[]) as mock_imap:
+            result = client.search_emails("from:alice")
+
+        mock_imap.assert_called_once()
+        mu.search.assert_not_called()
+        assert result["provenance"]["fell_back_reason"] == "mu_missing"
 
 
 class TestProcessEmailAction:

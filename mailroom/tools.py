@@ -299,7 +299,14 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             account: Account name (None for default account)
 
         Returns:
-            JSON-formatted list of search results
+            JSON-formatted dict ``{"results": [...], "provenance": {...}}``.
+            ``provenance.source`` is ``"local"`` when the call was served
+            from a local mu cache and ``"remote"`` when it went to IMAP;
+            ``provenance.indexed_at`` carries the local index mtime when
+            applicable; ``provenance.fell_back_reason`` names the
+            condition that forced an IMAP fallback (``"folder_scope"``,
+            ``"mu_missing"``, ``"db_missing"``, ``"stale"``,
+            ``"untranslatable"``, ``"exception"``) or is ``null``.
         """
         if ctx is None:
             return json.dumps({"error": "No MCP context available"})

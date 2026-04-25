@@ -15,7 +15,13 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Keys that are global (top-level), not per-account
-_GLOBAL_KEYS = {"default_account", "accounts", "idle_timeout", "verify_with_noop"}
+_GLOBAL_KEYS = {
+    "default_account",
+    "accounts",
+    "idle_timeout",
+    "verify_with_noop",
+    "local_cache",
+}
 
 # Keys that signal OAuth2 auth (vs password auth)
 _OAUTH2_KEYS = {
@@ -137,11 +143,43 @@ class ImapConfig:
 
 
 @dataclass
+class LocalCacheConfig:
+    """Configuration for the optional local-cache search backend.
+
+    The presence of this block plus a per-account ``maildir`` opts an
+    account into local-cache search.  Currently only mu is supported.
+
+    Attributes:
+        indexer: Backend identifier; only ``"mu"`` is accepted in v1.
+        max_staleness_seconds: Maximum age of the index before the
+            backend declines and the call falls back to IMAP.  Default
+            4000 (~67 minutes), comfortably above an hourly index cron.
+        mu_index: Optional explicit muhome path (the value passed to
+            ``mu --muhome=…``).  If unset, the backend discovers it
+            from ``mu info store`` on first use.
+    """
+
+    indexer: str = "mu"
+    max_staleness_seconds: int = 4000
+    mu_index: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "LocalCacheConfig":
+        """Create local-cache configuration from a flat dictionary."""
+        return cls(
+            indexer=data.get("indexer", "mu"),
+            max_staleness_seconds=int(data.get("max_staleness_seconds", 4000)),
+            mu_index=data.get("mu_index"),
+        )
+
+
+@dataclass
 class AccountConfig:
     """Configuration for a single email account."""
 
     imap: ImapConfig
     allowed_folders: Optional[List[str]] = None
+    maildir: Optional[str] = None
 
     @classmethod
     def from_dict(
@@ -150,12 +188,14 @@ class AccountConfig:
         """Create account configuration from a flat dictionary.
 
         Args:
-            data: Flat account dictionary (host, username, ..., allowed_folders)
-            defaults: Global defaults inherited from top level
+            data: Flat account dictionary (host, username, ..., allowed_folders,
+                maildir).
+            defaults: Global defaults inherited from top level.
         """
         return cls(
             imap=ImapConfig.from_dict(data, defaults),
             allowed_folders=data.get("allowed_folders"),
+            maildir=data.get("maildir"),
         )
 
 
@@ -165,6 +205,7 @@ class MultiAccountConfig:
 
     accounts: Dict[str, AccountConfig]
     _default_account: Optional[str] = None
+    local_cache: Optional[LocalCacheConfig] = None
 
     @property
     def default_account(self) -> str:
@@ -188,9 +229,15 @@ class MultiAccountConfig:
         if not accounts:
             raise ValueError("No accounts defined in configuration")
 
+        local_cache_data = data.get("local_cache")
+        local_cache = (
+            LocalCacheConfig.from_dict(local_cache_data) if local_cache_data else None
+        )
+
         return cls(
             accounts=accounts,
             _default_account=data.get("default_account"),
+            local_cache=local_cache,
         )
 
 

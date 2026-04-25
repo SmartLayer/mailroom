@@ -9,14 +9,17 @@ import json
 import logging
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import typer
 
 from mailroom import __version__
-from mailroom.config import load_config
+from mailroom.config import MultiAccountConfig, load_config
 from mailroom.imap_client import ImapClient
 from mailroom.models import extract_links_batch
+
+if TYPE_CHECKING:
+    from mailroom.local_cache import MuBackend
 
 
 def _version_callback(value: bool) -> None:
@@ -45,7 +48,32 @@ _config_path: Optional[str] = None
 _account_names: List[str] = []
 _all_accounts: bool = False
 
+# Process-wide MuBackend instance, lazily built when the configured
+# accounts opt into the local cache.  Shared across ImapClient instances
+# so the muhome discovery (mu info store) runs at most once.
+_mu_backend_singleton: Optional["MuBackend"] = None
+
 logger = logging.getLogger(__name__)
+
+
+def _get_mu_backend(cfg: MultiAccountConfig) -> Optional["MuBackend"]:
+    """Return the shared MuBackend, building it on first use.
+
+    Args:
+        cfg: The loaded multi-account configuration.
+
+    Returns:
+        A ``MuBackend`` instance when ``cfg.local_cache`` is present;
+        ``None`` when the local cache is not configured.
+    """
+    global _mu_backend_singleton
+    if cfg.local_cache is None:
+        return None
+    if _mu_backend_singleton is None:
+        from mailroom.local_cache import MuBackend
+
+        _mu_backend_singleton = MuBackend(cfg.local_cache)
+    return _mu_backend_singleton
 
 
 @app.callback()
@@ -163,7 +191,12 @@ def _make_client(account_override: Optional[str] = None) -> ImapClient:
     if not _account_names and account_override is None:
         typer.echo(f"Using account '{name}'", err=True)
     acct = cfg.accounts[name]
-    client = ImapClient(acct.imap, acct.allowed_folders)
+    client = ImapClient(
+        acct.imap,
+        acct.allowed_folders,
+        local_cache=_get_mu_backend(cfg),
+        account_cfg=acct,
+    )
     try:
         client.connect()
     except Exception as exc:
@@ -188,7 +221,12 @@ def _make_client_soft(name: str) -> Optional[ImapClient]:
         typer.echo(f"Error: unknown account '{name}'. Available: {available}", err=True)
         raise typer.Exit(1)
     acct = cfg.accounts[name]
-    client = ImapClient(acct.imap, acct.allowed_folders)
+    client = ImapClient(
+        acct.imap,
+        acct.allowed_folders,
+        local_cache=_get_mu_backend(cfg),
+        account_cfg=acct,
+    )
     try:
         client.connect()
     except Exception as exc:
@@ -213,11 +251,40 @@ def _email_only(s: str) -> str:
     return s
 
 
-def _format_search_text(results: Dict[str, List[Dict[str, Any]]]) -> str:
+def _empty_search_result() -> Dict[str, Any]:
+    """Return the wrapped result shape for an account that returned nothing.
+
+    Used when client construction or connection fails, so the per-account
+    output stays uniform with successful calls.
+    """
+    return {
+        "results": [],
+        "provenance": {
+            "source": "remote",
+            "indexed_at": None,
+            "fell_back_reason": None,
+        },
+    }
+
+
+def _format_provenance_line(provenance: Dict[str, Any]) -> str:
+    """Format a one-line provenance summary for the text output mode."""
+    source = provenance.get("source", "remote")
+    indexed_at = provenance.get("indexed_at") or "-"
+    reason = provenance.get("fell_back_reason")
+    parts = [f"source={source}", f"indexed_at={indexed_at}"]
+    if reason:
+        parts.append(f"fell_back={reason}")
+    return "# " + " ".join(parts)
+
+
+def _format_search_text(results: Dict[str, Dict[str, Any]]) -> str:
     """Render search results as multi-line, prompt-friendly text."""
     blocks: List[str] = []
-    for account, hits in results.items():
-        block = [f"== {account} =="]
+    for account, value in results.items():
+        hits: List[Dict[str, Any]] = value.get("results", []) or []
+        provenance = value.get("provenance") or {}
+        block = [f"== {account} ==", _format_provenance_line(provenance)]
         if not hits:
             block.append("(no results)")
         else:
@@ -236,10 +303,11 @@ def _format_search_text(results: Dict[str, List[Dict[str, Any]]]) -> str:
     return "\n\n".join(blocks)
 
 
-def _format_search_oneline(results: Dict[str, List[Dict[str, Any]]]) -> str:
+def _format_search_oneline(results: Dict[str, Dict[str, Any]]) -> str:
     """Render search results as one tab-separated line per result."""
     lines: List[str] = []
-    for account, hits in results.items():
+    for account, value in results.items():
+        hits: List[Dict[str, Any]] = value.get("results", []) or []
         if not hits:
             lines.append(f"{account}\t(no results)")
             continue
@@ -360,14 +428,20 @@ def search(
 ) -> None:
     """Search for emails. Returns a dict keyed by account name.
 
-    Single-account searches return ``{"acct-name": [...]}``; multi-account
+    Each per-account value is ``{"results": [...], "provenance": {...}}``
+    where ``provenance`` reports whether the result came from IMAP
+    (``source: "remote"``) or from a local mu cache (``source: "local"``)
+    and, if the local cache was bypassed, the reason in
+    ``fell_back_reason``.  ``--limit`` is applied per account.
+
+    Single-account searches return ``{"acct-name": {...}}``; multi-account
     searches (``-a A -a B`` or ``--all-accounts``) return one key per
-    account searched. ``--limit`` is applied per account.
+    account searched.
 
     ``--format text`` renders multi-line, prompt-friendly output grouped
-    by account; ``--format oneline`` renders one tab-separated line per
-    result (account in column 1) for shell pipelines like
-    ``awk -F'\\t'``.
+    by account with a one-line provenance header; ``--format oneline``
+    renders one tab-separated line per result (account in column 1) for
+    shell pipelines like ``awk -F'\\t'`` and drops provenance.
 
     Exit code: 0 on hits, 1 when every account returned zero results, so
     shell fallback chains work: ``mailroom search 'from:x' || mailroom
@@ -375,11 +449,11 @@ def search(
     """
     effective = query_opt if query_opt is not None else query
     names = _resolve_accounts()
-    results: Dict[str, List[Dict[str, Any]]] = {}
+    results: Dict[str, Dict[str, Any]] = {}
     for name in names:
         client = _make_client_soft(name)
         if client is None:
-            results[name] = []
+            results[name] = _empty_search_result()
             continue
         try:
             results[name] = client.search_emails(effective, folder=folder, limit=limit)
@@ -388,7 +462,7 @@ def search(
             raise typer.Exit(2)
         except Exception as exc:
             typer.echo(f"warning: search failed for '{name}': {exc}", err=True)
-            results[name] = []
+            results[name] = _empty_search_result()
         finally:
             client.disconnect()
     if output_format == "json":
@@ -403,7 +477,7 @@ def search(
             err=True,
         )
         raise typer.Exit(2)
-    if not any(results.values()):
+    if not any(v.get("results") for v in results.values()):
         raise typer.Exit(1)
 
 

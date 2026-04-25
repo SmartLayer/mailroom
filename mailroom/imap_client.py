@@ -5,14 +5,17 @@ import logging
 import re
 import shlex
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import imapclient  # type: ignore[import-untyped]
 
-from mailroom.config import ImapConfig
+from mailroom.config import AccountConfig, ImapConfig
 from mailroom.models import Email
 from mailroom.oauth2 import get_access_token
 from mailroom.query_parser import parse_query
+
+if TYPE_CHECKING:
+    from mailroom.local_cache import MuBackend
 
 logger = logging.getLogger(__name__)
 
@@ -20,15 +23,30 @@ logger = logging.getLogger(__name__)
 class ImapClient:
     """IMAP client for interacting with email servers."""
 
-    def __init__(self, config: ImapConfig, allowed_folders: Optional[List[str]] = None):
+    def __init__(
+        self,
+        config: ImapConfig,
+        allowed_folders: Optional[List[str]] = None,
+        local_cache: Optional["MuBackend"] = None,
+        account_cfg: Optional[AccountConfig] = None,
+    ):
         """Initialize IMAP client.
 
         Args:
             config: IMAP configuration
             allowed_folders: List of allowed folders (None means all folders)
+            local_cache: Optional ``MuBackend`` for serving search calls
+                from a local mu index.  When ``None``, all searches are
+                served by IMAP.
+            account_cfg: Optional account configuration carrying the
+                per-account ``maildir`` opt-in for the local cache.
+                When ``None`` or its ``maildir`` is unset, the local
+                cache is bypassed even if ``local_cache`` is provided.
         """
         self.config = config
         self.allowed_folders = set(allowed_folders) if allowed_folders else None
+        self.local_cache = local_cache
+        self.account_cfg = account_cfg
         self.client: Optional[imapclient.IMAPClient] = None
         self.folder_cache: Dict[str, List[str]] = {}
         self.connected = False
@@ -1003,7 +1021,7 @@ class ImapClient:
         query: str,
         folder: Optional[str] = None,
         limit: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """High-level email search across one or all folders.
 
         Uses Gmail-style query syntax::
@@ -1022,14 +1040,107 @@ class ImapClient:
         Queries without header prefixes (pure flag/date searches) and the
         ``imap:`` raw escape continue to use standard IMAP search.
 
+        When the client was constructed with a ``local_cache`` backend
+        and an opted-in ``account_cfg``, eligible calls are served from
+        the local mu index instead of IMAP.  Folder-scoped searches
+        always go to IMAP (see ``fell_back_reason="folder_scope"``).
+
         Args:
             query: Gmail-style search query string.
             folder: Folder to search (``None`` searches all folders).
             limit: Maximum number of results.
 
         Returns:
-            List of result dicts sorted by date descending, each with keys:
-            uid, folder, from, to, subject, date, flags, has_attachments.
+            A dict ``{"results": [...], "provenance": {...}}``.  Each
+            result carries either an ``uid`` (IMAP) or ``message_id``
+            and ``path`` (local cache); both shapes share ``folder``,
+            ``from``, ``to``, ``subject``, ``date``, ``flags``, and
+            ``has_attachments``.  ``provenance`` carries ``source``
+            (``"local"`` or ``"remote"``), ``indexed_at`` (ISO 8601 or
+            ``None``), and ``fell_back_reason`` (``None`` or one of
+            ``"folder_scope"``, ``"mu_missing"``, ``"db_missing"``,
+            ``"stale"``, ``"untranslatable"``, ``"exception"``).
+
+        Raises:
+            ValueError: On malformed queries.
+        """
+        local_results, fell_back_reason = self._try_local_cache_search(
+            query, folder, limit
+        )
+        if local_results is not None:
+            return {
+                "results": local_results,
+                "provenance": {
+                    "source": "local",
+                    "indexed_at": (
+                        self.local_cache.index_mtime_iso()
+                        if self.local_cache is not None
+                        else None
+                    ),
+                    "fell_back_reason": None,
+                },
+            }
+        return {
+            "results": self._search_emails_imap(query, folder, limit),
+            "provenance": {
+                "source": "remote",
+                "indexed_at": None,
+                "fell_back_reason": fell_back_reason,
+            },
+        }
+
+    def _try_local_cache_search(
+        self, query: str, folder: Optional[str], limit: int
+    ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+        """Attempt to serve a search from the local cache.
+
+        Returns:
+            ``(results, None)`` on a successful local-cache hit, or
+            ``(None, reason)`` when the local cache cannot serve the
+            call.  ``reason`` is ``None`` when the account is not opted
+            into the local cache (the wrapped shape still applies, but
+            no fallback is reported); otherwise it is one of the tags
+            from the ``provenance.fell_back_reason`` vocabulary.
+        """
+        # Late import to avoid a circular dependency.
+        from mailroom.local_cache import MuFailure
+        from mailroom.query_parser import UntranslatableQuery
+
+        if self.local_cache is None or self.account_cfg is None:
+            return None, None
+        if not self.account_cfg.maildir:
+            return None, None
+        if folder is not None:
+            return None, "folder_scope"
+        eligibility = self.local_cache.is_eligible(self.account_cfg)
+        if not eligibility.eligible:
+            return None, eligibility.reason
+        try:
+            results = self.local_cache.search(self.account_cfg, query, limit)
+        except UntranslatableQuery:
+            return None, "untranslatable"
+        except (MuFailure, ValueError) as e:
+            logger.warning(f"Local cache search failed, falling back to IMAP: {e}")
+            return None, "exception"
+        return results, None
+
+    def _search_emails_imap(
+        self,
+        query: str,
+        folder: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Run a search against the IMAP server (no local-cache attempt).
+
+        Args:
+            query: Gmail-style search query string.
+            folder: Folder to search (``None`` searches all folders).
+            limit: Maximum number of results.
+
+        Returns:
+            List of result dicts sorted by date descending, each with
+            keys: ``uid``, ``folder``, ``from``, ``to``, ``subject``,
+            ``date``, ``flags``, ``has_attachments``.
 
         Raises:
             ValueError: On malformed queries.

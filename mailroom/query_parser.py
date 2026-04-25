@@ -1,7 +1,8 @@
-"""Gmail-style query parser for IMAP search.
+"""Gmail-style query parser for IMAP search and mu CLI emission.
 
 Parses queries like ``from:alice subject:invoice is:unread after:2025-03-01``
-into imapclient-compatible search criteria.
+into imapclient-compatible search criteria, or into a mu CLI query string
+for the optional local-cache search backend.
 
 Supported syntax:
 
@@ -9,9 +10,9 @@ Supported syntax:
     Flags:      is:unread  is:read  is:flagged  is:starred  is:answered ...
     Dates:      after:YYYY-MM-DD  before:YYYY-MM-DD  on:YYYY-MM-DD
     Relative:   newer:3d  older:7d  newer:2w  older:1m
-    Bare words: searched as TEXT
+    Bare words: searched as TEXT (IMAP) or default-field (mu)
     Boolean:    or (between terms), not / - (prefix negation)
-    Escape:     imap:RAW IMAP EXPRESSION
+    Escape:     imap:RAW IMAP EXPRESSION   (untranslatable to mu)
     Keywords:   all  today  yesterday  week  month
 """
 
@@ -19,9 +20,22 @@ import logging
 import re
 import shlex
 from datetime import date, datetime, timedelta
-from typing import List, Union
+from typing import List, Optional, Union
 
 logger = logging.getLogger(__name__)
+
+
+class UntranslatableQuery(Exception):
+    """Raised when a query cannot be translated to a backend's syntax.
+
+    The ``reason`` attribute carries a short tag matching the
+    ``fell_back_reason`` vocabulary used by the local-cache backend.
+    """
+
+    def __init__(self, reason: str, message: str = "") -> None:
+        self.reason = reason
+        super().__init__(message or f"Query is not translatable: {reason}")
+
 
 # Prefixes that map directly to IMAP search keys (prefix → IMAP key).
 _PREFIX_MAP = {
@@ -312,3 +326,222 @@ def _flatten(clause_list: List[List]) -> List:
         else:
             result.append(clause)
     return result
+
+
+# ------------------------------------------------------------------
+# Mu CLI emitter
+# ------------------------------------------------------------------
+
+# Prefixes that map directly to mu CLI search keys (prefix → mu key).
+# The keys happen to be identical to mu's own vocabulary; kept as a map
+# for symmetry with _PREFIX_MAP and to make divergence (if any) explicit.
+_MU_PREFIX_MAP = {
+    "from": "from",
+    "to": "to",
+    "cc": "cc",
+    "subject": "subject",
+    "body": "body",
+}
+
+# is:keyword → mu CLI fragment.  Negative forms (unflagged/unstarred/
+# unanswered) become explicit ``NOT flag:X`` rather than a dedicated
+# negative flag, since mu does not expose negative flag terms directly.
+_MU_IS_MAP = {
+    "unread": "flag:unread",
+    "read": "flag:seen",
+    "flagged": "flag:flagged",
+    "starred": "flag:flagged",
+    "unflagged": "NOT flag:flagged",
+    "unstarred": "NOT flag:flagged",
+    "answered": "flag:replied",
+    "unanswered": "NOT flag:replied",
+}
+
+
+def parse_query_to_mu(query: str) -> str:
+    """Translate a Gmail-style query into a mu CLI query string.
+
+    Args:
+        query: Same syntax accepted by :func:`parse_query`.
+
+    Returns:
+        A mu CLI query string suitable for ``mu find``.  The empty
+        string represents "match all" (used together with ``--maxnum``
+        and ``--sort-field=date`` to fetch the most recent N messages).
+
+    Raises:
+        UntranslatableQuery: When the query uses constructs (e.g. the
+            ``imap:`` raw escape, or any token with the ``imap:``
+            prefix) that mu's CLI cannot express.
+        ValueError: On malformed queries (dangling ``or``/``not``,
+            bad dates, unknown ``is:`` keywords).
+    """
+    stripped = query.strip()
+    if not stripped:
+        return ""
+
+    if stripped.lower().startswith("imap:"):
+        raise UntranslatableQuery("untranslatable")
+
+    if stripped.lower() in _STANDALONE_KEYWORDS:
+        return _standalone_keyword_to_mu(stripped.lower())
+
+    tokens = _tokenize(stripped)
+    return _build_mu_query(tokens)
+
+
+def _mu_date(d: date) -> str:
+    """Format a date as YYYYMMDD for mu's date: predicate."""
+    return d.strftime("%Y%m%d")
+
+
+def _standalone_keyword_to_mu(keyword: str) -> str:
+    """Translate a standalone keyword (today/yesterday/...) to mu syntax."""
+    today = date.today()
+    if keyword == "all":
+        return ""
+    if keyword == "today":
+        return f"date:{_mu_date(today)}.."
+    if keyword == "yesterday":
+        y = today - timedelta(days=1)
+        return f"date:{_mu_date(y)}..{_mu_date(y)}"
+    if keyword == "week":
+        return f"date:{_mu_date(today - timedelta(days=7))}.."
+    if keyword == "month":
+        return f"date:{_mu_date(today - timedelta(days=30))}.."
+    raise ValueError(f"Unhandled standalone keyword: {keyword!r}")
+
+
+def _quote_mu(value: str) -> str:
+    """Quote a mu query value when it contains whitespace.
+
+    mu's CLI uses Xapian's query parser, which treats double-quoted
+    strings as phrase searches.  Values without whitespace are emitted
+    bare so the resulting fragment matches mu's own conventions.
+    """
+    if any(c.isspace() for c in value):
+        return f'"{value}"'
+    return value
+
+
+def _expand_term_mu(token: str) -> Optional[str]:
+    """Translate a single token into a mu query fragment.
+
+    Returns:
+        A mu query fragment, or ``None`` if the token is a bare word
+        that should be collected by the caller.
+
+    Raises:
+        UntranslatableQuery: On any token whose prefix is ``imap:``.
+        ValueError: On a malformed date or unknown ``is:`` keyword.
+    """
+    # Negation with dash prefix: -from:alice
+    if token.startswith("-") and ":" in token[1:]:
+        inner = _expand_term_mu(token[1:])
+        if inner is None:
+            return None
+        return f"NOT {inner}"
+
+    if ":" not in token:
+        return None
+
+    prefix, value = token.split(":", 1)
+    prefix_lower = prefix.lower()
+
+    # imap:-prefixed tokens cannot be translated; surface to caller so
+    # the local-cache backend can fall back to IMAP.
+    if prefix_lower == "imap":
+        raise UntranslatableQuery("untranslatable")
+
+    if prefix_lower in _MU_PREFIX_MAP:
+        return f"{_MU_PREFIX_MAP[prefix_lower]}:{_quote_mu(value)}"
+
+    if prefix_lower == "is":
+        val_lower = value.lower()
+        if val_lower not in _MU_IS_MAP:
+            raise ValueError(
+                f"Unknown is: keyword: {value!r}. "
+                f"Valid: {', '.join(sorted(_MU_IS_MAP))}"
+            )
+        return _MU_IS_MAP[val_lower]
+
+    if prefix_lower == "after":
+        return f"date:{_mu_date(_parse_date(value))}.."
+    if prefix_lower == "before":
+        return f"date:..{_mu_date(_parse_date(value))}"
+    if prefix_lower == "on":
+        d = _parse_date(value)
+        return f"date:{_mu_date(d)}..{_mu_date(d)}"
+
+    if prefix_lower in ("newer", "newer_than"):
+        return f"date:{_mu_date(_parse_relative_date(value))}.."
+    if prefix_lower in ("older", "older_than"):
+        return f"date:..{_mu_date(_parse_relative_date(value))}"
+
+    # Unknown prefix — treat the whole token as a bare word, matching
+    # _expand_term's permissive behaviour.
+    return None
+
+
+def _build_mu_query(tokens: List[str]) -> str:
+    """Walk tokens and assemble a mu CLI query string.
+
+    AND-binding between adjacent terms is implicit (Xapian's default
+    operator).  ``or`` becomes ``OR``; ``not`` and ``-prefix:`` become
+    ``NOT``.  Bare words are emitted as default-field search tokens.
+    """
+    fragments: List[str] = []  # each entry is a fragment string or "OR"
+    bare_words: List[str] = []
+    i = 0
+
+    def _flush_bare_words() -> None:
+        if bare_words:
+            joined = " ".join(_quote_mu(w) for w in bare_words)
+            fragments.append(joined)
+            bare_words.clear()
+
+    while i < len(tokens):
+        tok = tokens[i]
+        tok_lower = tok.lower()
+
+        if tok_lower == "or":
+            _flush_bare_words()
+            fragments.append("OR")
+            i += 1
+            continue
+
+        if tok_lower == "not":
+            _flush_bare_words()
+            if i + 1 >= len(tokens):
+                raise ValueError("'not' at end of query with nothing to negate.")
+            next_tok = tokens[i + 1]
+            expanded = _expand_term_mu(next_tok)
+            if expanded is None:
+                fragments.append(f"NOT {_quote_mu(next_tok)}")
+            else:
+                fragments.append(f"NOT {expanded}")
+            i += 2
+            continue
+
+        expanded = _expand_term_mu(tok)
+        if expanded is not None:
+            _flush_bare_words()
+            fragments.append(expanded)
+        else:
+            bare_words.append(tok)
+        i += 1
+
+    _flush_bare_words()
+
+    if not fragments:
+        return ""
+
+    if fragments[0] == "OR":
+        raise ValueError("Query cannot start with 'or'.")
+    if fragments[-1] == "OR":
+        raise ValueError("'or' at end of query with no right operand.")
+    for j in range(len(fragments) - 1):
+        if fragments[j] == "OR" and fragments[j + 1] == "OR":
+            raise ValueError("Consecutive 'or' operators.")
+
+    return " ".join(fragments)

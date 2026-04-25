@@ -205,27 +205,37 @@ class TestTools:
         """Test searching for emails via the MCP tool wrapper."""
         search = tools["search"]
 
-        # Configure client.search_emails to return sample results
-        sample_results = [
-            {
-                "uid": 1,
-                "folder": "INBOX",
-                "from": "sender@example.com",
-                "to": ["recipient@example.com"],
-                "subject": "Test Email",
-                "date": "2025-04-01T10:00:00",
-                "flags": ["\\Seen"],
-                "has_attachments": False,
+        # Configure client.search_emails to return wrapped sample results
+        sample_results = {
+            "results": [
+                {
+                    "uid": 1,
+                    "folder": "INBOX",
+                    "from": "sender@example.com",
+                    "to": ["recipient@example.com"],
+                    "subject": "Test Email",
+                    "date": "2025-04-01T10:00:00",
+                    "flags": ["\\Seen"],
+                    "has_attachments": False,
+                },
+            ],
+            "provenance": {
+                "source": "remote",
+                "indexed_at": None,
+                "fell_back_reason": None,
             },
-        ]
+        }
         mock_client.search_emails.return_value = sample_results
 
         # Test default parameters — bare words become TEXT search
         result = await search("test query", mock_context)
         result_data = json.loads(result)
-        assert isinstance(result_data, list)
-        assert len(result_data) == 1
-        assert result_data[0]["subject"] == "Test Email"
+        assert isinstance(result_data, dict)
+        assert "results" in result_data
+        assert "provenance" in result_data
+        assert len(result_data["results"]) == 1
+        assert result_data["results"][0]["subject"] == "Test Email"
+        assert result_data["provenance"]["source"] == "remote"
         mock_client.search_emails.assert_called_once_with(
             "test query",
             folder=None,
@@ -265,23 +275,31 @@ class TestTools:
         """Test searching with raw IMAP via imap: prefix delegates to client.search_emails."""
         search = tools["search"]
 
-        sample_results = [
-            {
-                "uid": 1,
-                "folder": "INBOX",
-                "from": "sender@example.com",
-                "to": ["recipient@example.com"],
-                "subject": "Edinburgh trip",
-                "date": "2025-04-01T10:00:00",
-                "flags": [],
-                "has_attachments": False,
+        sample_results = {
+            "results": [
+                {
+                    "uid": 1,
+                    "folder": "INBOX",
+                    "from": "sender@example.com",
+                    "to": ["recipient@example.com"],
+                    "subject": "Edinburgh trip",
+                    "date": "2025-04-01T10:00:00",
+                    "flags": [],
+                    "has_attachments": False,
+                },
+            ],
+            "provenance": {
+                "source": "remote",
+                "indexed_at": None,
+                "fell_back_reason": None,
             },
-        ]
+        }
         mock_client.search_emails.return_value = sample_results
 
         result = await search("imap:TEXT Edinburgh", mock_context, folder="INBOX")
         result_data = json.loads(result)
-        assert isinstance(result_data, list)
+        assert isinstance(result_data, dict)
+        assert "results" in result_data
         mock_client.search_emails.assert_called_once_with(
             "imap:TEXT Edinburgh",
             folder="INBOX",
