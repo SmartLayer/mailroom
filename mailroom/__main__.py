@@ -295,10 +295,13 @@ def _format_search_text(results: Dict[str, Dict[str, Any]]) -> str:
                 to_list = r.get("to") or [""]
                 to = to_list[0]
                 folder = r.get("folder", "")
+                message_id = r.get("message_id", "")
                 block.append(f"{date}  {subject}")
                 block.append(f"            from: {from_}")
                 block.append(f"            to:   {to}")
                 block.append(f"            folder: {folder}")
+                if message_id:
+                    block.append(f"            id:     {message_id}")
         blocks.append("\n".join(block))
     return "\n\n".join(blocks)
 
@@ -317,7 +320,10 @@ def _format_search_oneline(results: Dict[str, Dict[str, Any]]) -> str:
             from_addr = _email_only(r.get("from", ""))
             to_list = r.get("to") or [""]
             to_addr = _email_only(to_list[0]) if to_list[0] else ""
-            lines.append(f"{account}\t{date}\t{subject}\t{from_addr} → {to_addr}")
+            message_id = r.get("message_id", "")
+            lines.append(
+                f"{account}\t{date}\t{subject}\t{from_addr} → {to_addr}\t{message_id}"
+            )
     return "\n".join(lines)
 
 
@@ -506,6 +512,7 @@ def read(
             "subject": email_obj.subject,
             "date": (email_obj.date.isoformat() if email_obj.date else None),
             "flags": email_obj.flags,
+            "message_id": email_obj.message_id,
             "content_type": ("text/html" if email_obj.content.html else "text/plain"),
             "body": (
                 str(email_obj.content.html)
@@ -513,6 +520,10 @@ def read(
                 else str(email_obj.content.text) if email_obj.content.text else None
             ),
         }
+        if email_obj.in_reply_to:
+            result["in_reply_to"] = email_obj.in_reply_to
+        if email_obj.references:
+            result["references"] = list(email_obj.references)
         if email_obj.cc:
             result["cc"] = [str(cc) for cc in email_obj.cc]
         if email_obj.attachments:

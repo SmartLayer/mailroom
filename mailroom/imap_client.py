@@ -1140,7 +1140,9 @@ class ImapClient:
         Returns:
             List of result dicts sorted by date descending, each with
             keys: ``uid``, ``folder``, ``from``, ``to``, ``subject``,
-            ``date``, ``flags``, ``has_attachments``.
+            ``date``, ``flags``, ``has_attachments``, ``message_id``.
+            ``message_id`` matches the field already emitted by the
+            local-cache path in ``local_cache.py``.
 
         Raises:
             ValueError: On malformed queries.
@@ -1199,6 +1201,7 @@ class ImapClient:
                             ),
                             "flags": email_obj.flags,
                             "has_attachments": len(email_obj.attachments) > 0,
+                            "message_id": email_obj.message_id,
                         }
                     )
             except Exception as e:

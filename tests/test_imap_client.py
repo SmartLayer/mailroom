@@ -1325,3 +1325,79 @@ class TestProcessEmailAction:
         client = self._make_client()
         with pytest.raises(ValueError, match="Unknown action 'archive'"):
             client.process_email_action(1, "INBOX", "archive")
+
+
+class TestSearchEmailsImapResultShape:
+    """The IMAP-remote search path must include `message_id` per hit, matching
+    the local-cache path (`local_cache.py` already emits it). aesop SPAR-A
+    consumes the dispatcher prefetch text and needs Message-ID to thread a
+    reply onto the parent."""
+
+    def _make_client(self) -> ImapClient:
+        config = ImapConfig(
+            host="imap.example.com",
+            port=993,
+            username="test@example.com",
+            password="password",
+            use_ssl=True,
+        )
+        return ImapClient(config)
+
+    def _make_email(self, message_id: str = "<m1@example.com>") -> Email:
+        from datetime import datetime
+
+        from mailroom.models import EmailAddress, EmailContent
+
+        return Email(
+            message_id=message_id,
+            subject="Hi",
+            from_=EmailAddress(name="Alice", address="alice@example.com"),
+            to=[EmailAddress(name="Bob", address="bob@example.com")],
+            cc=[],
+            date=datetime(2026, 4, 1, 10, 0, 0),
+            content=EmailContent(text="body", html=None),
+            attachments=[],
+            flags=["\\Seen"],
+            headers={},
+            folder="INBOX",
+            uid=42,
+        )
+
+    def test_imap_search_includes_message_id(self):
+        """Every dict returned by `_search_emails_imap` carries `message_id`."""
+        client = self._make_client()
+
+        with (
+            patch.object(client, "_build_search_spec", return_value="ALL"),
+            patch.object(client, "find_special_use_folder", return_value=None),
+            patch.object(client, "list_folders", return_value=["INBOX"]),
+            patch.object(client, "search", return_value=[42]),
+            patch.object(client, "select_folder"),
+            patch.object(client, "_client_or_raise") as mock_clientor,
+            patch.object(
+                client,
+                "fetch_emails",
+                return_value={42: self._make_email("<m1@example.com>")},
+            ),
+        ):
+            from datetime import datetime
+
+            mock_clientor.return_value.fetch.return_value = {
+                42: {b"INTERNALDATE": datetime(2026, 4, 1, 10, 0, 0)}
+            }
+            results = client._search_emails_imap("from:alice", folder="INBOX", limit=10)
+
+        assert len(results) == 1
+        assert results[0]["message_id"] == "<m1@example.com>"
+        # Existing keys must remain.
+        for key in (
+            "uid",
+            "folder",
+            "from",
+            "to",
+            "subject",
+            "date",
+            "flags",
+            "has_attachments",
+        ):
+            assert key in results[0]
