@@ -28,7 +28,14 @@ mailroom (1.0.3) unstable; urgency=medium
     X-GM-RAW dispatch evaluates with web-UI semantics and filters
     correctly.
 
- -- Weiwu Zhang <a@colourful.land>  Sat, 25 Apr 2026 22:30:00 +0000
+  * search/read: surface message_id, in_reply_to, and references.  IMAP
+    remote search now emits message_id in every result dict (parity with
+    the local-cache path).  The read command emits message_id always and
+    in_reply_to/references when non-empty.  --format text appends an
+    "id:" line per hit; --format oneline appends message_id as a trailing
+    tab column.
+
+ -- Weiwu Zhang <a@colourful.land>  Sun, 26 Apr 2026 00:00:00 +0000
 
 mailroom (1.0.2) unstable; urgency=medium
 

@@ -65,7 +65,7 @@ install -Dpm 644 debian/mailroom.1 %{buildroot}%{_mandir}/man1/mailroom.1
 %{_mandir}/man1/mailroom.1*
 
 %changelog
-* Sat Apr 25 2026 Weiwu Zhang <a@colourful.land> - 1.0.3-1
+* Sun Apr 26 2026 Weiwu Zhang <a@colourful.land> - 1.0.3-1
 - search: optional local-cache backend via mu (Xapian); when a [local_cache]
   block is configured and an account names a maildir, search serves from
   `mu find` over a subprocess instead of IMAP with transparent IMAP fallback
@@ -83,6 +83,11 @@ install -Dpm 644 debian/mailroom.1 %{buildroot}%{_mandir}/man1/mailroom.1
   accepted before or after the subcommand; --query/-q alias
 - Exit code 1 on zero results for search and attachments
 - Top-level --version flag
+- search/read: surface message_id, in_reply_to, and references; IMAP remote
+  search now emits message_id per result (parity with local-cache path);
+  read emits message_id always, in_reply_to/references when non-empty;
+  --format text appends an "id:" line; --format oneline appends message_id
+  as a trailing tab column
 
 * Mon Apr 06 2026 Weiwu Zhang <a@colourful.land> - 1.0.1-1
 - Rename CLI commands to aerc-aligned short verbs (search, move, reply, etc.)
