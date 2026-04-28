@@ -1,5 +1,5 @@
 Name:           mailroom
-Version:        1.0.3
+Version:        1.1.0
 Release:        1%{?dist}
 Summary:        Email toolkit for AI assistants and command-line scripting
 License:        MIT
@@ -65,6 +65,17 @@ install -Dpm 644 debian/mailroom.1 %{buildroot}%{_mandir}/man1/mailroom.1
 %{_mandir}/man1/mailroom.1*
 
 %changelog
+* Tue Apr 28 2026 Weiwu Zhang <a@colourful.land> - 1.1.0-1
+- Batch-first JSON output: all commands now wrap results under an operation
+  key {"search from:x": {"account": {...}}} — breaking change for 1.0.x
+  consumers that parsed the account name as the top-level key
+- New `batch` subcommand: accepts multiple operation strings (as args,
+  --file, or stdin JSON array) and executes all ops per account over a
+  single IMAP connection, eliminating per-query reconnect overhead
+- `read` output now uses the same batch JSON shape as `search`
+- `status` and `mcp --version` now derive version from __version__ instead
+  of a hardcoded string
+
 * Sun Apr 26 2026 Weiwu Zhang <a@colourful.land> - 1.0.3-1
 - search: optional local-cache backend via mu (Xapian); when a [local_cache]
   block is configured and an account names a maildir, search serves from

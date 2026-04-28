@@ -1,3 +1,17 @@
+mailroom (1.1.0) unstable; urgency=medium
+
+  * Batch-first JSON output: all commands now wrap results under an operation
+    key {"search from:x": {"account": {...}}} — breaking change for 1.0.x
+    consumers that parsed the account name as the top-level key.
+  * New `batch` subcommand: accepts multiple operation strings (as args,
+    --file, or stdin JSON array) and executes all ops per account over a
+    single IMAP connection, eliminating per-query reconnect overhead.
+  * `read` output now uses the same batch JSON shape as `search`.
+  * `status` and `mcp --version` now derive version from __version__ instead
+    of a hardcoded string.
+
+ -- Weiwu Zhang <a@colourful.land>  Tue, 28 Apr 2026 00:00:00 +0000
+
 mailroom (1.0.3) unstable; urgency=medium
 
   * search: AI-friendly CLI compat. Soft-redirect of search-variant subcommand
