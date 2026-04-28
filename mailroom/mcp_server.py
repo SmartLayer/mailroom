@@ -3,6 +3,8 @@
 import argparse
 import logging
 import os
+
+from mailroom import __version__
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Dict, Optional
 
@@ -112,7 +114,7 @@ def create_server(config_path: Optional[str] = None, debug: bool = False) -> Fas
         """Get server status and configuration info."""
         lines = [
             "server: Mailroom",
-            "version: 1.0.3",
+            f"version: {__version__}",
             f"default_account: {config.default_account}",
             f"accounts: {', '.join(config.accounts.keys())}",
         ]
@@ -155,7 +157,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.version:
-        print("Mailroom MCP server version 1.0.3")
+        print(f"Mailroom MCP server version {__version__}")
         return
 
     if args.debug:

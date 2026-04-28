@@ -8,8 +8,10 @@ importing the mcp package.
 import json
 import logging
 import os
+import shlex
 import sys
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import typer
 
@@ -235,6 +237,255 @@ def _make_client_soft(name: str) -> Optional[ImapClient]:
     return client
 
 
+def _resolve_single_account_name() -> str:
+    """Return the single account name for commands that don't support multi-account.
+
+    Raises:
+        typer.Exit: On config error, unknown account, or multi-account flags.
+    """
+    try:
+        cfg = load_config(_config_path)
+    except (ValueError, FileNotFoundError, Exception) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+    if _all_accounts or len(_account_names) > 1:
+        typer.echo(
+            "Error: this command does not support multi-account flags "
+            "(--all-accounts or repeated --account)",
+            err=True,
+        )
+        raise typer.Exit(1)
+    name = _account_names[0] if _account_names else cfg.default_account
+    if name not in cfg.accounts:
+        typer.echo(f"Error: unknown account '{name}'.", err=True)
+        raise typer.Exit(1)
+    return name
+
+
+def _empty_result_for_subcmd(subcmd: str) -> Dict[str, Any]:
+    """Return an appropriate placeholder result for a failed account connection."""
+    if subcmd == "search":
+        return _empty_search_result()
+    return {"error": "connection failed"}
+
+
+def _build_op_key(subcmd: str, **kwargs: Any) -> str:
+    """Build a canonical operation key string from a subcommand and its arguments.
+
+    Non-default arguments are included; defaults are omitted so the key
+    remains compact. The key for a single-command run is used as the outer
+    JSON key, matching the format expected by the batch subcommand.
+    """
+    parts = [subcmd]
+    if subcmd == "search":
+        folder = kwargs.get("folder")
+        limit = kwargs.get("limit", 10)
+        query = kwargs.get("query", "")
+        if folder:
+            parts += ["-f", folder]
+        if limit != 10:
+            parts += ["--limit", str(limit)]
+        if query:
+            parts.append(query)
+    elif subcmd == "read":
+        folder = kwargs.get("folder", "")
+        uid = kwargs.get("uid", 0)
+        parts += ["-f", folder, "--uid", str(uid)]
+    return " ".join(parts)
+
+
+def _fetch_email_result(client: ImapClient, folder: str, uid: int) -> Dict[str, Any]:
+    """Fetch one email and return its JSON representation, or ``{"error": ...}``.
+
+    Extracted so both the standalone ``read`` command and the batch executor
+    share identical output structure.
+    """
+    email_obj = client.fetch_email(uid, folder)
+    if not email_obj:
+        return {"error": f"Email UID {uid} not found in {folder}"}
+    result: Dict[str, Any] = {
+        "uid": uid,
+        "folder": folder,
+        "from": str(email_obj.from_),
+        "to": [str(to) for to in email_obj.to],
+        "subject": email_obj.subject,
+        "date": (email_obj.date.isoformat() if email_obj.date else None),
+        "flags": email_obj.flags,
+        "message_id": email_obj.message_id,
+        "content_type": ("text/html" if email_obj.content.html else "text/plain"),
+        "body": (
+            str(email_obj.content.html)
+            if email_obj.content.html
+            else str(email_obj.content.text) if email_obj.content.text else None
+        ),
+    }
+    if email_obj.in_reply_to:
+        result["in_reply_to"] = email_obj.in_reply_to
+    if email_obj.references:
+        result["references"] = list(email_obj.references)
+    if email_obj.cc:
+        result["cc"] = [str(cc) for cc in email_obj.cc]
+    if email_obj.attachments:
+        result["attachments"] = [
+            {
+                "index": i,
+                "filename": att.filename,
+                "size": att.size,
+                "content_type": att.content_type,
+            }
+            for i, att in enumerate(email_obj.attachments)
+        ]
+    return result
+
+
+def _run_op(client: ImapClient, subcmd: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Dispatch one operation against an already-connected IMAP client.
+
+    Args:
+        client: Connected ImapClient for the current account.
+        subcmd: Subcommand name (``"search"`` or ``"read"``).
+        kwargs: Parsed arguments for the subcommand.
+
+    Returns:
+        Per-account result dict suitable for inclusion in the batch output.
+    """
+    if subcmd == "search":
+        return client.search_emails(
+            kwargs["query"],
+            folder=kwargs.get("folder"),
+            limit=kwargs.get("limit", 10),
+        )
+    if subcmd == "read":
+        return _fetch_email_result(client, kwargs["folder"], kwargs["uid"])
+    return {"error": f"unknown subcommand '{subcmd}'"}
+
+
+def _execute_batch(
+    operations: List[Tuple[str, str, Dict[str, Any]]],
+    names: List[str],
+) -> Dict[str, Dict[str, Any]]:
+    """Execute multiple operations account-first over one IMAP connection per account.
+
+    Opens one connection per account, runs every operation for that account,
+    then closes before moving to the next. Accounts are processed sequentially
+    to avoid server-side throttling.
+
+    Args:
+        operations: List of ``(op_key, subcmd, kwargs)`` tuples. ``op_key`` is
+            echoed back as the outer JSON key.
+        names: Account names to query, processed in order.
+
+    Returns:
+        ``{op_key: {account_name: result_dict}}`` — the batch JSON shape.
+
+    Raises:
+        ValueError: Re-raised from ``_run_op`` so the caller can map it to
+            exit code 2 (invalid query syntax).
+    """
+    batch: Dict[str, Dict[str, Any]] = {key: {} for key, _, _ in operations}
+    for name in names:
+        client = _make_client_soft(name)
+        if client is None:
+            for key, subcmd, _ in operations:
+                batch[key][name] = _empty_result_for_subcmd(subcmd)
+            continue
+        try:
+            for key, subcmd, kwargs in operations:
+                try:
+                    batch[key][name] = _run_op(client, subcmd, kwargs)
+                except ValueError:
+                    raise
+                except Exception as exc:
+                    batch[key][name] = {"error": str(exc)}
+        finally:
+            client.disconnect()
+    return batch
+
+
+def _parse_search_args(tokens: List[str]) -> Dict[str, Any]:
+    """Parse tokenised search arguments into a kwargs dict."""
+    folder: Optional[str] = None
+    limit = 10
+    query_parts: List[str] = []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in ("-f", "--folder") and i + 1 < len(tokens):
+            folder = tokens[i + 1]
+            i += 2
+        elif tok.startswith("--folder="):
+            folder = tok.split("=", 1)[1]
+            i += 1
+        elif tok in ("-n", "--limit") and i + 1 < len(tokens):
+            limit = int(tokens[i + 1])
+            i += 2
+        elif tok.startswith("--limit="):
+            limit = int(tok.split("=", 1)[1])
+            i += 1
+        elif not tok.startswith("-"):
+            query_parts.append(tok)
+            i += 1
+        else:
+            i += 1
+    return {"query": " ".join(query_parts), "folder": folder, "limit": limit}
+
+
+def _parse_read_args(tokens: List[str]) -> Dict[str, Any]:
+    """Parse tokenised read arguments into a kwargs dict."""
+    folder: Optional[str] = None
+    uid: Optional[int] = None
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in ("-f", "--folder") and i + 1 < len(tokens):
+            folder = tokens[i + 1]
+            i += 2
+        elif tok.startswith("--folder="):
+            folder = tok.split("=", 1)[1]
+            i += 1
+        elif tok in ("-u", "--uid") and i + 1 < len(tokens):
+            uid = int(tokens[i + 1])
+            i += 2
+        elif tok.startswith("--uid="):
+            uid = int(tok.split("=", 1)[1])
+            i += 1
+        else:
+            i += 1
+    if folder is None or uid is None:
+        raise ValueError("read requires --folder (-f) and --uid (-u)")
+    return {"folder": folder, "uid": uid}
+
+
+def _parse_op_string(op_string: str) -> Tuple[str, str, Dict[str, Any]]:
+    """Parse an operation string into ``(op_key, subcmd, kwargs)``.
+
+    The ``op_key`` is the original string echoed back unchanged so the caller
+    can correlate input operations with output results.
+
+    Args:
+        op_string: A subcommand string such as ``"search from:x"`` or
+            ``"read -f INBOX --uid 42"``.
+
+    Returns:
+        ``(op_string, subcmd, kwargs)`` ready for ``_execute_batch``.
+
+    Raises:
+        ValueError: If the string is empty or names an unsupported subcommand.
+    """
+    tokens = shlex.split(op_string)
+    if not tokens:
+        raise ValueError("empty operation string")
+    subcmd = tokens[0]
+    args = tokens[1:]
+    if subcmd == "search":
+        kwargs: Dict[str, Any] = _parse_search_args(args)
+    elif subcmd == "read":
+        kwargs = _parse_read_args(args)
+    else:
+        raise ValueError(f"unsupported batch subcommand '{subcmd}'")
+    return op_string, subcmd, kwargs
+
+
 def _out(data: object) -> None:
     """Print data as JSON to stdout."""
     if isinstance(data, str):
@@ -278,52 +529,63 @@ def _format_provenance_line(provenance: Dict[str, Any]) -> str:
     return "# " + " ".join(parts)
 
 
-def _format_search_text(results: Dict[str, Dict[str, Any]]) -> str:
-    """Render search results as multi-line, prompt-friendly text."""
-    blocks: List[str] = []
-    for account, value in results.items():
-        hits: List[Dict[str, Any]] = value.get("results", []) or []
-        provenance = value.get("provenance") or {}
-        block = [f"== {account} ==", _format_provenance_line(provenance)]
-        if not hits:
-            block.append("(no results)")
-        else:
+def _format_batch_text(batch: Dict[str, Dict[str, Any]]) -> str:
+    """Render a batch result as multi-line, prompt-friendly text."""
+    sections: List[str] = []
+    for op_key, accounts in batch.items():
+        lines: List[str] = [f"=== {op_key} ==="]
+        for account, value in accounts.items():
+            hits: List[Dict[str, Any]] = value.get("results", []) or []
+            provenance = value.get("provenance") or {}
+            lines.append(f"== {account} ==")
+            if "error" in value and not hits:
+                lines.append(f"(error: {value['error']})")
+            else:
+                lines.append(_format_provenance_line(provenance))
+                if not hits:
+                    lines.append("(no results)")
+                else:
+                    for r in hits:
+                        date = str(r.get("date", ""))[:10]
+                        subject = r.get("subject", "")
+                        from_ = r.get("from", "")
+                        to_list = r.get("to") or [""]
+                        to = to_list[0]
+                        folder = r.get("folder", "")
+                        message_id = r.get("message_id", "")
+                        lines.append(f"{date}  {subject}")
+                        lines.append(f"            from: {from_}")
+                        lines.append(f"            to:   {to}")
+                        lines.append(f"            folder: {folder}")
+                        if message_id:
+                            lines.append(f"            id:     {message_id}")
+        sections.append("\n".join(lines))
+    return "\n\n".join(sections)
+
+
+def _format_batch_oneline(batch: Dict[str, Dict[str, Any]]) -> str:
+    """Render a batch result as one tab-separated line per result.
+
+    Columns: op_key, account, date, subject, from → to, message_id.
+    """
+    lines: List[str] = []
+    for op_key, accounts in batch.items():
+        for account, value in accounts.items():
+            hits: List[Dict[str, Any]] = value.get("results", []) or []
+            if not hits:
+                lines.append(f"{op_key}\t{account}\t(no results)")
+                continue
             for r in hits:
                 date = str(r.get("date", ""))[:10]
                 subject = r.get("subject", "")
-                from_ = r.get("from", "")
+                from_addr = _email_only(r.get("from", ""))
                 to_list = r.get("to") or [""]
-                to = to_list[0]
-                folder = r.get("folder", "")
+                to_addr = _email_only(to_list[0]) if to_list[0] else ""
                 message_id = r.get("message_id", "")
-                block.append(f"{date}  {subject}")
-                block.append(f"            from: {from_}")
-                block.append(f"            to:   {to}")
-                block.append(f"            folder: {folder}")
-                if message_id:
-                    block.append(f"            id:     {message_id}")
-        blocks.append("\n".join(block))
-    return "\n\n".join(blocks)
-
-
-def _format_search_oneline(results: Dict[str, Dict[str, Any]]) -> str:
-    """Render search results as one tab-separated line per result."""
-    lines: List[str] = []
-    for account, value in results.items():
-        hits: List[Dict[str, Any]] = value.get("results", []) or []
-        if not hits:
-            lines.append(f"{account}\t(no results)")
-            continue
-        for r in hits:
-            date = str(r.get("date", ""))[:10]
-            subject = r.get("subject", "")
-            from_addr = _email_only(r.get("from", ""))
-            to_list = r.get("to") or [""]
-            to_addr = _email_only(to_list[0]) if to_list[0] else ""
-            message_id = r.get("message_id", "")
-            lines.append(
-                f"{account}\t{date}\t{subject}\t{from_addr} → {to_addr}\t{message_id}"
-            )
+                lines.append(
+                    f"{op_key}\t{account}\t{date}\t{subject}"
+                    f"\t{from_addr} → {to_addr}\t{message_id}"
+                )
     return "\n".join(lines)
 
 
@@ -369,7 +631,7 @@ def status() -> None:
     accounts_map: Dict[str, Any] = {}
     status_data: Dict[str, Any] = {
         "server": "Mailroom",
-        "version": "1.0.3",
+        "version": __version__,
         "default_account": cfg.default_account,
         "accounts": accounts_map,
     }
@@ -432,58 +694,158 @@ def search(
         help="Output format: json (default), text, or oneline.",
     ),
 ) -> None:
-    """Search for emails. Returns a dict keyed by account name.
+    """Search for emails.
 
-    Each per-account value is ``{"results": [...], "provenance": {...}}``
+    Output is a JSON object keyed first by operation string, then by account
+    name. Each per-account value is ``{"results": [...], "provenance": {...}}``
     where ``provenance`` reports whether the result came from IMAP
-    (``source: "remote"``) or from a local mu cache (``source: "local"``)
-    and, if the local cache was bypassed, the reason in
-    ``fell_back_reason``.  ``--limit`` is applied per account.
+    (``source: "remote"``) or from a local mu cache (``source: "local"``).
+    ``--limit`` is applied per account.
 
-    Single-account searches return ``{"acct-name": {...}}``; multi-account
-    searches (``-a A -a B`` or ``--all-accounts``) return one key per
-    account searched.
-
-    ``--format text`` renders multi-line, prompt-friendly output grouped
-    by account with a one-line provenance header; ``--format oneline``
-    renders one tab-separated line per result (account in column 1) for
-    shell pipelines like ``awk -F'\\t'`` and drops provenance.
+    ``--format text`` renders multi-line, prompt-friendly output grouped by
+    operation and account; ``--format oneline`` renders one tab-separated line
+    per result (op_key, account, date, subject, from→to, message_id).
 
     Exit code: 0 on hits, 1 when every account returned zero results, so
     shell fallback chains work: ``mailroom search 'from:x' || mailroom
     search 'x'``.
     """
     effective = query_opt if query_opt is not None else query
+    op_key = _build_op_key("search", query=effective, folder=folder, limit=limit)
     names = _resolve_accounts()
-    results: Dict[str, Dict[str, Any]] = {}
-    for name in names:
-        client = _make_client_soft(name)
-        if client is None:
-            results[name] = _empty_search_result()
-            continue
-        try:
-            results[name] = client.search_emails(effective, folder=folder, limit=limit)
-        except ValueError as exc:
-            typer.echo(str(exc), err=True)
-            raise typer.Exit(2)
-        except Exception as exc:
-            typer.echo(f"warning: search failed for '{name}': {exc}", err=True)
-            results[name] = _empty_search_result()
-        finally:
-            client.disconnect()
+    try:
+        batch = _execute_batch(
+            [
+                (
+                    op_key,
+                    "search",
+                    {"query": effective, "folder": folder, "limit": limit},
+                )
+            ],
+            names,
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2)
     if output_format == "json":
-        _out(results)
+        _out(batch)
     elif output_format == "text":
-        typer.echo(_format_search_text(results))
+        typer.echo(_format_batch_text(batch))
     elif output_format == "oneline":
-        typer.echo(_format_search_oneline(results))
+        typer.echo(_format_batch_oneline(batch))
     else:
         typer.echo(
             f"Error: unknown --format '{output_format}'. Use json, text, or oneline.",
             err=True,
         )
         raise typer.Exit(2)
-    if not any(v.get("results") for v in results.values()):
+    has_results = any(
+        v.get("results")
+        for per_account in batch.values()
+        for v in per_account.values()
+        if isinstance(v, dict)
+    )
+    if not has_results:
+        raise typer.Exit(1)
+
+
+# ---------------------------------------------------------------------------
+# batch
+# ---------------------------------------------------------------------------
+
+
+@app.command("batch")
+def batch_cmd(
+    operations: Optional[List[str]] = typer.Argument(
+        None,
+        help=(
+            "Operation strings to execute, e.g. "
+            "'search from:x' 'read -f INBOX --uid 1'."
+        ),
+    ),
+    file: Optional[Path] = typer.Option(
+        None,
+        "--file",
+        help="JSON file containing an array of operation strings.",
+    ),
+    output_format: str = typer.Option(
+        "json",
+        "--format",
+        "-F",
+        help="Output format: json (default), text, or oneline.",
+    ),
+) -> None:
+    """Execute multiple operations in one IMAP connection per account.
+
+    Supply operations as positional arguments, via ``--file``, or as a JSON
+    array on stdin. Each operation is a subcommand string identical to what
+    you would pass on the command line (e.g. ``"search from:x"``).
+
+    All operations for a given account are executed over a single connection
+    before moving to the next account, which avoids per-query reconnections
+    and server-side throttling.
+
+    Output JSON is keyed by operation string, then by account name — the same
+    shape as a single-command run but with multiple outer keys.
+
+    Exit code: 0 if any search operation returned results, 1 otherwise.
+    """
+    op_strings: List[str] = []
+    if file is not None:
+        try:
+            op_strings = json.loads(file.read_text())
+        except Exception as exc:
+            typer.echo(f"Error reading --file: {exc}", err=True)
+            raise typer.Exit(1)
+    elif operations:
+        op_strings = list(operations)
+    elif not sys.stdin.isatty():
+        try:
+            op_strings = json.loads(sys.stdin.read())
+        except Exception as exc:
+            typer.echo(f"Error reading stdin: {exc}", err=True)
+            raise typer.Exit(1)
+    else:
+        typer.echo(
+            "Error: provide operations as arguments, via --file, or on stdin.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    parsed: List[Tuple[str, str, Dict[str, Any]]] = []
+    for s in op_strings:
+        try:
+            parsed.append(_parse_op_string(s))
+        except ValueError as exc:
+            typer.echo(f"Error parsing operation {s!r}: {exc}", err=True)
+            raise typer.Exit(1)
+
+    names = _resolve_accounts()
+    try:
+        batch = _execute_batch(parsed, names)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2)
+
+    if output_format == "json":
+        _out(batch)
+    elif output_format == "text":
+        typer.echo(_format_batch_text(batch))
+    elif output_format == "oneline":
+        typer.echo(_format_batch_oneline(batch))
+    else:
+        typer.echo(
+            f"Error: unknown --format '{output_format}'. Use json, text, or oneline.",
+            err=True,
+        )
+        raise typer.Exit(2)
+    has_results = any(
+        v.get("results")
+        for per_account in batch.values()
+        for v in per_account.values()
+        if isinstance(v, dict)
+    )
+    if not has_results:
         raise typer.Exit(1)
 
 
@@ -497,46 +859,20 @@ def read(
     folder: str = typer.Option(..., "--folder", "-f", help="Folder name."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID."),
 ) -> None:
-    """Read an email's content."""
+    """Read an email's content.
+
+    Output is a JSON object keyed by operation string, then by account name,
+    consistent with the batch output format.
+    """
+    name = _resolve_single_account_name()
     client = _make_client()
     try:
-        email_obj = client.fetch_email(uid, folder)
-        if not email_obj:
-            typer.echo(f"Email UID {uid} not found in {folder}", err=True)
+        result = _fetch_email_result(client, folder, uid)
+        if "error" in result:
+            typer.echo(result["error"], err=True)
             raise typer.Exit(1)
-        result: Dict[str, Any] = {
-            "uid": uid,
-            "folder": folder,
-            "from": str(email_obj.from_),
-            "to": [str(to) for to in email_obj.to],
-            "subject": email_obj.subject,
-            "date": (email_obj.date.isoformat() if email_obj.date else None),
-            "flags": email_obj.flags,
-            "message_id": email_obj.message_id,
-            "content_type": ("text/html" if email_obj.content.html else "text/plain"),
-            "body": (
-                str(email_obj.content.html)
-                if email_obj.content.html
-                else str(email_obj.content.text) if email_obj.content.text else None
-            ),
-        }
-        if email_obj.in_reply_to:
-            result["in_reply_to"] = email_obj.in_reply_to
-        if email_obj.references:
-            result["references"] = list(email_obj.references)
-        if email_obj.cc:
-            result["cc"] = [str(cc) for cc in email_obj.cc]
-        if email_obj.attachments:
-            result["attachments"] = [
-                {
-                    "index": i,
-                    "filename": att.filename,
-                    "size": att.size,
-                    "content_type": att.content_type,
-                }
-                for i, att in enumerate(email_obj.attachments)
-            ]
-        _out(result)
+        op_key = _build_op_key("read", folder=folder, uid=uid)
+        _out({op_key: {name: result}})
     finally:
         client.disconnect()
 
@@ -1150,7 +1486,7 @@ def mcp_serve(
 ) -> None:
     """Start the MCP server (Model Context Protocol)."""
     if version:
-        print("Mailroom MCP server version 1.0.3")
+        print(f"Mailroom MCP server version {__version__}")
         raise typer.Exit()
     from mailroom.mcp_server import create_server
 

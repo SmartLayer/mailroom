@@ -10,7 +10,6 @@ import json
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from mailroom.__main__ import app
@@ -42,6 +41,15 @@ def _make_email(
 
 class TestReadCLIThreadingHeaders:
 
+    def _read_inner(self, result_output: str) -> dict:
+        """Extract the email dict from the batch-wrapped read output.
+
+        Output shape: ``{op_key: {account_name: email_dict}}``.
+        """
+        batch = json.loads(result_output)
+        # There is exactly one op_key, one account.
+        return next(iter(next(iter(batch.values())).values()))
+
     def test_message_id_always_present(self):
         client = MagicMock()
         client.fetch_email.return_value = _make_email("<solo@example.com>")
@@ -54,7 +62,7 @@ class TestReadCLIThreadingHeaders:
             )
 
         assert result.exit_code == 0
-        out = json.loads(result.output)
+        out = self._read_inner(result.output)
         assert out["message_id"] == "<solo@example.com>"
         # When the parent is not itself a reply, in_reply_to/references are absent.
         assert "in_reply_to" not in out
@@ -76,7 +84,7 @@ class TestReadCLIThreadingHeaders:
             )
 
         assert result.exit_code == 0
-        out = json.loads(result.output)
+        out = self._read_inner(result.output)
         assert out["message_id"] == "<child@example.com>"
         assert out["in_reply_to"] == "<root@example.com>"
         assert out["references"] == ["<root@example.com>", "<mid@example.com>"]
@@ -97,6 +105,6 @@ class TestReadCLIThreadingHeaders:
             )
 
         assert result.exit_code == 0
-        out = json.loads(result.output)
+        out = self._read_inner(result.output)
         assert "in_reply_to" not in out
         assert "references" not in out
