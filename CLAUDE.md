@@ -5,6 +5,22 @@
 - Do not bump the version unless the user asks for it.
 - Packaging: `debian/` for .deb, `mailroom.spec` for .rpm, `formula/mailroom.rb` for Homebrew.
 
+## What "release" means in this project
+When the user asks to "do the release", "release X.Y.Z", or "release now", they mean the **complete** end-to-end publication, not source-side prep. Do all of the following without asking for confirmation between steps; ask only if a step actually fails:
+
+1. **Commit** any uncommitted source/test/packaging changes from this session, in logically grouped commits (feature → version bump → packaging metadata sync → Homebrew URL placeholder). Match the commit-message style of the prior release commits (see `git log -- debian/changelog mailroom.spec formula/mailroom.rb`).
+2. **Push** to `origin/main`.
+3. **Tag** `vX.Y.Z` and **push the tag**.
+4. **Create the GitHub release**: `gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."` — release notes summarise the user-visible changes.
+5. **Build BOTH `.deb` AND `.rpm`** — never just one. The host has both `dpkg-buildpackage` and `rpmbuild` available; check with `which` if unsure, do not assume.
+   - `.deb`: from project root, `dpkg-buildpackage -us -uc -b` → artifact lands at `../mailroom_X.Y.Z_all.deb`.
+   - `.rpm`: download the GitHub tarball to `~/rpmbuild/SOURCES/mailroom-X.Y.Z.tar.gz`, then `rpmbuild -bb mailroom.spec` → artifact lands at `~/rpmbuild/RPMS/noarch/mailroom-X.Y.Z-1.noarch.rpm`.
+6. **Upload BOTH artifacts** to the GitHub release: `gh release upload vX.Y.Z <deb> <rpm>`. Verify with `gh release view vX.Y.Z --json assets --jq '[.assets[].name]'` — both filenames must be present before considering the release done.
+7. **Compute sha256** of the GitHub release tarball (`curl -sL <url> | sha256sum`), update `formula/mailroom.rb` `sha256` field, commit, push.
+8. **Sanity-check** the prior release for parity: `gh release view v<previous> --json assets` — the new release should have at least the same asset types (deb + rpm at minimum) the previous one had. If the new release is missing an asset type, it is incomplete.
+
+Do **not** report the release as done if any of the above is missing. Do not stop at "the .deb is built, want me to upload?" — the user explicitly does not want that hand-off; the upload is part of the release.
+
 ## Environment Setup and Build Commands with `uv`
 - Create virtual environment: `uv venv`
 - Activate virtual environment: `source .venv/bin/activate` (Unix/macOS) or `.venv\Scripts\activate` (Windows)
