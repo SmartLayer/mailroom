@@ -1,3 +1,21 @@
+mailroom (1.1.1) unstable; urgency=medium
+
+  * SMTP send capability: --send flag on compose and reply transmits via
+    SMTP instead of saving to drafts; new send-draft subcommand reads a
+    draft from IMAP and transmits it.
+  * New [smtp.NAME] config blocks declare named SMTP endpoints; per-account
+    default_smtp routes outgoing mail; [[identities]] tables enable send-as
+    with one mailbox handling multiple From addresses.
+  * Captures the post-DATA SMTP response and rewrites Message-ID to the
+    recipient-visible form when the smarthost issues one (e.g. SES).
+  * After a successful send, FCCs (IMAP-APPENDs) the wire-form bytes to the
+    identity's Sent folder, with Bcc stripped and Message-ID rewritten.
+  * New config-check subcommand validates cross-references and identity
+    resolution without performing IMAP or SMTP traffic; the same warnings
+    surface on `mailroom`, `--help`, `status`, and `list-accounts`.
+
+ -- Weiwu Zhang <a@colourful.land>  Sat, 02 May 2026 00:00:00 +0000
+
 mailroom (1.1.0) unstable; urgency=medium
 
   * Batch-first JSON output: all commands now wrap results under an operation

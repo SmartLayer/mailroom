@@ -1,5 +1,5 @@
 Name:           mailroom
-Version:        1.1.0
+Version:        1.1.1
 Release:        1%{?dist}
 Summary:        Email toolkit for AI assistants and command-line scripting
 License:        MIT
@@ -65,6 +65,21 @@ install -Dpm 644 debian/mailroom.1 %{buildroot}%{_mandir}/man1/mailroom.1
 %{_mandir}/man1/mailroom.1*
 
 %changelog
+* Sat May 02 2026 Weiwu Zhang <a@colourful.land> - 1.1.1-1
+- SMTP send capability: --send flag on compose and reply transmits via SMTP
+  instead of saving to drafts; new send-draft subcommand reads a draft from
+  IMAP and transmits it
+- New [smtp.NAME] config blocks declare named SMTP endpoints; per-account
+  default_smtp routes outgoing mail; [[identities]] tables enable send-as
+  with one mailbox handling multiple From addresses
+- Captures the post-DATA SMTP response and rewrites Message-ID to the
+  recipient-visible form when the smarthost issues one (e.g. SES)
+- After a successful send, FCCs (IMAP-APPENDs) the wire-form bytes to the
+  identity's Sent folder, with Bcc stripped and Message-ID rewritten
+- New config-check subcommand validates cross-references and identity
+  resolution without performing IMAP or SMTP traffic; the same warnings
+  surface on `mailroom`, `--help`, `status`, and `list-accounts`
+
 * Tue Apr 28 2026 Weiwu Zhang <a@colourful.land> - 1.1.0-1
 - Batch-first JSON output: all commands now wrap results under an operation
   key {"search from:x": {"account": {...}}} — breaking change for 1.0.x
