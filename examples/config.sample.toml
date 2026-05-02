@@ -1,14 +1,99 @@
-# Multi-account example. Use -a to select: mailroom -a work search-emails ...
+# Mailroom configuration example.
+#
+# Lives at ~/.config/mailroom/config.toml. Use -a NAME to select an account:
+#   mailroom -a work search 'from:alice'
+#
+# Two layers:
+#   [accounts.NAME]      one IMAP mailbox, plus optional send identities
+#   [smtp.NAME]          a named SMTP endpoint, picked by accounts/identities
+#
+# Drafting works without any [smtp.*] block. Sending requires one, plus an
+# SMTP-resolution path (account.default_smtp, identity.smtp, or a lone smtp).
+# An account with no resolution is read-only for sending; that is a valid
+# state, not an error.
+
 default_account = "personal"
 
+# ── SMTP endpoints ────────────────────────────────────────────────────────
+# Two patterns coexist:
+#
+#   Template SMTP (host/port only, no creds).
+#       Credentials inherit from the IMAP account selected by -a at send time.
+#       Use for Gmail/Fastmail where the SMTP credential equals the IMAP one.
+#
+#   Concrete SMTP (host/port/username/password).
+#       Credentials live on the SMTP block. Use for SES, where one IAM SMTP
+#       user serves many From addresses across many accounts.
+
+[smtp.gmail]
+host = "smtp.gmail.com"
+port = 587
+# username/password omitted on purpose: inherit from the account in scope.
+
+[smtp.ses-syd]
+host = "email-smtp.ap-southeast-2.amazonaws.com"
+port = 587
+username = "AKIAEXAMPLEEXAMPLE"
+password = "BPa+EXAMPLE/EXAMPLE"
+save_sent = true                       # SES does not auto-file; mailroom FCCs.
+rewrite_msgid_from_response = true     # SES rewrites Message-ID; capture from "250 Ok <token>".
+
+# save_sent values: "auto" | true | false
+#   "auto" (default) = false when host endswith gmail.com (server auto-files), true otherwise.
+# rewrite_msgid_from_response default = true when host matches SES SMTP endpoints
+#   ("email-smtp.<region>.amazonaws.com"), false otherwise.
+
+# ── Accounts ──────────────────────────────────────────────────────────────
+
+# The simplest case: one IMAP mailbox, one default SMTP, no identities needed.
+# Mailroom synthesises {address = username, name = ""} at send time.
 [accounts.personal]
 host = "imap.gmail.com"
+port = 993
 username = "you@gmail.com"
-client_id = "YOUR_CLIENT_ID"
-client_secret = "YOUR_CLIENT_SECRET"
-refresh_token = "YOUR_REFRESH_TOKEN"
+password = "abcdefghijklmnop"
+default_smtp = "gmail"                 # any identity in this account inherits this.
 
+# Same shape, different mailbox.
 [accounts.work]
-host = "imap.fastmail.com"
+host = "imap.gmail.com"
+port = 993
 username = "you@company.com"
-password = "YOUR_APP_PASSWORD"
+password = "another-app-password"
+default_smtp = "gmail"
+
+# Read-only account. No default_smtp, no identities. Drafting and reading work;
+# sending is disabled. Valid configuration, not an error.
+[accounts.archive]
+host = "imap.fastmail.com"
+port = 993
+username = "archive@example.org"
+password = "fastmail-app-password"
+
+# Send-as: one Gmail mailbox, multiple From addresses, mixed SMTP routes.
+# When [[identities]] is present the synthesised identity is suppressed; only
+# the listed identities are usable for sending.
+[accounts.director]
+host = "imap.gmail.com"
+port = 993
+username = "alias-host@gmail.com"      # IMAP login, not necessarily a From address
+password = "gmail-app-password"
+default_smtp = "gmail"                 # identities inherit unless they override
+maildir = "/var/local/mail/director"   # optional, only used if local_cache is enabled
+
+[[accounts.director.identities]]
+address = "director@example.org"
+name = "Director Name"                 # optional; bare-address From is fine
+smtp = "ses-syd"                       # this identity overrides the account default
+sent_folder = "[Gmail]/Sent Mail"
+
+[[accounts.director.identities]]
+address = "alias-host@gmail.com"
+# no name, no smtp override (inherits "gmail"), no sent_folder (Gmail auto-files).
+
+# ── Optional global blocks ────────────────────────────────────────────────
+
+# [local_cache]
+# indexer = "mu"
+# max_staleness_seconds = 4000
+# mu_index = "/var/local/cache/mu"
