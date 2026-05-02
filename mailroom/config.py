@@ -3,9 +3,9 @@
 import logging
 import os
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 
@@ -21,6 +21,7 @@ _GLOBAL_KEYS = {
     "idle_timeout",
     "verify_with_noop",
     "local_cache",
+    "smtp",
 }
 
 # Keys that signal OAuth2 auth (vs password auth)
@@ -31,6 +32,11 @@ _OAUTH2_KEYS = {
     "access_token",
     "token_expiry",
 }
+
+# Hosts where a credential-less SMTP block can safely inherit per-account creds.
+# (smtp.gmail.com accepts each Gmail mailbox's own app password, so sharing one
+# credential-less SMTP across multiple accounts is the intended pattern.)
+_INHERITANCE_SAFE_SMTP_HOSTS = ("smtp.gmail.com", "smtp.googlemail.com")
 
 
 @dataclass
@@ -155,7 +161,7 @@ class LocalCacheConfig:
             backend declines and the call falls back to IMAP.  Default
             4000 (~67 minutes), comfortably above an hourly index cron.
         mu_index: Optional explicit muhome path (the value passed to
-            ``mu --muhome=…``).  If unset, the backend discovers it
+            ``mu --muhome=...``).  If unset, the backend discovers it
             from ``mu info store`` on first use.
     """
 
@@ -174,28 +180,223 @@ class LocalCacheConfig:
 
 
 @dataclass
+class SmtpConfig:
+    """A named SMTP endpoint, referenced by accounts/identities by name.
+
+    Two patterns are supported:
+        Template (host/port only): credentials inherit from the IMAP account
+            in scope at send time. Right for Gmail/Fastmail where SMTP creds
+            equal IMAP creds.
+        Concrete (host/port/username/password): credentials live here. Right
+            for SES, where one IAM SMTP user serves many From addresses.
+
+    Attributes:
+        host: SMTP server hostname.
+        port: TCP port. Default 587 (STARTTLS); 465 implies SMTPS.
+        username: Optional. When absent, inherits from the account in scope.
+        password: Optional. When absent, inherits from the account in scope.
+        save_sent: ``"auto"`` (default; resolves to false on gmail.com hosts
+            where the server auto-files outgoing, true elsewhere), or an
+            explicit bool override.
+        rewrite_msgid_from_response: When true, the SMTP transport rewrites
+            the local copy's ``Message-ID:`` header to match the recipient's
+            view based on the post-DATA server response (used for SES, which
+            rewrites Message-ID in transit). Defaults true when host matches
+            an SES SMTP endpoint (``email-smtp.<region>.amazonaws.com``).
+    """
+
+    host: str
+    port: int = 587
+    username: Optional[str] = None
+    password: Optional[str] = None
+    save_sent: Any = "auto"  # "auto" | True | False
+    rewrite_msgid_from_response: bool = False
+
+    @classmethod
+    def from_dict(cls, name: str, data: Dict[str, Any]) -> "SmtpConfig":
+        """Build an SmtpConfig from a TOML table.
+
+        Args:
+            name: SMTP block name (used in error messages).
+            data: Raw table from ``[smtp.NAME]``.
+
+        Returns:
+            Parsed SmtpConfig with auto-defaulted fields filled in.
+
+        Raises:
+            ValueError: When required fields are missing or types mismatch.
+        """
+        where = f"[smtp.{name}]"
+        if not isinstance(data, dict):
+            raise ValueError(f"{where}: must be a table")
+        host = data.get("host")
+        if not isinstance(host, str) or not host:
+            raise ValueError(f"{where}: missing required string field 'host'")
+        port = data.get("port", 587)
+        if not isinstance(port, int):
+            raise ValueError(f"{where}: 'port' must be an integer")
+        for credfield in ("username", "password"):
+            v = data.get(credfield)
+            if v is not None and not isinstance(v, str):
+                raise ValueError(
+                    f"{where}: '{credfield}' must be a string when present"
+                )
+        save_sent = data.get("save_sent", "auto")
+        if save_sent not in ("auto", True, False):
+            raise ValueError(
+                f"{where}: 'save_sent' must be one of \"auto\", true, false"
+            )
+        rewrite = data.get("rewrite_msgid_from_response")
+        if rewrite is not None and not isinstance(rewrite, bool):
+            raise ValueError(f"{where}: 'rewrite_msgid_from_response' must be boolean")
+        if rewrite is None:
+            # SES SMTP endpoints look like "email-smtp.<region>.amazonaws.com".
+            # The Message-ID rewrite target is the unrelated email.amazonses.com,
+            # so we match on the SMTP host shape, not the rewrite target.
+            rewrite = "email-smtp." in host and host.endswith("amazonaws.com")
+        return cls(
+            host=host,
+            port=port,
+            username=data.get("username"),
+            password=data.get("password"),
+            save_sent=save_sent,
+            rewrite_msgid_from_response=rewrite,
+        )
+
+    def resolve_save_sent(self) -> bool:
+        """Resolve ``"auto"`` save_sent to a concrete bool based on host.
+
+        Returns false for Gmail hosts (server auto-files outgoing into Sent),
+        true for everything else (mailroom must FCC manually).
+        """
+        if self.save_sent == "auto":
+            return not (
+                self.host.endswith("gmail.com") or self.host.endswith("googlemail.com")
+            )
+        return bool(self.save_sent)
+
+
+@dataclass
+class Identity:
+    """A send identity: one From address served by an account, with a chosen SMTP.
+
+    Identities are optional. An account without ``[[identities]]`` synthesises
+    one identity ``{address: account.username, name: ""}`` at send time.
+
+    Attributes:
+        address: The bare email address used in the ``From`` header.
+        name: Display name. Empty string for bare-address From.
+        smtp: Name of an ``[smtp.NAME]`` block. When None, falls back to
+            ``account.default_smtp`` then to the lone SMTP block if exactly
+            one is defined.
+        sent_folder: IMAP folder to FCC the sent message into. When None,
+            uses the account's resolved Sent folder.
+    """
+
+    address: str
+    name: str = ""
+    smtp: Optional[str] = None
+    sent_folder: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, where: str, data: Dict[str, Any]) -> "Identity":
+        """Build an Identity from a TOML table.
+
+        Args:
+            where: Source location string (e.g.
+                ``"[accounts.NAME.identities][0]"``) used in error messages.
+            data: Raw identity table.
+
+        Raises:
+            ValueError: On missing/invalid fields.
+        """
+        if not isinstance(data, dict):
+            raise ValueError(f"{where}: identity entry must be a table")
+        address = data.get("address")
+        if not isinstance(address, str) or "@" not in address:
+            raise ValueError(f"{where}: missing or invalid 'address'")
+        name = data.get("name", "")
+        if not isinstance(name, str):
+            raise ValueError(f"{where}: 'name' must be a string when present")
+        smtp = data.get("smtp")
+        if smtp is not None and not isinstance(smtp, str):
+            raise ValueError(
+                f"{where}: 'smtp' must be a string referencing an [smtp.NAME]"
+            )
+        sent_folder = data.get("sent_folder")
+        if sent_folder is not None and not isinstance(sent_folder, str):
+            raise ValueError(f"{where}: 'sent_folder' must be a string when present")
+        return cls(address=address, name=name, smtp=smtp, sent_folder=sent_folder)
+
+
+@dataclass
 class AccountConfig:
     """Configuration for a single email account."""
 
     imap: ImapConfig
     allowed_folders: Optional[List[str]] = None
     maildir: Optional[str] = None
+    default_smtp: Optional[str] = None
+    identities: Optional[List[Identity]] = None
 
     @classmethod
     def from_dict(
-        cls, data: Dict[str, Any], defaults: Dict[str, Any] | None = None
+        cls,
+        data: Dict[str, Any],
+        defaults: Dict[str, Any] | None = None,
+        name: str = "",
     ) -> "AccountConfig":
         """Create account configuration from a flat dictionary.
 
         Args:
             data: Flat account dictionary (host, username, ..., allowed_folders,
-                maildir).
+                maildir, default_smtp, identities).
             defaults: Global defaults inherited from top level.
+            name: Account name for error-message context. Optional; when empty
+                the error prefix uses ``[account]`` rather than the named form.
+
+        Raises:
+            ValueError: On structural problems (bad types, missing required
+                fields, duplicate identity addresses).
         """
+        prefix = f"[accounts.{name}]" if name else "[account]"
+        default_smtp = data.get("default_smtp")
+        if default_smtp is not None and not isinstance(default_smtp, str):
+            raise ValueError(f"{prefix}: 'default_smtp' must be a string")
+
+        identities_raw = data.get("identities")
+        identities: Optional[List[Identity]] = None
+        if identities_raw is not None:
+            if not isinstance(identities_raw, list):
+                raise ValueError(f"{prefix}: 'identities' must be an array of tables")
+            if not identities_raw:
+                raise ValueError(
+                    f"{prefix}: 'identities' is empty; remove the key or add entries"
+                )
+            identities = []
+            seen: set = set()
+            for i, ident_data in enumerate(identities_raw):
+                ident_where = (
+                    f"[accounts.{name}.identities][{i}]"
+                    if name
+                    else f"[identities][{i}]"
+                )
+                ident = Identity.from_dict(ident_where, ident_data)
+                addr_lc = ident.address.lower()
+                if addr_lc in seen:
+                    raise ValueError(
+                        f"{ident_where}: duplicate address '{addr_lc}' "
+                        f"within this account"
+                    )
+                seen.add(addr_lc)
+                identities.append(ident)
+
         return cls(
             imap=ImapConfig.from_dict(data, defaults),
             allowed_folders=data.get("allowed_folders"),
             maildir=data.get("maildir"),
+            default_smtp=default_smtp,
+            identities=identities,
         )
 
 
@@ -206,6 +407,8 @@ class MultiAccountConfig:
     accounts: Dict[str, AccountConfig]
     _default_account: Optional[str] = None
     local_cache: Optional[LocalCacheConfig] = None
+    smtp_blocks: Dict[str, SmtpConfig] = field(default_factory=dict)
+    warnings: List[str] = field(default_factory=list)
 
     @property
     def default_account(self) -> str:
@@ -216,29 +419,146 @@ class MultiAccountConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "MultiAccountConfig":
-        """Create multi-account configuration from dictionary."""
-        # Extract global defaults
+        """Create multi-account configuration from dictionary.
+
+        Parses ``[smtp.*]`` blocks, ``[accounts.*]`` blocks, validates
+        cross-references (default_smtp and identity.smtp must name a defined
+        SMTP block), and collects non-fatal warnings on the returned
+        ``MultiAccountConfig.warnings`` list.
+
+        Raises:
+            ValueError: On structural errors that prevent loading.
+        """
+        smtp_data = data.get("smtp", {})
+        if smtp_data and not isinstance(smtp_data, dict):
+            raise ValueError("top-level 'smtp' must be a table of named blocks")
+        smtp_blocks: Dict[str, SmtpConfig] = {}
+        for n, b in smtp_data.items():
+            if not isinstance(b, dict):
+                raise ValueError(f"[smtp.{n}]: must be a table")
+            smtp_blocks[n] = SmtpConfig.from_dict(n, b)
+        smtp_names = sorted(smtp_blocks)
+
         defaults = {
             k: data[k] for k in ("idle_timeout", "verify_with_noop") if k in data
         }
 
-        accounts = {}
+        accounts: Dict[str, AccountConfig] = {}
         for name, account_data in data.get("accounts", {}).items():
-            accounts[name] = AccountConfig.from_dict(account_data, defaults)
+            account = AccountConfig.from_dict(account_data, defaults, name=name)
+            # Cross-reference checks (need the smtp_blocks map).
+            if (
+                account.default_smtp is not None
+                and account.default_smtp not in smtp_blocks
+            ):
+                raise ValueError(
+                    f"[accounts.{name}]: 'default_smtp' references undefined "
+                    f"[smtp.{account.default_smtp}]; defined: {smtp_names}"
+                )
+            for i, ident in enumerate(account.identities or []):
+                if ident.smtp is not None and ident.smtp not in smtp_blocks:
+                    raise ValueError(
+                        f"[accounts.{name}.identities][{i}]: references "
+                        f"undefined [smtp.{ident.smtp}]; defined: {smtp_names}"
+                    )
+            accounts[name] = account
 
         if not accounts:
             raise ValueError("No accounts defined in configuration")
+
+        default_account = data.get("default_account")
+        if default_account is not None and default_account not in accounts:
+            raise ValueError(
+                f"top-level: default_account '{default_account}' is not a "
+                f"defined account"
+            )
 
         local_cache_data = data.get("local_cache")
         local_cache = (
             LocalCacheConfig.from_dict(local_cache_data) if local_cache_data else None
         )
 
-        return cls(
+        cfg = cls(
             accounts=accounts,
-            _default_account=data.get("default_account"),
+            _default_account=default_account,
             local_cache=local_cache,
+            smtp_blocks=smtp_blocks,
         )
+        cfg.warnings = _collect_warnings(cfg)
+        return cfg
+
+
+def _collect_warnings(cfg: MultiAccountConfig) -> List[str]:
+    """Walk the config and emit non-fatal advisories.
+
+    Warnings are surfaced to the user on no-args/--help and after status/
+    list-accounts JSON. They never abort loading. Categories:
+        - No SMTP blocks at all (drafting works, sending blocked globally).
+        - Account is send-disabled (2+ smtps, no default_smtp, no identities).
+        - Identity has no SMTP resolution path.
+        - Shared credential-less SMTP block on a non-Gmail host (each send
+          would inherit whichever account's IMAP creds are currently in
+          scope, which is rarely intentional outside Gmail-style hosts).
+    """
+    warnings: List[str] = []
+
+    if not cfg.smtp_blocks:
+        warnings.append(
+            "no [smtp.*] blocks defined: drafting works, sending will be blocked"
+        )
+
+    smtp_count = len(cfg.smtp_blocks)
+    has_lone_smtp = smtp_count == 1
+
+    for name, account in cfg.accounts.items():
+        prefix = f"[accounts.{name}]"
+        has_account_default = (
+            account.default_smtp is not None and account.default_smtp in cfg.smtp_blocks
+        )
+        if account.identities is None:
+            # Synthesised identity: needs default_smtp or lone-smtp.
+            if not has_account_default and not has_lone_smtp and smtp_count > 1:
+                warnings.append(
+                    f"{prefix}: no default_smtp and {smtp_count} [smtp.*] "
+                    f"blocks defined; sending from this account is disabled. "
+                    f"Set 'default_smtp' or add [[identities]] to enable sends."
+                )
+            continue
+        # Explicit identities: check each.
+        for i, ident in enumerate(account.identities):
+            if ident.smtp is not None:
+                continue
+            if not has_account_default and not has_lone_smtp:
+                warnings.append(
+                    f"[accounts.{name}.identities][{i}]: no smtp specified; "
+                    f"sending from this identity is disabled. Set 'smtp' here "
+                    f"or 'default_smtp' on [accounts.{name}]."
+                )
+
+    # Shared credential-less SMTP check.
+    refs: Dict[str, set] = {n: set() for n in cfg.smtp_blocks}
+    for acc_name, account in cfg.accounts.items():
+        if account.default_smtp and account.default_smtp in refs:
+            refs[account.default_smtp].add(acc_name)
+        for ident in account.identities or []:
+            if ident.smtp and ident.smtp in refs:
+                refs[ident.smtp].add(acc_name)
+    for smtp_name, accs in refs.items():
+        smtp = cfg.smtp_blocks[smtp_name]
+        has_creds = bool(smtp.username) and bool(smtp.password)
+        if has_creds or len(accs) <= 1:
+            continue
+        if smtp.host in _INHERITANCE_SAFE_SMTP_HOSTS:
+            continue
+        warnings.append(
+            f"[smtp.{smtp_name}]: no creds and shared by accounts "
+            f"{sorted(accs)}; each send will use the selected account's IMAP "
+            f"credentials. This is correct only when host '{smtp.host}' "
+            f"accepts each account's own login. Add username/password to the "
+            f"[smtp.{smtp_name}] block if it should not inherit."
+        )
+
+    return warnings
 
 
 def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
@@ -319,7 +639,7 @@ def load_config(config_path: Optional[str] = None) -> MultiAccountConfig:
         config_path: Path to configuration file
 
     Returns:
-        Multi-account server configuration
+        Multi-account server configuration with ``warnings`` populated.
 
     Raises:
         ValueError: If configuration is invalid
@@ -330,3 +650,19 @@ def load_config(config_path: Optional[str] = None) -> MultiAccountConfig:
         return MultiAccountConfig.from_dict(config_data)
     except KeyError as e:
         raise ValueError(f"Missing required configuration: {e}")
+
+
+def load_config_with_warnings(
+    config_path: Optional[str] = None,
+) -> Tuple[MultiAccountConfig, List[str]]:
+    """Load configuration and return ``(cfg, warnings)`` explicitly.
+
+    Sugar over ``load_config`` for callers (CLI, validator script) that want
+    the warnings list as a separate return value rather than reading
+    ``cfg.warnings``.
+
+    Raises:
+        ValueError: If configuration is invalid (same as ``load_config``).
+    """
+    cfg = load_config(config_path)
+    return cfg, cfg.warnings
