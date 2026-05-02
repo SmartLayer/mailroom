@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 from imapclient.response_types import SearchIds
 
-from mailroom.config import ImapConfig
+from mailroom.config import ImapBlock
 from mailroom.imap_client import ImapClient
 
 
@@ -22,7 +22,7 @@ class TestImapClientThreading(unittest.TestCase):
 
     def setUp(self) -> None:
         """Set up test environment."""
-        self.config = ImapConfig(
+        self.config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",

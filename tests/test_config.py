@@ -7,45 +7,44 @@ from unittest.mock import patch
 import pytest
 
 from mailroom.config import (
-    AccountConfig,
     Identity,
-    ImapConfig,
-    MultiAccountConfig,
+    ImapBlock,
+    MailroomConfig,
     SmtpConfig,
     load_config,
     load_config_with_warnings,
 )
 
 
-class TestImapConfig:
-    """Test cases for the ImapConfig class."""
+class TestImapBlock:
+    """Test cases for the ImapBlock class."""
 
     def test_init(self):
-        """Test ImapConfig initialization."""
-        config = ImapConfig(
+        """Test ImapBlock initialization."""
+        block = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
             password="password",
         )
 
-        assert config.host == "imap.example.com"
-        assert config.port == 993
-        assert config.username == "test@example.com"
-        assert config.password == "password"
-        assert config.use_ssl is True
+        assert block.host == "imap.example.com"
+        assert block.port == 993
+        assert block.username == "test@example.com"
+        assert block.password == "password"
+        assert block.use_ssl is True
 
-        config = ImapConfig(
+        block = ImapBlock(
             host="imap.example.com",
             port=143,
             username="test@example.com",
             password="password",
             use_ssl=False,
         )
-        assert config.use_ssl is False
+        assert block.use_ssl is False
 
     def test_from_dict(self):
-        """Test creating ImapConfig from a flat dictionary."""
+        """Test creating ImapBlock from a flat dictionary."""
         data = {
             "host": "imap.example.com",
             "port": 993,
@@ -54,15 +53,15 @@ class TestImapConfig:
             "use_ssl": True,
         }
 
-        config = ImapConfig.from_dict(data)
-        assert config.host == "imap.example.com"
-        assert config.port == 993
-        assert config.password == "password"
-        assert config.use_ssl is True
-        assert config.oauth2 is None
+        block = ImapBlock.from_dict(data)
+        assert block.host == "imap.example.com"
+        assert block.port == 993
+        assert block.password == "password"
+        assert block.use_ssl is True
+        assert block.oauth2 is None
 
     def test_from_dict_oauth2(self):
-        """Test creating ImapConfig with OAuth2 from a flat dictionary."""
+        """Test creating ImapBlock with OAuth2 from a flat dictionary."""
         data = {
             "host": "imap.gmail.com",
             "username": "test@gmail.com",
@@ -71,16 +70,16 @@ class TestImapConfig:
             "refresh_token": "my_token",
         }
 
-        config = ImapConfig.from_dict(data)
-        assert config.host == "imap.gmail.com"
-        assert config.oauth2 is not None
-        assert config.oauth2.client_id == "my_id"
-        assert config.password is None
+        block = ImapBlock.from_dict(data)
+        assert block.host == "imap.gmail.com"
+        assert block.oauth2 is not None
+        assert block.oauth2.client_id == "my_id"
+        assert block.password is None
 
     def test_from_dict_defaults(self):
         """Test that port defaults to 993 for SSL, 143 for non-SSL."""
         ssl_data = {"host": "imap.example.com", "username": "u", "password": "p"}
-        assert ImapConfig.from_dict(ssl_data).port == 993
+        assert ImapBlock.from_dict(ssl_data).port == 993
 
         non_ssl_data = {
             "host": "imap.example.com",
@@ -88,19 +87,19 @@ class TestImapConfig:
             "password": "p",
             "use_ssl": False,
         }
-        assert ImapConfig.from_dict(non_ssl_data).port == 143
+        assert ImapBlock.from_dict(non_ssl_data).port == 143
 
     def test_from_dict_global_defaults(self):
         """Test that global defaults are inherited."""
         data = {"host": "imap.example.com", "username": "u", "password": "p"}
         defaults = {"idle_timeout": 600, "verify_with_noop": False}
 
-        config = ImapConfig.from_dict(data, defaults)
-        assert config.idle_timeout == 600
-        assert config.verify_with_noop is False
+        block = ImapBlock.from_dict(data, defaults)
+        assert block.idle_timeout == 600
+        assert block.verify_with_noop is False
 
-    def test_from_dict_account_overrides_global(self):
-        """Test that per-account values override global defaults."""
+    def test_from_dict_block_overrides_global(self):
+        """Test that per-block values override global defaults."""
         data = {
             "host": "imap.example.com",
             "username": "u",
@@ -109,24 +108,24 @@ class TestImapConfig:
         }
         defaults = {"idle_timeout": 600}
 
-        config = ImapConfig.from_dict(data, defaults)
-        assert config.idle_timeout == 60
+        block = ImapBlock.from_dict(data, defaults)
+        assert block.idle_timeout == 60
 
     def test_from_dict_with_env_password(self, monkeypatch):
-        """Test creating ImapConfig with password from environment variable."""
+        """Test creating ImapBlock with password from environment variable."""
         monkeypatch.setenv("IMAP_PASSWORD", "env_password")
 
         data = {"host": "imap.example.com", "username": "test@example.com"}
-        config = ImapConfig.from_dict(data)
-        assert config.password == "env_password"
+        block = ImapBlock.from_dict(data)
+        assert block.password == "env_password"
 
         data_with_password = {
             "host": "imap.example.com",
             "username": "test@example.com",
             "password": "dict_password",
         }
-        config = ImapConfig.from_dict(data_with_password)
-        assert config.password == "dict_password"
+        block = ImapBlock.from_dict(data_with_password)
+        assert block.password == "dict_password"
 
     def test_from_dict_missing_password(self, monkeypatch):
         """Test error when password is missing from both dict and environment."""
@@ -135,73 +134,85 @@ class TestImapConfig:
         data = {"host": "imap.example.com", "username": "test@example.com"}
 
         with pytest.raises(ValueError, match="IMAP password must be specified"):
-            ImapConfig.from_dict(data)
+            ImapBlock.from_dict(data)
 
     def test_from_dict_missing_required_fields(self):
         """Test error when required fields are missing."""
         with pytest.raises(KeyError):
-            ImapConfig.from_dict(
+            ImapBlock.from_dict(
                 {"username": "test@example.com", "password": "password"}
             )
 
         with pytest.raises(KeyError):
-            ImapConfig.from_dict({"host": "imap.example.com", "password": "password"})
+            ImapBlock.from_dict({"host": "imap.example.com", "password": "password"})
 
-
-class TestAccountConfig:
-    """Test cases for AccountConfig."""
-
-    def test_from_flat_dict(self):
-        """Test creating AccountConfig from a flat dictionary."""
-        data = {
+    def test_default_smtp_string(self):
+        d = {
             "host": "imap.example.com",
-            "port": 993,
-            "username": "test@example.com",
-            "password": "password",
+            "username": "u@example.com",
+            "password": "p",
+            "default_smtp": "gmail",
+        }
+        block = ImapBlock.from_dict(d)
+        assert block.default_smtp == "gmail"
+
+    def test_default_smtp_must_be_string(self):
+        d = {
+            "host": "imap.example.com",
+            "username": "u@example.com",
+            "password": "p",
+            "default_smtp": 42,
+        }
+        with pytest.raises(ValueError, match="'default_smtp' must be a string"):
+            ImapBlock.from_dict(d, name="acc")
+
+    def test_allowed_folders(self):
+        d = {
+            "host": "imap.example.com",
+            "username": "u@example.com",
+            "password": "p",
             "allowed_folders": ["INBOX", "Sent"],
         }
-
-        acct = AccountConfig.from_dict(data)
-        assert acct.imap.host == "imap.example.com"
-        assert acct.imap.password == "password"
-        assert acct.allowed_folders == ["INBOX", "Sent"]
+        block = ImapBlock.from_dict(d)
+        assert block.allowed_folders == ["INBOX", "Sent"]
 
 
-class TestMultiAccountConfig:
-    """Test cases for MultiAccountConfig."""
+class TestMailroomConfig:
+    """Test cases for MailroomConfig."""
 
-    def test_default_account_explicit(self):
-        """Test explicit default_account."""
-        imap = ImapConfig(host="h", port=993, username="u", password="p")
-        cfg = MultiAccountConfig(
-            accounts={"a": AccountConfig(imap=imap), "b": AccountConfig(imap=imap)},
-            _default_account="b",
+    def test_default_imap_explicit(self):
+        """Test explicit default_imap."""
+        block_a = ImapBlock(host="h", port=993, username="u", password="p")
+        block_b = ImapBlock(host="h", port=993, username="u", password="p")
+        cfg = MailroomConfig(
+            imap_blocks={"a": block_a, "b": block_b},
+            _default_imap="b",
         )
-        assert cfg.default_account == "b"
+        assert cfg.default_imap == "b"
 
-    def test_default_account_fallback(self):
-        """Test default_account falls back to first account."""
-        imap = ImapConfig(host="h", port=993, username="u", password="p")
-        cfg = MultiAccountConfig(accounts={"first": AccountConfig(imap=imap)})
-        assert cfg.default_account == "first"
+    def test_default_imap_fallback(self):
+        """Test default_imap falls back to first block."""
+        block = ImapBlock(host="h", port=993, username="u", password="p")
+        cfg = MailroomConfig(imap_blocks={"first": block})
+        assert cfg.default_imap == "first"
 
 
 class TestLoadConfig:
     """Test cases for the load_config function."""
 
-    def test_load_flat_accounts(self):
-        """Test loading the new flat account format."""
+    def test_load_imap_blocks(self):
+        """Test loading [imap.NAME] blocks."""
         toml_content = """\
-default_account = "work"
+default_imap = "work"
 
-[accounts.personal]
+[imap.personal]
 host = "imap.gmail.com"
 username = "me@gmail.com"
 client_id = "cid"
 client_secret = "csec"
 refresh_token = "rtok"
 
-[accounts.work]
+[imap.work]
 host = "imap.fastmail.com"
 username = "me@company.com"
 password = "secret"
@@ -212,27 +223,27 @@ password = "secret"
 
             config = load_config(f.name)
 
-            assert isinstance(config, MultiAccountConfig)
-            assert config.default_account == "work"
-            assert "personal" in config.accounts
-            assert "work" in config.accounts
+            assert isinstance(config, MailroomConfig)
+            assert config.default_imap == "work"
+            assert "personal" in config.imap_blocks
+            assert "work" in config.imap_blocks
 
-            personal = config.accounts["personal"]
-            assert personal.imap.host == "imap.gmail.com"
-            assert personal.imap.oauth2 is not None
-            assert personal.imap.oauth2.client_id == "cid"
+            personal = config.imap_blocks["personal"]
+            assert personal.host == "imap.gmail.com"
+            assert personal.oauth2 is not None
+            assert personal.oauth2.client_id == "cid"
 
-            work = config.accounts["work"]
-            assert work.imap.host == "imap.fastmail.com"
-            assert work.imap.password == "secret"
-            assert work.imap.oauth2 is None
+            work = config.imap_blocks["work"]
+            assert work.host == "imap.fastmail.com"
+            assert work.password == "secret"
+            assert work.oauth2 is None
 
     def test_load_global_defaults(self):
-        """Test that global idle_timeout is inherited by accounts."""
+        """Test that global idle_timeout is inherited by blocks."""
         toml_content = """\
 idle_timeout = 600
 
-[accounts.test]
+[imap.test]
 host = "imap.example.com"
 username = "u"
 password = "p"
@@ -242,7 +253,7 @@ password = "p"
             f.flush()
 
             config = load_config(f.name)
-            assert config.accounts["test"].imap.idle_timeout == 600
+            assert config.imap_blocks["test"].idle_timeout == 600
 
     def test_load_from_default_locations(self, monkeypatch, tmp_path):
         """Test loading configuration from default locations."""
@@ -257,7 +268,7 @@ password = "p"
             monkeypatch.delenv(env_var, raising=False)
 
         toml_content = """\
-[accounts.test]
+[imap.test]
 host = "imap.example.com"
 username = "test@example.com"
 password = "password"
@@ -282,7 +293,7 @@ password = "password"
         monkeypatch.setattr(Path, "exists", mock_exists)
 
         config = load_config()
-        assert config.accounts["test"].imap.host == "imap.example.com"
+        assert config.imap_blocks["test"].host == "imap.example.com"
 
     def test_load_from_env_variables(self, monkeypatch):
         """Test loading configuration from environment variables."""
@@ -303,10 +314,10 @@ password = "password"
         with patch("builtins.open", side_effect=mock_open):
             config = load_config("nonexistent_file.toml")
 
-            acct = config.accounts["default"]
-            assert acct.imap.host == "imap.example.com"
-            assert acct.imap.password == "env_password"
-            assert acct.allowed_folders == ["INBOX", "Sent", "Archive"]
+            block = config.imap_blocks["default"]
+            assert block.host == "imap.example.com"
+            assert block.password == "env_password"
+            assert block.allowed_folders == ["INBOX", "Sent", "Archive"]
 
     def test_load_missing_required_env(self, monkeypatch):
         """Test error when required environment variables are missing."""
@@ -326,7 +337,7 @@ password = "password"
     def test_invalid_config_missing_host(self):
         """Test error when config is missing required host."""
         toml_content = """\
-[accounts.test]
+[imap.test]
 username = "test@example.com"
 password = "password"
 """
@@ -337,8 +348,8 @@ password = "password"
             with pytest.raises(ValueError, match="Missing required configuration"):
                 load_config(f.name)
 
-    def test_no_accounts(self):
-        """Test error when no accounts are defined."""
+    def test_no_imap_blocks(self):
+        """Test error when no [imap.*] blocks are defined."""
         toml_content = """\
 idle_timeout = 300
 """
@@ -346,7 +357,7 @@ idle_timeout = 300
             f.write(toml_content.encode())
             f.flush()
 
-            with pytest.raises(ValueError, match="No accounts defined"):
+            with pytest.raises(ValueError, match="No \\[imap.NAME\\] blocks defined"):
                 load_config(f.name)
 
 
@@ -356,10 +367,10 @@ class TestSmtpConfig:
     def test_minimal_block(self):
         smtp = SmtpConfig.from_dict("gmail", {"host": "smtp.gmail.com"})
         assert smtp.host == "smtp.gmail.com"
-        assert smtp.port == 587  # default
+        assert smtp.port == 587
         assert smtp.username is None and smtp.password is None
         assert smtp.save_sent == "auto"
-        assert smtp.rewrite_msgid_from_response is False  # gmail.com: not SES
+        assert smtp.rewrite_msgid_from_response is False
 
     def test_ses_auto_rewrite(self):
         smtp = SmtpConfig.from_dict(
@@ -370,7 +381,7 @@ class TestSmtpConfig:
                 "password": "x",
             },
         )
-        assert smtp.rewrite_msgid_from_response is True  # auto-on for amazonses
+        assert smtp.rewrite_msgid_from_response is True
 
     def test_explicit_save_sent_true(self):
         smtp = SmtpConfig.from_dict(
@@ -392,11 +403,11 @@ class TestSmtpConfig:
 
     def test_resolve_save_sent_auto_gmail(self):
         smtp = SmtpConfig(host="smtp.gmail.com")
-        assert smtp.resolve_save_sent() is False  # Gmail auto-files
+        assert smtp.resolve_save_sent() is False
 
     def test_resolve_save_sent_auto_other(self):
         smtp = SmtpConfig(host="smtp.fastmail.com")
-        assert smtp.resolve_save_sent() is True  # Fastmail does not
+        assert smtp.resolve_save_sent() is True
 
     def test_resolve_save_sent_explicit_overrides_auto(self):
         smtp = SmtpConfig(host="smtp.gmail.com", save_sent=True)
@@ -407,44 +418,50 @@ class TestIdentity:
     """Identity parsing."""
 
     def test_minimal(self):
-        ident = Identity.from_dict("[where]", {"address": "x@y.com"})
+        ident = Identity.from_dict("alice", {"imap": "work", "address": "x@y.com"})
+        assert ident.imap == "work"
         assert ident.address == "x@y.com"
-        assert ident.name == ""  # bare-address From is fine
+        assert ident.name == ""
         assert ident.smtp is None
         assert ident.sent_folder is None
 
     def test_full(self):
         ident = Identity.from_dict(
-            "[where]",
+            "alice",
             {
+                "imap": "work",
                 "address": "x@y.com",
                 "name": "X",
                 "smtp": "ses",
                 "sent_folder": "Sent",
             },
         )
+        assert ident.imap == "work"
         assert ident.address == "x@y.com"
         assert ident.name == "X"
         assert ident.smtp == "ses"
 
+    def test_missing_imap(self):
+        with pytest.raises(ValueError, match="missing required string field 'imap'"):
+            Identity.from_dict("alice", {"address": "x@y.com"})
+
     def test_missing_address(self):
         with pytest.raises(ValueError, match="missing or invalid 'address'"):
-            Identity.from_dict("[where]", {"name": "X"})
+            Identity.from_dict("alice", {"imap": "work", "name": "X"})
 
     def test_invalid_address_no_at(self):
         with pytest.raises(ValueError, match="missing or invalid 'address'"):
-            Identity.from_dict("[where]", {"address": "not-an-email"})
+            Identity.from_dict("alice", {"imap": "work", "address": "not-an-email"})
 
     def test_name_with_safe_chars_accepted(self):
-        # Atext, dots, and apostrophes compose cleanly in a From header
-        # without quoting; mailroom keeps these.
         for name in ["Smith Jane", "Dr. Smith", "O'Brien", "Anne-Marie"]:
-            ident = Identity.from_dict("[where]", {"address": "x@y.com", "name": name})
+            ident = Identity.from_dict(
+                "alice",
+                {"imap": "work", "address": "x@y.com", "name": name},
+            )
             assert ident.name == name
 
     def test_name_with_quoting_specials_rejected(self):
-        # RFC 5322 specials require quoting; mailroom refuses rather than
-        # rely on every downstream parser honouring quoted display-names.
         for bad in [
             "Smith, Jane",
             "Smith (work)",
@@ -454,75 +471,26 @@ class TestIdentity:
             'Bob "Bobby" Smith',
         ]:
             with pytest.raises(ValueError, match="requires RFC 5322 quoting"):
-                Identity.from_dict("[where]", {"address": "x@y.com", "name": bad})
+                Identity.from_dict(
+                    "alice",
+                    {"imap": "work", "address": "x@y.com", "name": bad},
+                )
 
     def test_name_with_control_chars_rejected(self):
         for bad in ["foo\nbar", "foo\rbar", "foo\x00bar", "foo\x01bar", "foo\x7fbar"]:
             with pytest.raises(
                 ValueError, match="requires RFC 5322 quoting|breaks MIME"
             ):
-                Identity.from_dict("[where]", {"address": "x@y.com", "name": bad})
+                Identity.from_dict(
+                    "alice",
+                    {"imap": "work", "address": "x@y.com", "name": bad},
+                )
 
 
-class TestAccountIdentities:
-    """AccountConfig with default_smtp and identities."""
+class TestMailroomCrossRefs:
+    """Cross-reference checks across [imap.*], [smtp.*], [identity.*]."""
 
-    def _imap_dict(self):
-        return {
-            "host": "imap.example.com",
-            "port": 993,
-            "username": "u@example.com",
-            "password": "p",
-        }
-
-    def test_default_smtp_optional(self):
-        acct = AccountConfig.from_dict(self._imap_dict())
-        assert acct.default_smtp is None
-        assert acct.identities is None
-
-    def test_default_smtp_string(self):
-        d = self._imap_dict()
-        d["default_smtp"] = "gmail"
-        acct = AccountConfig.from_dict(d)
-        assert acct.default_smtp == "gmail"
-
-    def test_default_smtp_must_be_string(self):
-        d = self._imap_dict()
-        d["default_smtp"] = 42
-        with pytest.raises(ValueError, match="'default_smtp' must be a string"):
-            AccountConfig.from_dict(d, name="acc")
-
-    def test_identities_list(self):
-        d = self._imap_dict()
-        d["identities"] = [
-            {"address": "a@x.com", "smtp": "gmail"},
-            {"address": "b@x.com"},
-        ]
-        acct = AccountConfig.from_dict(d, name="acc")
-        assert len(acct.identities) == 2
-        assert acct.identities[0].address == "a@x.com"
-        assert acct.identities[1].smtp is None
-
-    def test_duplicate_identity_address(self):
-        d = self._imap_dict()
-        d["identities"] = [
-            {"address": "a@x.com"},
-            {"address": "A@X.COM"},  # case-insensitive collision
-        ]
-        with pytest.raises(ValueError, match="duplicate address 'a@x.com'"):
-            AccountConfig.from_dict(d, name="acc")
-
-    def test_empty_identities_list_rejected(self):
-        d = self._imap_dict()
-        d["identities"] = []
-        with pytest.raises(ValueError, match="'identities' is empty"):
-            AccountConfig.from_dict(d, name="acc")
-
-
-class TestMultiAccountCrossRefs:
-    """Cross-reference checks: default_smtp/identity.smtp must name a defined block."""
-
-    def _toml_with(self, content: str) -> "MultiAccountConfig":
+    def _toml_with(self, content: str) -> "MailroomConfig":
         with tempfile.NamedTemporaryFile(suffix=".toml", mode="wb", delete=False) as f:
             f.write(content.encode())
             f.flush()
@@ -536,7 +504,7 @@ class TestMultiAccountCrossRefs:
 [smtp.gmail]
 host = "smtp.gmail.com"
 
-[accounts.a]
+[imap.a]
 host = "imap.example.com"
 username = "u@example.com"
 password = "p"
@@ -549,15 +517,84 @@ default_smtp = "gmial"
 [smtp.gmail]
 host = "smtp.gmail.com"
 
-[accounts.a]
+[imap.a]
 host = "imap.example.com"
 username = "u@example.com"
 password = "p"
 
-[[accounts.a.identities]]
+[identity.alice]
+imap = "a"
 address = "u@example.com"
 smtp = "nope"
 """)
+
+    def test_identity_imap_undefined(self):
+        with pytest.raises(
+            ValueError, match="'imap' references undefined \\[imap.nope\\]"
+        ):
+            self._toml_with("""\
+[imap.a]
+host = "imap.example.com"
+username = "u@example.com"
+password = "p"
+
+[identity.alice]
+imap = "nope"
+address = "u@example.com"
+""")
+
+    def test_default_imap_undefined(self):
+        with pytest.raises(ValueError, match="default_imap 'nope' is not a defined"):
+            self._toml_with("""\
+default_imap = "nope"
+
+[imap.a]
+host = "imap.example.com"
+username = "u@example.com"
+password = "p"
+""")
+
+    def test_duplicate_address_same_imap(self):
+        with pytest.raises(ValueError, match="address 'a@x.com' already declared"):
+            self._toml_with("""\
+[imap.a]
+host = "imap.example.com"
+username = "u@example.com"
+password = "p"
+
+[identity.first]
+imap = "a"
+address = "a@x.com"
+
+[identity.second]
+imap = "a"
+address = "A@X.COM"
+""")
+
+    def test_same_address_different_imap_allowed(self):
+        cfg = self._toml_with("""\
+[imap.a]
+host = "imap.example.com"
+username = "u1@example.com"
+password = "p1"
+
+[imap.b]
+host = "imap.example.com"
+username = "u2@example.com"
+password = "p2"
+
+[identity.shared_a]
+imap = "a"
+address = "support@example.com"
+
+[identity.shared_b]
+imap = "b"
+address = "support@example.com"
+""")
+        assert "shared_a" in cfg.identities
+        assert "shared_b" in cfg.identities
+        assert cfg.identities["shared_a"].imap == "a"
+        assert cfg.identities["shared_b"].imap == "b"
 
     def test_smtp_blocks_parsed(self):
         cfg = self._toml_with("""\
@@ -569,7 +606,7 @@ host = "email-smtp.example.com"
 username = "AKIA"
 password = "x"
 
-[accounts.a]
+[imap.a]
 host = "imap.example.com"
 username = "u@example.com"
 password = "p"
@@ -577,13 +614,12 @@ default_smtp = "gmail"
 """)
         assert sorted(cfg.smtp_blocks) == ["gmail", "ses"]
         assert cfg.smtp_blocks["ses"].rewrite_msgid_from_response is False
-        # not amazonses host, so no auto-rewrite
 
 
 class TestConfigWarnings:
     """Non-fatal warnings collected on the config object."""
 
-    def _toml_with(self, content: str) -> "MultiAccountConfig":
+    def _toml_with(self, content: str) -> "MailroomConfig":
         with tempfile.NamedTemporaryFile(suffix=".toml", mode="wb", delete=False) as f:
             f.write(content.encode())
             f.flush()
@@ -591,97 +627,93 @@ class TestConfigWarnings:
 
     def test_no_smtp_blocks_warns(self):
         cfg = self._toml_with("""\
-[accounts.a]
+[imap.a]
 host = "imap.example.com"
 username = "u@example.com"
 password = "p"
 """)
         assert any("no [smtp.*] blocks defined" in w for w in cfg.warnings)
 
-    def test_account_send_disabled_when_2plus_smtps_no_resolution(self):
-        cfg = self._toml_with("""\
-[smtp.a]
-host = "smtp.a.com"
-
-[smtp.b]
-host = "smtp.b.com"
-
-[accounts.read_only]
-host = "imap.example.com"
-username = "u@example.com"
-password = "p"
-""")
-        assert any("sending from this account is disabled" in w for w in cfg.warnings)
-
-    def test_lone_smtp_no_warning(self):
+    def test_imap_block_with_no_identities_warns(self):
         cfg = self._toml_with("""\
 [smtp.gmail]
 host = "smtp.gmail.com"
 
-[accounts.a]
+[imap.read_only]
 host = "imap.example.com"
 username = "u@example.com"
 password = "p"
 """)
-        # exactly one smtp -> implicit default; no warnings
-        assert cfg.warnings == []
+        assert any("sending from this block is disabled" in w for w in cfg.warnings)
 
-    def test_default_smtp_silences_warning(self):
+    def test_block_with_identity_no_send_warning(self):
         cfg = self._toml_with("""\
-[smtp.a]
-host = "smtp.a.com"
+[smtp.gmail]
+host = "smtp.gmail.com"
 
-[smtp.b]
-host = "smtp.b.com"
-
-[accounts.acct]
+[imap.a]
 host = "imap.example.com"
 username = "u@example.com"
 password = "p"
-default_smtp = "a"
+
+[identity.alice]
+imap = "a"
+address = "u@example.com"
 """)
-        # default_smtp resolves; no send-disabled warning for this account
-        assert not any(
-            "sending from this account is disabled" in w for w in cfg.warnings
-        )
+        assert not any("sending from this block is disabled" in w for w in cfg.warnings)
 
     def test_shared_credless_non_gmail_warns(self):
         cfg = self._toml_with("""\
 [smtp.fast]
 host = "smtp.fastmail.com"
 
-[accounts.a]
+[imap.a]
 host = "imap.fastmail.com"
 username = "a@x.com"
 password = "p1"
 default_smtp = "fast"
 
-[accounts.b]
+[imap.b]
 host = "imap.fastmail.com"
 username = "b@x.com"
 password = "p2"
 default_smtp = "fast"
+
+[identity.alice]
+imap = "a"
+address = "a@x.com"
+
+[identity.bob]
+imap = "b"
+address = "b@x.com"
 """)
-        assert any("no creds and shared by accounts" in w for w in cfg.warnings)
+        assert any("no creds and shared by [imap.*] blocks" in w for w in cfg.warnings)
 
     def test_shared_credless_gmail_does_not_warn(self):
         cfg = self._toml_with("""\
 [smtp.gmail]
 host = "smtp.gmail.com"
 
-[accounts.a]
+[imap.a]
 host = "imap.gmail.com"
 username = "a@gmail.com"
 password = "p1"
 default_smtp = "gmail"
 
-[accounts.b]
+[imap.b]
 host = "imap.gmail.com"
 username = "b@gmail.com"
 password = "p2"
 default_smtp = "gmail"
+
+[identity.alice]
+imap = "a"
+address = "a@gmail.com"
+
+[identity.bob]
+imap = "b"
+address = "b@gmail.com"
 """)
-        # gmail.com is in inheritance-safe list
         assert cfg.warnings == []
 
 
@@ -693,15 +725,19 @@ class TestLoadConfigWithWarnings:
 [smtp.gmail]
 host = "smtp.gmail.com"
 
-[accounts.a]
+[imap.a]
 host = "imap.example.com"
 username = "u@example.com"
 password = "p"
 default_smtp = "gmail"
+
+[identity.alice]
+imap = "a"
+address = "u@example.com"
 """
         with tempfile.NamedTemporaryFile(suffix=".toml", mode="wb") as f:
             f.write(toml_content.encode())
             f.flush()
             cfg, warnings = load_config_with_warnings(f.name)
-        assert isinstance(cfg, MultiAccountConfig)
-        assert warnings is cfg.warnings  # same list, no copy
+        assert isinstance(cfg, MailroomConfig)
+        assert warnings is cfg.warnings

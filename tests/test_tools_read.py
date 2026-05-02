@@ -13,22 +13,19 @@ from unittest.mock import MagicMock, patch
 from typer.testing import CliRunner
 
 from mailroom.__main__ import app
-from mailroom.config import AccountConfig, ImapConfig, MultiAccountConfig
+from mailroom.config import ImapBlock, MailroomConfig
 from mailroom.models import Email, EmailAddress, EmailContent
 
 
-def _patch_config(account_name: str = "default"):
-    imap_cfg = ImapConfig(
+def _patch_config(imap_name: str = "default"):
+    block = ImapBlock(
         host="imap.example.com",
         port=993,
         username="user@example.com",
         password="secret",
         use_ssl=True,
     )
-    acct = AccountConfig(imap=imap_cfg)
-    cfg = MultiAccountConfig(
-        accounts={account_name: acct}, _default_account=account_name
-    )
+    cfg = MailroomConfig(imap_blocks={imap_name: block}, _default_imap=imap_name)
     return patch("mailroom.__main__.load_config", return_value=cfg)
 
 

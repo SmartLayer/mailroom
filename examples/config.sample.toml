@@ -1,34 +1,38 @@
 # Mailroom configuration example.
 #
-# Lives at ~/.config/mailroom/config.toml. Use -a NAME to select an account:
-#   mailroom -a work search 'from:alice'
+# Lives at ~/.config/mailroom/config.toml. Use -i NAME to select an [imap.NAME]:
+#   mailroom -i work search 'from:alice'
 #
-# Two layers:
-#   [accounts.NAME]      one IMAP mailbox, plus optional send identities
-#   [smtp.NAME]          a named SMTP endpoint, picked by accounts/identities
+# Three layers, each a top-level named-entity table:
+#   [imap.NAME]       one IMAP mailbox plus per-block options
+#   [smtp.NAME]       a named SMTP endpoint
+#   [identity.NAME]   one send identity, with `imap = "..."` naming the
+#                     [imap.NAME] block it routes through
 #
-# Drafting works without any [smtp.*] block. Sending requires one, plus an
-# SMTP-resolution path (account.default_smtp, identity.smtp, or a lone smtp).
-# An account with no resolution is read-only for sending; that is a valid
-# state, not an error.
+# An [imap.NAME] block with no [identity.*] pointing at it is read-only:
+# drafting and reading work, sending is rejected at send time. To enable
+# sending from a block, declare at least one [identity.NAME] with that
+# block's name in its `imap` field.
 
-default_account = "personal"
+default_imap = "personal"
 
-# ── SMTP endpoints ────────────────────────────────────────────────────────
+# ----- SMTP endpoints ----------------------------------------------------
+#
 # Two patterns coexist:
 #
 #   Template SMTP (host/port only, no creds).
-#       Credentials inherit from the IMAP account selected by -a at send time.
-#       Use for Gmail/Fastmail where the SMTP credential equals the IMAP one.
+#       Credentials inherit from the [imap.NAME] block selected at send
+#       time. Use for Gmail/Fastmail where the SMTP credential equals
+#       the IMAP one.
 #
 #   Concrete SMTP (host/port/username/password).
-#       Credentials live on the SMTP block. Use for SES, where one IAM SMTP
-#       user serves many From addresses across many accounts.
+#       Credentials live on the SMTP block. Use for SES, where one IAM
+#       SMTP user serves many From addresses across many [imap.*] blocks.
 
 [smtp.gmail]
 host = "smtp.gmail.com"
 port = 587
-# username/password omitted on purpose: inherit from the account in scope.
+# username/password omitted on purpose: inherit from the [imap.NAME] in scope.
 
 [smtp.ses-syd]
 host = "email-smtp.ap-southeast-2.amazonaws.com"
@@ -43,37 +47,43 @@ rewrite_msgid_from_response = true     # SES rewrites Message-ID; capture from "
 # rewrite_msgid_from_response default = true when host matches SES SMTP endpoints
 #   ("email-smtp.<region>.amazonaws.com"), false otherwise.
 
-# ── Accounts ──────────────────────────────────────────────────────────────
+# ----- IMAP blocks -------------------------------------------------------
 
-# The simplest case: one IMAP mailbox, one default SMTP, no identities needed.
-# Mailroom synthesises {address = username, name = ""} at send time.
-[accounts.personal]
+# A simple block with one identity: the same address as its IMAP login.
+[imap.personal]
 host = "imap.gmail.com"
 port = 993
 username = "you@gmail.com"
 password = "abcdefghijklmnop"
-default_smtp = "gmail"                 # any identity in this account inherits this.
+default_smtp = "gmail"                 # any identity in this block inherits this.
 
-# Same shape, different mailbox.
-[accounts.work]
+[identity.personal]
+imap = "personal"
+address = "you@gmail.com"
+
+# Same shape, different block.
+[imap.work]
 host = "imap.gmail.com"
 port = 993
 username = "you@company.com"
 password = "another-app-password"
 default_smtp = "gmail"
 
-# Read-only account. No default_smtp, no identities. Drafting and reading work;
-# sending is disabled. Valid configuration, not an error.
-[accounts.archive]
+[identity.work]
+imap = "work"
+address = "you@company.com"
+
+# A read-only block: no identity points here, so sending is disabled.
+# Drafting and reading still work. Valid configuration, not an error.
+[imap.archive]
 host = "imap.fastmail.com"
 port = 993
 username = "archive@example.org"
 password = "fastmail-app-password"
 
 # Send-as: one Gmail mailbox, multiple From addresses, mixed SMTP routes.
-# When [[identities]] is present the synthesised identity is suppressed; only
-# the listed identities are usable for sending.
-[accounts.director]
+# Each identity declares which [imap.NAME] block it routes through.
+[imap.director]
 host = "imap.gmail.com"
 port = 993
 username = "alias-host@gmail.com"      # IMAP login, not necessarily a From address
@@ -81,17 +91,19 @@ password = "gmail-app-password"
 default_smtp = "gmail"                 # identities inherit unless they override
 maildir = "/var/local/mail/director"   # optional, only used if local_cache is enabled
 
-[[accounts.director.identities]]
+[identity.director]
+imap = "director"
 address = "director@example.org"
 name = "Director Name"                 # optional; bare-address From is fine
-smtp = "ses-syd"                       # this identity overrides the account default
+smtp = "ses-syd"                       # this identity overrides the block default
 sent_folder = "[Gmail]/Sent Mail"
 
-[[accounts.director.identities]]
+[identity.director-alias]
+imap = "director"
 address = "alias-host@gmail.com"
 # no name, no smtp override (inherits "gmail"), no sent_folder (Gmail auto-files).
 
-# ── Optional global blocks ────────────────────────────────────────────────
+# ----- Optional global blocks --------------------------------------------
 
 # [local_cache]
 # indexer = "mu"

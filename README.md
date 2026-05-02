@@ -15,7 +15,7 @@ Give your script or AI assistant access to your email.
 - [CLI usage](#cli-usage)
 - [MCP server](#mcp-server)
 - [Scripting and automation](#scripting-and-automation)
-- [Multi-account and send-as](#multi-account-and-send-as)
+- [Multi-block and send-as](#multi-block-and-send-as)
 - [Local cache (mu)](#local-cache-mu)
 - [Connection handling](#connection-handling)
 - [Security](#security)
@@ -48,25 +48,29 @@ Copy the sample and fill in your credentials:
 cp examples/config.sample.toml ~/.config/mailroom/config.toml
 ```
 
-A minimal account uses a password or app-specific password, plus a named SMTP endpoint for outgoing mail:
+A minimal config has three top-level named-entity tables: an `[imap.NAME]` mailbox, an `[smtp.NAME]` outgoing endpoint, and an `[identity.NAME]` describing one sendable address pointing at the IMAP block:
 
 ```toml
 [smtp.gmail]
 host = "smtp.gmail.com"
 port = 587
 
-[accounts.personal]
+[imap.personal]
 host = "imap.gmail.com"
 port = 993
 username = "you@gmail.com"
 password = "abcdefghijklmnop"
 default_smtp = "gmail"
+
+[identity.personal]
+imap = "personal"
+address = "you@gmail.com"
 ```
 
-Gmail OAuth2 uses dedicated keys on the same account block:
+Gmail OAuth2 uses dedicated keys on the same `[imap.NAME]` block:
 
 ```toml
-[accounts.personal]
+[imap.personal]
 host = "imap.gmail.com"
 port = 993
 username = "you@gmail.com"
@@ -76,11 +80,11 @@ refresh_token = "YOUR_REFRESH_TOKEN"
 default_smtp = "gmail"
 ```
 
-`[smtp.NAME]` blocks declare named SMTP endpoints. When the block omits credentials, mailroom inherits them from the account in scope at send time, the right shape for Gmail and Fastmail where IMAP and SMTP share one credential. When the block carries its own `username` and `password`, mailroom uses those, the right shape for AWS SES and similar smarthosts where one IAM SMTP user serves many From addresses.
+`[smtp.NAME]` blocks declare named SMTP endpoints. When the block omits credentials, mailroom inherits them from the `[imap.NAME]` block in scope at send time, the right shape for Gmail and Fastmail where IMAP and SMTP share one credential. When the block carries its own `username` and `password`, mailroom uses those, the right shape for AWS SES and similar smarthosts where one IAM SMTP user serves many From addresses.
 
-Sending is optional. An account without an SMTP route is read-only for sending; that is a valid state, not an error. Drafting still works.
+Sending requires at least one `[identity.NAME]` block pointing at the `[imap.NAME]`. A block with no identities is read-only for sending; drafting and reading still work. This is a valid state, not an error. Declaring identities explicitly avoids the registration-handle hazard, where an IMAP login (e.g. a Gmail handle that is not an intended sender) could otherwise become a sendable identity by accident.
 
-`mailroom config-check` validates the config (cross-references, identity addresses, send-route resolution) without performing any IMAP or SMTP traffic. The same warnings surface on `mailroom`, `mailroom --help`, `mailroom status`, and `mailroom list-accounts`.
+`mailroom config-check` validates the config (cross-references, identity addresses, send-route resolution) without performing any IMAP or SMTP traffic. The same warnings surface on `mailroom`, `mailroom --help`, `mailroom status`, and `mailroom list`.
 
 Gmail OAuth2 setup requires a Google Cloud project with the Gmail API enabled. See [GMAIL_SETUP.md](docs/GMAIL_SETUP.md) for the full walkthrough.
 
@@ -185,12 +189,12 @@ mailroom search "is:unread subject:invoice" --folder INBOX \
 
 AI agents with skill/hook systems call Mailroom the same way: define a skill that runs a shell command and parses the JSON output.
 
-## Multi-account and send-as
+## Multi-block and send-as
 
-A single config holds multiple accounts and SMTP endpoints:
+A single config holds multiple `[imap.*]` blocks, `[smtp.*]` endpoints, and `[identity.*]` blocks. Each identity declares which `[imap.NAME]` block it routes through:
 
 ```toml
-default_account = "personal"
+default_imap = "personal"
 
 [smtp.gmail]
 host = "smtp.gmail.com"
@@ -202,65 +206,79 @@ port = 587
 username = "AKIA..."
 password = "BPa+..."
 
-[accounts.personal]
+[imap.personal]
 host = "imap.gmail.com"
 username = "you@gmail.com"
 password = "personal-app-password"
 default_smtp = "gmail"
 
-[accounts.work]
+[identity.personal]
+imap = "personal"
+address = "you@gmail.com"
+
+[imap.work]
 host = "outlook.office365.com"
 username = "you@company.com"
 password = "work-app-password"
+
+[identity.work]
+imap = "work"
+address = "you@company.com"
 ```
 
-Select an account with `-a`:
+Select an `[imap.NAME]` block with `-i`:
 
 ```bash
-mailroom -a work search "is:unread"
+mailroom -i work search "is:unread"
 ```
 
-A single account can also send as several different addresses, useful when one Gmail mailbox handles personal mail and an organisational alias routed through SES:
+A single `[imap.NAME]` block can have several identities, useful when one Gmail mailbox handles personal mail and an organisational alias routed through SES:
 
 ```toml
-[accounts.director]
+[imap.director]
 host = "imap.gmail.com"
 username = "alias-host@gmail.com"
 password = "gmail-app-password"
 default_smtp = "gmail"
 
-[[accounts.director.identities]]
+[identity.director]
+imap = "director"
 address = "director@example.org"
 name = "Director Name"
 smtp = "ses-syd"
 sent_folder = "[Gmail]/Sent Mail"
 
-[[accounts.director.identities]]
+[identity.director-alias]
+imap = "director"
 address = "alias-host@gmail.com"
 ```
 
 Pick the From identity at send time with `--from`:
 
 ```bash
-mailroom -a director compose --to client@example.com --from director@example.org -b "..." --send
+mailroom -i director compose --to client@example.com --from director@example.org -b "..." --send
 ```
 
 `mailroom reply` defaults to the identity that received the parent email, so a reply to alias X is sent as X. `mailroom send-draft` reads the From header on the draft and refuses to send if it does not match a configured identity, which prevents a script or AI from accidentally sending through the wrong route.
 
 ## Local cache (mu)
 
-If you already have your maildir indexed by [mu](https://www.djcbsoftware.nl/code/mu/), `search` can be served from the local Xapian index instead of IMAP, orders of magnitude faster. Opt in by adding a `[local_cache]` block plus a per-account `maildir`:
+If you already have your maildir indexed by [mu](https://www.djcbsoftware.nl/code/mu/), `search` can be served from the local Xapian index instead of IMAP, orders of magnitude faster. Opt in by adding a `[local_cache]` block plus a per-block `maildir`:
 
 ```toml
 [local_cache]
 indexer = "mu"
 max_staleness_seconds = 4000
 
-[accounts.gmail]
+[imap.gmail]
 host = "imap.gmail.com"
 username = "you@gmail.com"
 password = "..."
 maildir = "/var/local/mail/you-gmail-com"
+
+[identity.gmail]
+imap = "gmail"
+address = "you@gmail.com"
 ```
 
 The contract is "a maildir exists and mu indexes it"; mailroom does not run `mbsync`, `offlineimap`, or `mu index`. When the index is stale, the query is untranslatable, the call is folder-scoped, mu is missing, or any error occurs, the search falls back to IMAP transparently. Every `search` response carries a `provenance` field reporting `source` (`"local"` or `"remote"`), the index `indexed_at` timestamp, and a `fell_back_reason` tag when applicable.

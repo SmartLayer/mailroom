@@ -7,15 +7,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 from mcp.server.fastmcp import Context, FastMCP
 
-from mailroom.config import ImapConfig
-from mailroom.imap_client import ImapClient, copy_email_between_accounts
+from mailroom.config import ImapBlock
+from mailroom.imap_client import ImapClient, copy_email_between_imap_blocks
 from mailroom.tools import register_tools
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-_CONFIG = ImapConfig(
+_CONFIG = ImapBlock(
     host="imap.example.com",
     port=993,
     username="test@example.com",
@@ -188,12 +188,12 @@ class TestAppendRaw:
 
 
 # ---------------------------------------------------------------------------
-# C. copy_email_between_accounts (shared orchestration function)
+# C. copy_email_between_imap_blocks (shared orchestration function)
 # ---------------------------------------------------------------------------
 
 
 class TestCopyEmailBetweenAccounts:
-    """Unit tests for the shared copy_email_between_accounts function."""
+    """Unit tests for the shared copy_email_between_imap_blocks function."""
 
     @pytest.fixture
     def source(self):
@@ -213,7 +213,7 @@ class TestCopyEmailBetweenAccounts:
         return client
 
     def test_copy_success(self, source, dest):
-        result = copy_email_between_accounts(source, dest, 42, "INBOX")
+        result = copy_email_between_imap_blocks(source, dest, 42, "INBOX")
 
         assert result["success"] is True
         assert result["subject"] == "Test"
@@ -223,7 +223,7 @@ class TestCopyEmailBetweenAccounts:
         source.delete_email.assert_not_called()
 
     def test_copy_with_move(self, source, dest):
-        result = copy_email_between_accounts(source, dest, 42, "INBOX", move=True)
+        result = copy_email_between_imap_blocks(source, dest, 42, "INBOX", move=True)
 
         assert result["success"] is True
         assert result["moved"] is True
@@ -235,13 +235,13 @@ class TestCopyEmailBetweenAccounts:
             b"\\Recent",
             b"\\Flagged",
         )
-        copy_email_between_accounts(source, dest, 42, "INBOX", preserve_flags=True)
+        copy_email_between_imap_blocks(source, dest, 42, "INBOX", preserve_flags=True)
 
         call_kwargs = dest.append_raw.call_args
         assert call_kwargs.kwargs["flags"] == ("\\Seen", "\\Flagged")
 
     def test_copy_no_preserve_flags(self, source, dest):
-        copy_email_between_accounts(source, dest, 42, "INBOX", preserve_flags=False)
+        copy_email_between_imap_blocks(source, dest, 42, "INBOX", preserve_flags=False)
 
         call_kwargs = dest.append_raw.call_args
         assert call_kwargs.kwargs["flags"] == ()
@@ -249,7 +249,7 @@ class TestCopyEmailBetweenAccounts:
     def test_copy_source_not_found(self, source, dest):
         source.fetch_raw.return_value = None
 
-        result = copy_email_between_accounts(source, dest, 42, "INBOX")
+        result = copy_email_between_imap_blocks(source, dest, 42, "INBOX")
 
         assert result["success"] is False
         assert "not found" in result["error"]
@@ -259,13 +259,13 @@ class TestCopyEmailBetweenAccounts:
         dest.append_raw.side_effect = Exception("append failed")
 
         with pytest.raises(Exception, match="append failed"):
-            copy_email_between_accounts(source, dest, 42, "INBOX")
+            copy_email_between_imap_blocks(source, dest, 42, "INBOX")
 
     def test_copy_preserves_date(self, source, dest):
         dt = datetime(2026, 6, 15, 8, 30, 0)
         source.fetch_raw.return_value["date"] = dt
 
-        copy_email_between_accounts(source, dest, 42, "INBOX")
+        copy_email_between_imap_blocks(source, dest, 42, "INBOX")
 
         call_kwargs = dest.append_raw.call_args
         assert call_kwargs.kwargs["msg_time"] == dt
@@ -273,7 +273,7 @@ class TestCopyEmailBetweenAccounts:
     def test_copy_filters_recent_str_form(self, source, dest):
         source.fetch_raw.return_value["flags"] = ("\\Recent", "\\Seen")
 
-        copy_email_between_accounts(source, dest, 42, "INBOX", preserve_flags=True)
+        copy_email_between_imap_blocks(source, dest, 42, "INBOX", preserve_flags=True)
 
         call_kwargs = dest.append_raw.call_args
         assert call_kwargs.kwargs["flags"] == ("\\Seen",)
@@ -309,7 +309,7 @@ class TestCopyTool:
         with (
             patch("mailroom.tools.get_client_from_context") as gc,
             patch(
-                "mailroom.imap_client.copy_email_between_accounts",
+                "mailroom.imap_client.copy_email_between_imap_blocks",
                 return_value=success_result,
             ),
         ):
@@ -340,7 +340,7 @@ class TestCopyTool:
         with (
             patch("mailroom.tools.get_client_from_context") as gc,
             patch(
-                "mailroom.imap_client.copy_email_between_accounts",
+                "mailroom.imap_client.copy_email_between_imap_blocks",
                 return_value=move_result,
             ),
         ):
@@ -365,7 +365,7 @@ class TestCopyTool:
         with (
             patch("mailroom.tools.get_client_from_context") as gc,
             patch(
-                "mailroom.imap_client.copy_email_between_accounts",
+                "mailroom.imap_client.copy_email_between_imap_blocks",
                 return_value=fail_result,
             ),
         ):
@@ -382,7 +382,7 @@ class TestCopyTool:
         with (
             patch("mailroom.tools.get_client_from_context") as gc,
             patch(
-                "mailroom.imap_client.copy_email_between_accounts",
+                "mailroom.imap_client.copy_email_between_imap_blocks",
                 side_effect=Exception("connection lost"),
             ),
         ):

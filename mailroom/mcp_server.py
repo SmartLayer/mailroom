@@ -9,7 +9,7 @@ from typing import AsyncIterator, Dict, Optional
 from mcp.server.fastmcp import FastMCP
 
 from mailroom import __version__
-from mailroom.config import MultiAccountConfig, load_config
+from mailroom.config import MailroomConfig, load_config
 from mailroom.imap_client import ImapClient
 from mailroom.local_cache import MuBackend
 from mailroom.mcp_protocol import extend_server
@@ -28,20 +28,20 @@ logger = logging.getLogger("mailroom")
 async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict]:
     """Server lifespan manager to handle IMAP client lifecycle.
 
-    Creates one ``ImapClient`` per configured account and yields them as a
-    dict keyed by account name.
+    Creates one ``ImapClient`` per configured [imap.NAME] block and
+    yields them as a dict keyed by block name.
 
     Args:
         server: MCP server instance
 
     Yields:
-        Context dictionary with ``imap_clients`` dict and ``default_account``
+        Context dictionary with ``imap_clients`` dict and ``default_imap``
     """
     config_attr = getattr(server, "_config", None)
-    config: MultiAccountConfig
+    config: MailroomConfig
     if config_attr is None:
         config = load_config()
-    elif isinstance(config_attr, MultiAccountConfig):
+    elif isinstance(config_attr, MailroomConfig):
         config = config_attr
     else:
         raise TypeError("Invalid server configuration")
@@ -50,24 +50,19 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict]:
 
     clients: Dict[str, ImapClient] = {}
     try:
-        for name, acct in config.accounts.items():
-            logger.info(f"Connecting to IMAP server for account '{name}'...")
-            client = ImapClient(
-                acct.imap,
-                acct.allowed_folders,
-                local_cache=mu_backend,
-                account_cfg=acct,
-            )
+        for name, block in config.imap_blocks.items():
+            logger.info(f"Connecting to IMAP server for [imap.{name}]...")
+            client = ImapClient(block, local_cache=mu_backend)
             client.connect()
             clients[name] = client
 
         yield {
             "imap_clients": clients,
-            "default_account": config.default_account,
+            "default_imap": config.default_imap,
         }
     finally:
         for name, client in clients.items():
-            logger.info(f"Disconnecting from IMAP server for account '{name}'...")
+            logger.info(f"Disconnecting from IMAP server for [imap.{name}]...")
             client.disconnect()
 
 
@@ -96,14 +91,9 @@ def create_server(config_path: Optional[str] = None, debug: bool = False) -> Fas
     server._config = config  # type: ignore[attr-defined]
 
     # Create a throwaway client for tool/resource registration (not used at runtime)
-    first_acct = config.accounts[config.default_account]
+    first_block = config.imap_blocks[config.default_imap]
     mu_backend = MuBackend(config.local_cache) if config.local_cache else None
-    imap_client = ImapClient(
-        first_acct.imap,
-        first_acct.allowed_folders,
-        local_cache=mu_backend,
-        account_cfg=first_acct,
-    )
+    imap_client = ImapClient(first_block, local_cache=mu_backend)
 
     register_resources(server, imap_client)
     register_tools(server, imap_client)
@@ -114,15 +104,13 @@ def create_server(config_path: Optional[str] = None, debug: bool = False) -> Fas
         lines = [
             "server: Mailroom",
             f"version: {__version__}",
-            f"default_account: {config.default_account}",
-            f"accounts: {', '.join(config.accounts.keys())}",
+            f"default_imap: {config.default_imap}",
+            f"imap blocks: {', '.join(config.imap_blocks.keys())}",
         ]
-        for name, acct in config.accounts.items():
-            lines.append(
-                f"  [{name}] {acct.imap.username}@{acct.imap.host}:{acct.imap.port}"
-            )
-            if acct.allowed_folders:
-                lines.append(f"    allowed_folders: {acct.allowed_folders}")
+        for name, block in config.imap_blocks.items():
+            lines.append(f"  [{name}] {block.username}@{block.host}:{block.port}")
+            if block.allowed_folders:
+                lines.append(f"    allowed_folders: {block.allowed_folders}")
         return "\n".join(lines)
 
     server = extend_server(server)

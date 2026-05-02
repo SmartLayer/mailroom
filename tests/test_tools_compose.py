@@ -138,7 +138,7 @@ class TestComposeAndSaveDraft:
     def mock_client(self):
         client = MagicMock()
         client.config = MagicMock()
-        client.config.username = "me@example.com"
+        client.block.username = "me@example.com"
         client.save_draft_mime = MagicMock(return_value=55)
         client._get_drafts_folder = MagicMock(return_value="Drafts")
         return client
@@ -202,7 +202,7 @@ class TestComposeCLI:
     @pytest.fixture
     def mock_client(self):
         client = MagicMock()
-        client.config.username = "me@example.com"
+        client.block.username = "me@example.com"
         client.save_draft_mime.return_value = 77
         client._get_drafts_folder.return_value = "Drafts"
         return client

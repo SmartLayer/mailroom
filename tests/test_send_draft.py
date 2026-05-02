@@ -17,10 +17,9 @@ from typer.testing import CliRunner
 
 from mailroom.__main__ import app
 from mailroom.config import (
-    AccountConfig,
     Identity,
-    ImapConfig,
-    MultiAccountConfig,
+    ImapBlock,
+    MailroomConfig,
     SmtpConfig,
 )
 
@@ -37,30 +36,27 @@ def _draft_bytes(from_addr: str = "alice@x.com") -> bytes:
     return msg.as_bytes()
 
 
-def _cfg_with_identities() -> MultiAccountConfig:
+def _cfg_with_identities() -> MailroomConfig:
     """Default test config: non-Gmail SMTP so FCC is exercised by save_sent='auto'.
 
     Switching to Fastmail-style means resolve_save_sent() returns True (the
     server doesn't auto-file outgoing), so the FCC code path runs and the
     tests can assert against fcc_folder/fcc_uid.
     """
-    imap = ImapConfig(
+    block = ImapBlock(
         host="imap.fastmail.com",
         port=993,
         username="login@x.com",
         password="p",
-    )
-    acct = AccountConfig(
-        imap=imap,
         default_smtp="fast",
-        identities=[
-            Identity(address="alice@x.com"),
-            Identity(address="bob@x.com"),
-        ],
     )
-    return MultiAccountConfig(
-        accounts={"acct": acct},
-        _default_account="acct",
+    return MailroomConfig(
+        imap_blocks={"acct": block},
+        _default_imap="acct",
+        identities={
+            "alice": Identity(imap="acct", address="alice@x.com"),
+            "bob": Identity(imap="acct", address="bob@x.com"),
+        },
         smtp_blocks={
             "fast": SmtpConfig(
                 host="smtp.fastmail.com",

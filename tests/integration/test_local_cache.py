@@ -11,7 +11,7 @@ import shutil
 
 import pytest
 
-from mailroom.config import AccountConfig, ImapConfig, LocalCacheConfig
+from mailroom.config import ImapBlock, LocalCacheConfig
 from mailroom.local_cache import MuBackend
 
 pytestmark = pytest.mark.integration
@@ -35,18 +35,16 @@ def test_mu_search_real_index() -> None:
     )
     backend = MuBackend(cfg)
 
-    imap = ImapConfig(
+    block = ImapBlock(
         host="imap.example.com",
         port=993,
         username="test@example.com",
         password="password",
         use_ssl=True,
-    )
-    account_cfg = AccountConfig(
-        imap=imap, maildir=os.environ["MAILROOM_TEST_MU_MAILDIR"]
+        maildir=os.environ["MAILROOM_TEST_MU_MAILDIR"],
     )
 
-    results = backend.search(account_cfg, "from:director", limit=3)
+    results = backend.search(block, "from:alice", limit=3)
 
     assert isinstance(results, list)
     for rec in results:

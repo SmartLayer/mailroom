@@ -26,7 +26,7 @@ def mock_context(mock_imap_client):
     # Set up lifespan_context as a real dict so get_client_from_context works
     context.request_context.lifespan_context = {
         "imap_clients": {"default": mock_imap_client},
-        "default_account": "default",
+        "default_imap": "default",
     }
     return context
 

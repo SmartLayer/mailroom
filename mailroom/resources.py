@@ -12,33 +12,35 @@ from mailroom.query_parser import parse_query
 logger = logging.getLogger(__name__)
 
 
-def get_client_from_context(ctx: Context, account: Optional[str] = None) -> ImapClient:
-    """Get IMAP client from context, optionally for a specific account.
+def get_client_from_context(
+    ctx: Context, imap_name: Optional[str] = None
+) -> ImapClient:
+    """Get IMAP client from context, optionally for a specific block.
 
     Args:
         ctx: MCP context
-        account: Account name.  When *None*, the default account is used.
+        imap_name: [imap.NAME] block name. When *None*, the default
+            [imap.NAME] block is used.
 
     Returns:
-        IMAP client for the requested account
+        IMAP client for the requested block.
 
     Raises:
-        RuntimeError: If IMAP client is not available or account is unknown
+        RuntimeError: If IMAP client is not available or the block name
+            is unknown.
     """
     lc: Any = ctx.request_context.lifespan_context
 
-    # Multi-account path
     clients = lc.get("imap_clients")
     if clients is not None:
-        default = lc.get("default_account", "")
-        key = account or default
+        default = lc.get("default_imap", "")
+        key = imap_name or default
         if key not in clients:
             available = list(clients.keys())
-            raise RuntimeError(f"Unknown account '{key}'. Available: {available}")
+            raise RuntimeError(f"Unknown [imap.{key}] block. Available: {available}")
         client: ImapClient = clients[key]
         return client
 
-    # Legacy single-client path (kept for tests that inject "imap_client" directly)
     legacy_client = lc.get("imap_client")
     if not legacy_client:
         raise RuntimeError("IMAP client not available")

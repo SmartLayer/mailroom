@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import imapclient  # type: ignore[import-untyped]
 
-from mailroom.config import AccountConfig, ImapConfig
+from mailroom.config import ImapBlock
 from mailroom.models import Email
 from mailroom.oauth2 import get_access_token
 from mailroom.query_parser import parse_query
@@ -25,28 +25,24 @@ class ImapClient:
 
     def __init__(
         self,
-        config: ImapConfig,
-        allowed_folders: Optional[List[str]] = None,
+        block: ImapBlock,
         local_cache: Optional["MuBackend"] = None,
-        account_cfg: Optional[AccountConfig] = None,
     ):
         """Initialize IMAP client.
 
         Args:
-            config: IMAP configuration
-            allowed_folders: List of allowed folders (None means all folders)
+            block: [imap.NAME] block carrying the IMAP connection details
+                plus per-block options (allowed_folders, maildir,
+                default_smtp).
             local_cache: Optional ``MuBackend`` for serving search calls
-                from a local mu index.  When ``None``, all searches are
-                served by IMAP.
-            account_cfg: Optional account configuration carrying the
-                per-account ``maildir`` opt-in for the local cache.
-                When ``None`` or its ``maildir`` is unset, the local
-                cache is bypassed even if ``local_cache`` is provided.
+                from a local mu index. When ``None`` or when the block's
+                ``maildir`` is unset, all searches are served by IMAP.
         """
-        self.config = config
-        self.allowed_folders = set(allowed_folders) if allowed_folders else None
+        self.block = block
+        self.allowed_folders = (
+            set(block.allowed_folders) if block.allowed_folders else None
+        )
         self.local_cache = local_cache
-        self.account_cfg = account_cfg
         self.client: Optional[imapclient.IMAPClient] = None
         self.folder_cache: Dict[str, List[str]] = {}
         self.connected = False
@@ -75,35 +71,35 @@ class ImapClient:
         """
         try:
             self.client = imapclient.IMAPClient(
-                self.config.host,
-                port=self.config.port,
-                ssl=self.config.use_ssl,
+                self.block.host,
+                port=self.block.port,
+                ssl=self.block.use_ssl,
                 timeout=10,  # 10 second connection timeout
             )
 
             # Use OAuth2 for Gmail if configured
-            if self.config.requires_oauth2:
-                logger.info(f"Using OAuth2 authentication for {self.config.host}")
+            if self.block.requires_oauth2:
+                logger.info(f"Using OAuth2 authentication for {self.block.host}")
 
                 # Get fresh access token
-                if not self.config.oauth2:
+                if not self.block.oauth2:
                     raise ValueError("OAuth2 configuration is required for Gmail")
 
-                access_token, _ = get_access_token(self.config.oauth2)
+                access_token, _ = get_access_token(self.block.oauth2)
 
                 # Authenticate with XOAUTH2
                 # Use the oauth_login method which properly formats the XOAUTH2 string
-                self.client.oauth2_login(self.config.username, access_token)
+                self.client.oauth2_login(self.block.username, access_token)
             else:
                 # Standard password authentication
-                if not self.config.password:
+                if not self.block.password:
                     raise ValueError("Password is required for authentication")
 
-                self.client.login(self.config.username, self.config.password)
+                self.client.login(self.block.username, self.block.password)
 
             self.connected = True
             self.last_activity = datetime.now()  # Track connection time
-            logger.info(f"Connected to IMAP server {self.config.host}")
+            logger.info(f"Connected to IMAP server {self.block.host}")
         except Exception as e:
             self.connected = False
             logger.error(f"Failed to connect to IMAP server: {e}")
@@ -128,7 +124,7 @@ class ImapClient:
         Returns:
             True if connection should be considered stale
         """
-        idle_timeout = self.config.idle_timeout
+        idle_timeout = self.block.idle_timeout
 
         # -1 means never consider stale (legacy behaviour)
         if idle_timeout < 0:
@@ -176,7 +172,7 @@ class ImapClient:
         Raises:
             ConnectionError: If connection cannot be established
         """
-        idle_timeout = self.config.idle_timeout
+        idle_timeout = self.block.idle_timeout
 
         # Case 1: Not connected at all - must connect
         if not self.connected or not self.client:
@@ -202,7 +198,7 @@ class ImapClient:
             return
 
         # Case 5: Connection within timeout - optionally verify with NOOP
-        if self.config.verify_with_noop:
+        if self.block.verify_with_noop:
             if not self._verify_connection():
                 logger.warning("Connection verification failed, reconnecting...")
                 self.disconnect()
@@ -785,7 +781,7 @@ class ImapClient:
         self.ensure_connected()
         folders = self.list_folders(refresh=True)
 
-        if self.config.host and "gmail" in self.config.host.lower():
+        if self.block.host and "gmail" in self.block.host.lower():
             gmail_sent = [f for f in folders if f.lower().endswith("/sent mail")]
             if gmail_sent:
                 logger.debug(f"Using Gmail sent folder: {gmail_sent[0]}")
@@ -818,7 +814,7 @@ class ImapClient:
         folders = self.list_folders(refresh=True)
 
         # Check for Gmail's special folders structure
-        if self.config.host and "gmail" in self.config.host.lower():
+        if self.block.host and "gmail" in self.block.host.lower():
             gmail_drafts = [f for f in folders if f.lower().endswith("/drafts")]
             if gmail_drafts:
                 logger.debug(f"Using Gmail drafts folder: {gmail_drafts[0]}")
@@ -1031,7 +1027,7 @@ class ImapClient:
         Returns:
             ``True`` when the Gmail X-GM-RAW dispatch should be used.
         """
-        host = (self.config.host or "").lower()
+        host = (self.block.host or "").lower()
         if "gmail" not in host:
             return False
         stripped = query.strip()
@@ -1142,17 +1138,15 @@ class ImapClient:
         from mailroom.local_cache import MuFailure
         from mailroom.query_parser import UntranslatableQuery
 
-        if self.local_cache is None or self.account_cfg is None:
-            return None, None
-        if not self.account_cfg.maildir:
+        if self.local_cache is None or not self.block.maildir:
             return None, None
         if folder is not None:
             return None, "folder_scope"
-        eligibility = self.local_cache.is_eligible(self.account_cfg)
+        eligibility = self.local_cache.is_eligible(self.block)
         if not eligibility.eligible:
             return None, eligibility.reason
         try:
-            results = self.local_cache.search(self.account_cfg, query, limit)
+            results = self.local_cache.search(self.block, query, limit)
         except UntranslatableQuery:
             return None, "untranslatable"
         except (MuFailure, ValueError) as e:
@@ -1247,7 +1241,7 @@ class ImapClient:
         return results
 
 
-def copy_email_between_accounts(
+def copy_email_between_imap_blocks(
     source: "ImapClient",
     dest: "ImapClient",
     uid: int,

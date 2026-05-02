@@ -9,23 +9,21 @@ from unittest.mock import patch
 
 import pytest
 
-from mailroom.config import AccountConfig, ImapConfig, LocalCacheConfig
+from mailroom.config import ImapBlock, LocalCacheConfig
 from mailroom.local_cache import MuBackend, MuFailure
 from mailroom.query_parser import UntranslatableQuery
 
 
-def _make_account_cfg(
-    maildir: str = "/var/local/mail/director-rivermill-au",
-) -> AccountConfig:
-    """Build an AccountConfig with a configured maildir for tests."""
-    imap = ImapConfig(
+def _make_block(maildir: str = "/var/local/mail/work") -> ImapBlock:
+    """Build an ImapBlock with a configured maildir for tests."""
+    return ImapBlock(
         host="imap.example.com",
         port=993,
-        username="director@rivermill.au",
+        username="user@example.com",
         password="password",
         use_ssl=True,
+        maildir=maildir,
     )
-    return AccountConfig(imap=imap, maildir=maildir)
 
 
 def _make_xapian_dir(tmp_path) -> str:
@@ -47,7 +45,7 @@ class TestMuBackendIsEligible:
         backend = MuBackend(cfg)
         monkeypatch.setattr("mailroom.local_cache.shutil.which", lambda _: None)
 
-        result = backend.is_eligible(_make_account_cfg())
+        result = backend.is_eligible(_make_block())
 
         assert result.eligible is False
         assert result.reason == "mu_missing"
@@ -64,7 +62,7 @@ class TestMuBackendIsEligible:
             "mailroom.local_cache.shutil.which", lambda _: "/usr/bin/mu"
         )
 
-        result = backend.is_eligible(_make_account_cfg())
+        result = backend.is_eligible(_make_block())
 
         assert result.eligible is False
         assert result.reason == "db_missing"
@@ -83,7 +81,7 @@ class TestMuBackendIsEligible:
             "mailroom.local_cache.shutil.which", lambda _: "/usr/bin/mu"
         )
 
-        result = backend.is_eligible(_make_account_cfg())
+        result = backend.is_eligible(_make_block())
 
         assert result.eligible is False
         assert result.reason == "stale"
@@ -97,7 +95,7 @@ class TestMuBackendIsEligible:
             "mailroom.local_cache.shutil.which", lambda _: "/usr/bin/mu"
         )
 
-        result = backend.is_eligible(_make_account_cfg())
+        result = backend.is_eligible(_make_block())
 
         assert result.eligible is True
         assert result.reason is None
@@ -116,7 +114,7 @@ class TestMuBackendSearch:
         """Argv must include muhome, find, --format=json, sort/limit/scope."""
         backend = self._backend(tmp_path)
         muhome = backend.muhome
-        account_cfg = _make_account_cfg("/tmp/foo/director-rivermill-au")
+        account_cfg = _make_block("/tmp/foo/work")
 
         captured: Dict[str, Any] = {}
 
@@ -142,15 +140,15 @@ class TestMuBackendSearch:
         assert "date" in argv
         assert "--reverse" in argv
         # The scoped query must AND the translated query with the maildir.
-        assert argv[-1] == "(from:alice) AND maildir:/director-rivermill-au/"
+        assert argv[-1] == "(from:alice) AND maildir:/work/"
 
     def test_parses_mu_json_output(self, tmp_path):
         """A single mu json record round-trips into the mailroom result shape."""
         backend = self._backend(tmp_path)
-        account_cfg = _make_account_cfg("/var/local/mail/director-rivermill-au")
+        account_cfg = _make_block("/var/local/mail/work")
         sample = [
             {
-                ":path": "/var/local/mail/director-rivermill-au/cur/123",
+                ":path": "/var/local/mail/work/cur/123",
                 "size": 174217,
                 ":from": [{":email": "a@b.com", ":name": "Alice"}],
                 ":to": [{":email": "c@d.com"}],
@@ -158,7 +156,7 @@ class TestMuBackendSearch:
                 ":date-unix": 1700000000,
                 ":flags": ["seen", "attach"],
                 ":message-id": "<m@x>",
-                ":maildir": "/director-rivermill-au",
+                ":maildir": "/work",
             }
         ]
 
@@ -176,7 +174,7 @@ class TestMuBackendSearch:
         assert len(results) == 1
         rec = results[0]
         assert rec["message_id"] == "<m@x>"
-        assert rec["path"] == "/var/local/mail/director-rivermill-au/cur/123"
+        assert rec["path"] == "/var/local/mail/work/cur/123"
         assert rec["folder"] == "INBOX"
         assert rec["from"] == "Alice <a@b.com>"
         assert rec["to"] == ["c@d.com"]
@@ -188,7 +186,7 @@ class TestMuBackendSearch:
     def test_exit_code_2_returns_empty(self, tmp_path):
         """mu's exit code 2 (no matches) is not an error — return []."""
         backend = self._backend(tmp_path)
-        account_cfg = _make_account_cfg()
+        account_cfg = _make_block()
 
         with patch(
             "mailroom.local_cache.subprocess.run",
@@ -203,7 +201,7 @@ class TestMuBackendSearch:
     def test_timeout_raises_mufailure(self, tmp_path):
         """A subprocess timeout becomes a MuFailure for the caller to fall back."""
         backend = self._backend(tmp_path)
-        account_cfg = _make_account_cfg()
+        account_cfg = _make_block()
 
         def boom(argv, **kwargs):
             raise subprocess.TimeoutExpired(cmd=argv, timeout=30)
@@ -215,7 +213,7 @@ class TestMuBackendSearch:
     def test_nonzero_exit_other_than_2_raises(self, tmp_path):
         """Any non-zero exit other than 2 is a real failure."""
         backend = self._backend(tmp_path)
-        account_cfg = _make_account_cfg()
+        account_cfg = _make_block()
 
         with patch(
             "mailroom.local_cache.subprocess.run",
@@ -229,7 +227,7 @@ class TestMuBackendSearch:
     def test_malformed_json_raises_mufailure(self, tmp_path):
         """Garbage stdout becomes a MuFailure rather than a JSONDecodeError."""
         backend = self._backend(tmp_path)
-        account_cfg = _make_account_cfg()
+        account_cfg = _make_block()
 
         with patch(
             "mailroom.local_cache.subprocess.run",
@@ -244,7 +242,7 @@ class TestMuBackendSearch:
         """An imap: token in the query surfaces UntranslatableQuery to the
         caller (re-raised from parse_query_to_mu)."""
         backend = self._backend(tmp_path)
-        account_cfg = _make_account_cfg()
+        account_cfg = _make_block()
 
         # subprocess.run should never be called for an untranslatable query.
         with patch("mailroom.local_cache.subprocess.run") as mock_run:
@@ -253,16 +251,16 @@ class TestMuBackendSearch:
             mock_run.assert_not_called()
 
     def test_no_maildir_raises_value_error(self, tmp_path):
-        """An account without maildir cannot be scoped; ValueError protects us."""
+        """A block without maildir cannot be scoped; ValueError protects us."""
         backend = self._backend(tmp_path)
-        imap = ImapConfig(
+        block = ImapBlock(
             host="imap.example.com",
             port=993,
             username="x@example.com",
             password="password",
             use_ssl=True,
+            maildir=None,
         )
-        account_cfg = AccountConfig(imap=imap, maildir=None)
 
         with pytest.raises(ValueError, match="maildir"):
-            backend.search(account_cfg, "from:alice", limit=10)
+            backend.search(block, "from:alice", limit=10)

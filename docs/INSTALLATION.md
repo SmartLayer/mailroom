@@ -81,14 +81,18 @@ cp examples/config.sample.toml ~/.config/mailroom/config.toml
 Example configuration:
 
 ```toml
-default_account = "personal"
+default_imap = "personal"
 
-[accounts.personal]
+[imap.personal]
 host = "imap.gmail.com"
 username = "you@gmail.com"
 client_id = "YOUR_CLIENT_ID"
 client_secret = "YOUR_CLIENT_SECRET"
 refresh_token = "YOUR_REFRESH_TOKEN"
+
+[identity.personal]
+imap = "personal"
+address = "you@gmail.com"
 ```
 
 For password-based authentication, set the password in the config or via environment variable:
@@ -103,7 +107,7 @@ export IMAP_PASSWORD="your_secure_password"
 
 ```bash
 mailroom search "from:alice subject:invoice"
-mailroom list-accounts
+mailroom list
 mailroom move -f INBOX -u 123 -t Archive
 mailroom reply -f INBOX -u 123 -b "Thanks for the update."
 ```

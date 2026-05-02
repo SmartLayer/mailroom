@@ -8,7 +8,7 @@ import os
 import pytest
 from dotenv import load_dotenv
 
-from mailroom.config import ImapConfig, OAuth2Config
+from mailroom.config import ImapBlock, OAuth2Config
 from mailroom.imap_client import ImapClient
 
 # Load environment variables from .env.test if it exists
@@ -36,9 +36,9 @@ def test_oauth2_gmail_connection():
     logger = logging.getLogger(__name__)
 
     try:
-        # Create ImapConfig with OAuth2 settings from environment variables
+        # Create ImapBlock with OAuth2 settings from environment variables
         logger.info("Setting up OAuth2 configuration from environment variables")
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.gmail.com",
             port=993,
             username=os.environ.get("GMAIL_TEST_EMAIL"),

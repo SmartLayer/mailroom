@@ -14,7 +14,7 @@ from typing import Dict, Generator
 import pytest
 from dotenv import load_dotenv
 
-from mailroom.config import ImapConfig, OAuth2Config
+from mailroom.config import ImapBlock, OAuth2Config
 from mailroom.imap_client import ImapClient
 from mailroom.models import Email
 
@@ -56,14 +56,14 @@ def load_oauth2_credentials() -> Dict[str, str]:
     }
 
 
-def load_gmail_config(oauth2_credentials: Dict[str, str]) -> ImapConfig:
-    """Create ImapConfig with OAuth2 for Gmail.
+def load_gmail_config(oauth2_credentials: Dict[str, str]) -> ImapBlock:
+    """Create ImapBlock with OAuth2 for Gmail.
 
     Args:
         oauth2_credentials: Dictionary with OAuth2 credentials
 
     Returns:
-        ImapConfig configured for Gmail with OAuth2
+        ImapBlock configured for Gmail with OAuth2
     """
     oauth2_config = None
     if oauth2_credentials:
@@ -73,7 +73,7 @@ def load_gmail_config(oauth2_credentials: Dict[str, str]) -> ImapConfig:
             refresh_token=oauth2_credentials["refresh_token"],
         )
 
-    return ImapConfig(
+    return ImapBlock(
         host="imap.gmail.com",
         port=993,
         username=os.getenv(
@@ -128,24 +128,24 @@ def gmail_oauth_credentials() -> Dict[str, str]:
 
 
 @pytest.fixture
-def gmail_config(gmail_oauth_credentials: Dict[str, str]) -> ImapConfig:
+def gmail_config(gmail_oauth_credentials: Dict[str, str]) -> ImapBlock:
     """Create a configuration for Gmail IMAP.
 
     Args:
         gmail_oauth_credentials: Dictionary with OAuth2 credentials
 
     Returns:
-        ImapConfig for Gmail with OAuth2
+        ImapBlock for Gmail with OAuth2
     """
     return load_gmail_config(gmail_oauth_credentials)
 
 
 @pytest.fixture
-def gmail_client(gmail_config: ImapConfig) -> ImapClient:
+def gmail_client(gmail_config: ImapBlock) -> ImapClient:
     """Create and connect a Gmail IMAP client using OAuth2 authentication.
 
     Args:
-        gmail_config: ImapConfig for Gmail with OAuth2
+        gmail_config: ImapBlock for Gmail with OAuth2
 
     Returns:
         Connected ImapClient instance
@@ -165,7 +165,7 @@ def gmail_client(gmail_config: ImapConfig) -> ImapClient:
 @pytest.mark.integration
 @pytest.mark.gmail
 @pytest.mark.oauth2
-def test_gmail_connect_oauth2(gmail_config: ImapConfig):
+def test_gmail_connect_oauth2(gmail_config: ImapBlock):
     """Test basic connection to Gmail using OAuth2 authentication."""
     client = ImapClient(gmail_config)
 
@@ -191,7 +191,7 @@ def test_gmail_connect_oauth2(gmail_config: ImapConfig):
 @pytest.mark.integration
 @pytest.mark.gmail
 @pytest.mark.oauth2
-def test_gmail_reconnect(gmail_config: ImapConfig):
+def test_gmail_reconnect(gmail_config: ImapBlock):
     """Test disconnection and reconnection capabilities."""
     client = ImapClient(gmail_config)
 
@@ -225,7 +225,7 @@ def test_gmail_reconnect(gmail_config: ImapConfig):
 def test_gmail_connection_error_handling():
     """Test handling of connection errors with invalid configuration."""
     # Use invalid credentials
-    invalid_config = ImapConfig(
+    invalid_config = ImapBlock(
         host="imap.gmail.com",
         port=993,
         username="invalid@gmail.com",
@@ -251,7 +251,7 @@ def test_gmail_connection_error_handling():
 def test_gmail_connection_timeout():
     """Test connection timeout handling."""
     # Use a non-routable IP to force timeout
-    invalid_config = ImapConfig(
+    invalid_config = ImapBlock(
         host="10.255.255.1",  # Non-routable IP that should cause timeout
         port=993,
         username=TEST_EMAIL,

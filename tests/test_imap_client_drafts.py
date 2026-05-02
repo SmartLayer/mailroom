@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mailroom.config import ImapConfig
+from mailroom.config import ImapBlock
 from mailroom.imap_client import ImapClient
 
 
@@ -16,7 +16,7 @@ class TestDraftsFunctionality:
     @pytest.fixture
     def mock_imap_client(self):
         """Create a mock IMAP client with the necessary methods."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             use_ssl=True,
@@ -73,7 +73,7 @@ class TestDraftsFunctionality:
     def test_get_drafts_folder_gmail(self, mock_imap_client):
         """Test getting the drafts folder for Gmail."""
         # Configure as Gmail
-        mock_imap_client.config.host = "imap.gmail.com"
+        mock_imap_client.block.host = "imap.gmail.com"
 
         # Mock list_folders to return Gmail folders
         mock_imap_client.list_folders.return_value = [

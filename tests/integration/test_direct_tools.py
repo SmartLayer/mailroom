@@ -33,8 +33,8 @@ class TestDirectToolsIntegration:
     async def imap_client(self):
         """Create and yield an IMAP client connected to Gmail."""
         config = load_config()
-        acct = config.accounts[config.default_account]
-        client = ImapClient(acct.imap, acct.allowed_folders)
+        block = config.imap_blocks[config.default_imap]
+        client = ImapClient(block)
         client.connect()
         try:
             yield client

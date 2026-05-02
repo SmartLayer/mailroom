@@ -38,7 +38,7 @@ except ImportError:
         return None
 
 
-from mailroom.config import AccountConfig, ImapConfig, MultiAccountConfig, OAuth2Config
+from mailroom.config import Identity, ImapBlock, MailroomConfig, OAuth2Config
 from mailroom.imap_client import ImapClient
 from mailroom.models import Email, EmailAddress, EmailContent
 
@@ -46,22 +46,26 @@ from mailroom.models import Email, EmailAddress, EmailContent
 def patch_default_cli_config(username: str = "me@example.com"):
     """Return a context manager that patches load_config for compose/reply CLI tests.
 
-    The new CLI handlers call load_config to resolve identities; the legacy
-    compose/reply tests mock _make_client only and need a parallel cfg mock.
-    Use as ``with patch_default_cli_config(): ...``.
+    The CLI handlers call load_config to resolve identities; tests that
+    mock ``_make_client`` only need a parallel cfg mock. Use as
+    ``with patch_default_cli_config(): ...``.
+
+    Includes a default identity so ``resolve_identity_for_send`` succeeds
+    (under (ii) a block with no identities is read-only for sending).
     """
-    cfg = MultiAccountConfig(
-        accounts={
-            "default": AccountConfig(
-                imap=ImapConfig(
-                    host="imap.example.com",
-                    port=993,
-                    username=username,
-                    password="x",
-                )
+    cfg = MailroomConfig(
+        imap_blocks={
+            "default": ImapBlock(
+                host="imap.example.com",
+                port=993,
+                username=username,
+                password="x",
             )
         },
-        _default_account="default",
+        _default_imap="default",
+        identities={
+            "default": Identity(imap="default", address=username),
+        },
     )
     return patch("mailroom.__main__.load_config", return_value=cfg)
 
@@ -444,17 +448,17 @@ def gmail_oauth_credentials() -> Dict[str, str]:
 
 
 @pytest.fixture
-def gmail_config(gmail_oauth_credentials: Dict[str, str]) -> ImapConfig:
-    """Create a configuration for Gmail IMAP.
+def gmail_block(gmail_oauth_credentials: Dict[str, str]) -> ImapBlock:
+    """Create an [imap.NAME] block for Gmail IMAP.
 
     Args:
         gmail_oauth_credentials: Dictionary with OAuth2 credentials
 
     Returns:
-        ImapConfig for Gmail with OAuth2
+        ImapBlock for Gmail with OAuth2
     """
     oauth2_config = OAuth2Config(**gmail_oauth_credentials)
-    return ImapConfig(
+    return ImapBlock(
         host="imap.gmail.com",
         port=993,
         username=TEST_EMAIL,
@@ -464,16 +468,16 @@ def gmail_config(gmail_oauth_credentials: Dict[str, str]) -> ImapConfig:
 
 
 @pytest.fixture
-def gmail_client(gmail_config: ImapConfig) -> ImapClient:
+def gmail_client(gmail_block: ImapBlock) -> ImapClient:
     """Create and connect a Gmail IMAP client using OAuth2 authentication.
 
     Args:
-        gmail_config: ImapConfig for Gmail with OAuth2
+        gmail_block: ImapBlock for Gmail with OAuth2
 
     Returns:
         Connected ImapClient instance
     """
-    client = ImapClient(gmail_config)
+    client = ImapClient(gmail_block)
     with timed_operation("Connecting to Gmail"):
         client.connect()
 

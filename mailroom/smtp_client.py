@@ -294,7 +294,7 @@ def compose_and_save_reply_draft(
             result["message"] = f"Email with UID {uid} not found in folder {folder}"
             return result
 
-        reply_from = _find_reply_from_address(email_obj, client.config.username)
+        reply_from = _find_reply_from_address(email_obj, client.block.username)
 
         cc_addresses = None
         if cc:
@@ -342,7 +342,7 @@ def compose_and_save_draft(
 
     Unlike ``compose_and_save_reply_draft`` this does not thread off an
     existing message: no In-Reply-To/References headers, no quoted-original
-    body. The From address is taken from ``client.config.username``.
+    body. The From address is taken from ``client.block.username``.
 
     Args:
         client: An ``ImapClient`` instance (duck-typed to avoid circular import).
@@ -369,7 +369,7 @@ def compose_and_save_draft(
         return result
 
     try:
-        from_addr = EmailAddress(name="", address=client.config.username)
+        from_addr = EmailAddress(name="", address=client.block.username)
         to_addresses = [EmailAddress.parse(addr) for addr in to]
         cc_addresses = [EmailAddress.parse(addr) for addr in cc] if cc else None
         bcc_addresses = [EmailAddress.parse(addr) for addr in bcc] if bcc else None

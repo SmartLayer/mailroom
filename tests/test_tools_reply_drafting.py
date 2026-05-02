@@ -65,7 +65,7 @@ class TestComposeAndSaveReplyDraft:
     def mock_client(self):
         client = MagicMock()
         client.config = MagicMock()
-        client.config.username = "me@example.com"
+        client.block.username = "me@example.com"
         client.save_draft_mime = MagicMock(return_value=42)
         client._get_drafts_folder = MagicMock(return_value="Drafts")
         return client

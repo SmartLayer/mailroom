@@ -17,8 +17,8 @@ import typer
 
 from mailroom import __version__
 from mailroom.config import (
-    AccountConfig,
-    MultiAccountConfig,
+    ImapBlock,
+    MailroomConfig,
     SmtpConfig,
     load_config,
     load_config_with_warnings,
@@ -44,8 +44,8 @@ app = typer.Typer(
         "0 on success with results, 1 on success with zero results. "
         "This makes shell idioms work:\n\n"
         "  mailroom search 'from:alice@x' || mailroom search 'alice'\n"
-        "  ( mailroom -a A search Q ; mailroom -a B search Q ) | jq -s add\n\n"
-        "Multi-account search (-a A -a B or --all-accounts) makes the second "
+        "  ( mailroom -i A search Q ; mailroom -i B search Q ) | jq -s add\n\n"
+        "Multi-block search (-i A -i B or --all-imap) makes the second "
         "idiom unnecessary in most cases."
     ),
     no_args_is_help=True,
@@ -53,22 +53,22 @@ app = typer.Typer(
 
 # Module-level state set by the --config callback.
 _config_path: Optional[str] = None
-_account_names: List[str] = []
-_all_accounts: bool = False
+_imap_names: List[str] = []
+_all_imap: bool = False
 
 # Process-wide MuBackend instance, lazily built when the configured
-# accounts opt into the local cache.  Shared across ImapClient instances
-# so the muhome discovery (mu info store) runs at most once.
+# [imap.*] blocks opt into the local cache.  Shared across ImapClient
+# instances so the muhome discovery (mu info store) runs at most once.
 _mu_backend_singleton: Optional["MuBackend"] = None
 
 logger = logging.getLogger(__name__)
 
 
-def _get_mu_backend(cfg: MultiAccountConfig) -> Optional["MuBackend"]:
+def _get_mu_backend(cfg: MailroomConfig) -> Optional["MuBackend"]:
     """Return the shared MuBackend, building it on first use.
 
     Args:
-        cfg: The loaded multi-account configuration.
+        cfg: The loaded mailroom configuration.
 
     Returns:
         A ``MuBackend`` instance when ``cfg.local_cache`` is present;
@@ -93,20 +93,20 @@ def _global_options(
         help="Path to TOML configuration file.",
         envvar="MAILROOM_CONFIG",
     ),
-    accounts: List[str] = typer.Option(
+    imap_names: List[str] = typer.Option(
         [],
-        "--account",
-        "-a",
+        "--imap",
+        "-i",
         help=(
-            "Account name (for multi-account configs). Uses default if omitted. "
-            "Pass multiple times with 'search' to query several accounts."
+            "[imap.NAME] block to use. Uses default_imap if omitted. "
+            "Pass multiple times with 'search' to query several blocks."
         ),
     ),
-    all_accounts: bool = typer.Option(
+    all_imap: bool = typer.Option(
         False,
-        "--all-accounts",
+        "--all-imap",
         "-A",
-        help="Search every configured account. Only meaningful for 'search'.",
+        help="Search every configured [imap.NAME] block. Only meaningful for 'search'.",
     ),
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Enable verbose logging."
@@ -119,43 +119,44 @@ def _global_options(
         help="Show version and exit.",
     ),
 ) -> None:
-    global _config_path, _account_names, _all_accounts
+    global _config_path, _imap_names, _all_imap
     _config_path = config
-    _account_names = list(accounts)
-    _all_accounts = all_accounts
+    _imap_names = list(imap_names)
+    _all_imap = all_imap
     level = logging.DEBUG if verbose else logging.WARNING
     logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
 
 
-def _resolve_accounts() -> List[str]:
-    """Resolve module-level account flags to a deduplicated list of names.
+def _resolve_imap_names() -> List[str]:
+    """Resolve module-level [imap.*] flags to a deduplicated list of names.
 
-    Returns the list of account names to search, validated against the
-    config. Errors hard if a name is unknown or if ``--all-accounts`` is
-    set with no accounts configured. Emits a stderr note when
-    ``--all-accounts`` overrides explicit ``-a`` flags.
+    Returns the [imap.NAME] block names to search, validated against the
+    config. Errors hard if a name is unknown or if ``--all-imap`` is set
+    with no [imap.*] blocks configured. Emits a stderr note when
+    ``--all-imap`` overrides explicit ``-i`` flags.
     """
     try:
         cfg = load_config(_config_path)
     except (ValueError, FileNotFoundError, Exception) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1)
-    if _all_accounts:
-        if not cfg.accounts:
-            typer.echo("Error: no accounts configured", err=True)
+    if _all_imap:
+        if not cfg.imap_blocks:
+            typer.echo("Error: no [imap.*] blocks configured", err=True)
             raise typer.Exit(1)
-        if _account_names:
-            typer.echo("note: --all-accounts overrides --account values", err=True)
-        return list(cfg.accounts.keys())
-    if not _account_names:
-        return [cfg.default_account]
+        if _imap_names:
+            typer.echo("note: --all-imap overrides --imap values", err=True)
+        return list(cfg.imap_blocks.keys())
+    if not _imap_names:
+        return [cfg.default_imap]
     seen: set = set()
     resolved: List[str] = []
-    for name in _account_names:
-        if name not in cfg.accounts:
-            available = list(cfg.accounts.keys())
+    for name in _imap_names:
+        if name not in cfg.imap_blocks:
+            available = list(cfg.imap_blocks.keys())
             typer.echo(
-                f"Error: unknown account '{name}'. Available: {available}", err=True
+                f"Error: unknown [imap.{name}] block. Available: {available}",
+                err=True,
             )
             raise typer.Exit(1)
         if name not in seen:
@@ -164,47 +165,45 @@ def _resolve_accounts() -> List[str]:
     return resolved
 
 
-def _make_client(account_override: Optional[str] = None) -> ImapClient:
+def _make_client(imap_override: Optional[str] = None) -> ImapClient:
     """Create and connect an ImapClient.
 
     Args:
-        account_override: If given, use this account name instead of the
-            global ``--account`` flag.
+        imap_override: If given, use this [imap.NAME] block instead of
+            the global ``--imap`` flag.
 
     Raises:
-        typer.Exit: On config error, unknown account, multi-account misuse,
-            or IMAP connect failure.
+        typer.Exit: On config error, unknown [imap.NAME] block,
+            multi-block misuse, or IMAP connect failure.
     """
     try:
         cfg = load_config(_config_path)
     except (ValueError, FileNotFoundError, Exception) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1)
-    if account_override is None:
-        if _all_accounts or len(_account_names) > 1:
+    if imap_override is None:
+        if _all_imap or len(_imap_names) > 1:
             typer.echo(
-                "Error: this command does not support multi-account flags "
-                "(--all-accounts or repeated --account)",
+                "Error: this command does not support multi-block flags "
+                "(--all-imap or repeated --imap)",
                 err=True,
             )
             raise typer.Exit(1)
-        single = _account_names[0] if _account_names else None
-        name = single or cfg.default_account
+        single = _imap_names[0] if _imap_names else None
+        name = single or cfg.default_imap
     else:
-        name = account_override
-    if name not in cfg.accounts:
-        available = list(cfg.accounts.keys())
-        typer.echo(f"Error: unknown account '{name}'. Available: {available}", err=True)
+        name = imap_override
+    if name not in cfg.imap_blocks:
+        available = list(cfg.imap_blocks.keys())
+        typer.echo(
+            f"Error: unknown [imap.{name}] block. Available: {available}",
+            err=True,
+        )
         raise typer.Exit(1)
-    if not _account_names and account_override is None:
-        typer.echo(f"Using account '{name}'", err=True)
-    acct = cfg.accounts[name]
-    client = ImapClient(
-        acct.imap,
-        acct.allowed_folders,
-        local_cache=_get_mu_backend(cfg),
-        account_cfg=acct,
-    )
+    if not _imap_names and imap_override is None:
+        typer.echo(f"Using [imap.{name}]", err=True)
+    block = cfg.imap_blocks[name]
+    client = ImapClient(block, local_cache=_get_mu_backend(cfg))
     try:
         client.connect()
     except Exception as exc:
@@ -214,62 +213,61 @@ def _make_client(account_override: Optional[str] = None) -> ImapClient:
 
 
 def _make_client_soft(name: str) -> Optional[ImapClient]:
-    """Connect for one account, returning None on failure (with stderr warning).
+    """Connect for one [imap.NAME] block, returning None on failure.
 
-    Used by the multi-account search loop so one unreachable account does
-    not abort the whole command.
+    Used by the multi-block search loop so one unreachable block does
+    not abort the whole command. Emits a stderr warning on failure.
     """
     try:
         cfg = load_config(_config_path)
     except (ValueError, FileNotFoundError, Exception) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1)
-    if name not in cfg.accounts:
-        available = list(cfg.accounts.keys())
-        typer.echo(f"Error: unknown account '{name}'. Available: {available}", err=True)
+    if name not in cfg.imap_blocks:
+        available = list(cfg.imap_blocks.keys())
+        typer.echo(
+            f"Error: unknown [imap.{name}] block. Available: {available}",
+            err=True,
+        )
         raise typer.Exit(1)
-    acct = cfg.accounts[name]
-    client = ImapClient(
-        acct.imap,
-        acct.allowed_folders,
-        local_cache=_get_mu_backend(cfg),
-        account_cfg=acct,
-    )
+    block = cfg.imap_blocks[name]
+    client = ImapClient(block, local_cache=_get_mu_backend(cfg))
     try:
         client.connect()
     except Exception as exc:
-        typer.echo(f"warning: connect failed for '{name}': {exc}", err=True)
+        typer.echo(f"warning: connect failed for [imap.{name}]: {exc}", err=True)
         return None
     return client
 
 
-def _resolve_single_account_name() -> str:
-    """Return the single account name for commands that don't support multi-account.
+def _resolve_single_imap_name() -> str:
+    """Return the single [imap.NAME] block for non-multi commands.
 
     Raises:
-        typer.Exit: On config error, unknown account, or multi-account flags.
+        typer.Exit: On config error, unknown block name, or multi-block
+            flags.
     """
     try:
         cfg = load_config(_config_path)
     except (ValueError, FileNotFoundError, Exception) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1)
-    if _all_accounts or len(_account_names) > 1:
+    if _all_imap or len(_imap_names) > 1:
         typer.echo(
-            "Error: this command does not support multi-account flags "
-            "(--all-accounts or repeated --account)",
+            "Error: this command does not support multi-block flags "
+            "(--all-imap or repeated --imap)",
             err=True,
         )
         raise typer.Exit(1)
-    name = _account_names[0] if _account_names else cfg.default_account
-    if name not in cfg.accounts:
-        typer.echo(f"Error: unknown account '{name}'.", err=True)
+    name = _imap_names[0] if _imap_names else cfg.default_imap
+    if name not in cfg.imap_blocks:
+        typer.echo(f"Error: unknown [imap.{name}] block.", err=True)
         raise typer.Exit(1)
     return name
 
 
 def _empty_result_for_subcmd(subcmd: str) -> Dict[str, Any]:
-    """Return an appropriate placeholder result for a failed account connection."""
+    """Return a placeholder result for a failed [imap.NAME] block connection."""
     if subcmd == "search":
         return _empty_search_result()
     return {"error": "connection failed"}
@@ -348,12 +346,12 @@ def _run_op(client: ImapClient, subcmd: str, kwargs: Dict[str, Any]) -> Dict[str
     """Dispatch one operation against an already-connected IMAP client.
 
     Args:
-        client: Connected ImapClient for the current account.
+        client: Connected ImapClient for the current [imap.NAME] block.
         subcmd: Subcommand name (``"search"`` or ``"read"``).
         kwargs: Parsed arguments for the subcommand.
 
     Returns:
-        Per-account result dict suitable for inclusion in the batch output.
+        Per-block result dict suitable for inclusion in the batch output.
     """
     if subcmd == "search":
         return client.search_emails(
@@ -370,19 +368,19 @@ def _execute_batch(
     operations: List[Tuple[str, str, Dict[str, Any]]],
     names: List[str],
 ) -> Dict[str, Dict[str, Any]]:
-    """Execute multiple operations account-first over one IMAP connection per account.
+    """Execute multiple ops block-first over one IMAP connection per block.
 
-    Opens one connection per account, runs every operation for that account,
-    then closes before moving to the next. Accounts are processed sequentially
-    to avoid server-side throttling.
+    Opens one connection per [imap.NAME] block, runs every operation for
+    that block, then closes before moving to the next. Blocks are
+    processed sequentially to avoid server-side throttling.
 
     Args:
         operations: List of ``(op_key, subcmd, kwargs)`` tuples. ``op_key`` is
             echoed back as the outer JSON key.
-        names: Account names to query, processed in order.
+        names: [imap.NAME] block names to query, processed in order.
 
     Returns:
-        ``{op_key: {account_name: result_dict}}`` — the batch JSON shape.
+        ``{op_key: {imap_name: result_dict}}`` -- the batch JSON shape.
 
     Raises:
         ValueError: Re-raised from ``_run_op`` so the caller can map it to
@@ -508,7 +506,7 @@ def _email_only(s: str) -> str:
     return s
 
 
-def _load_cfg_or_exit() -> MultiAccountConfig:
+def _load_cfg_or_exit() -> MailroomConfig:
     """Load config or exit 1 with the usual error formatting."""
     try:
         return load_config(_config_path)
@@ -520,8 +518,8 @@ def _load_cfg_or_exit() -> MultiAccountConfig:
 def _perform_send(
     client: ImapClient,
     mime_message: Any,
-    account: AccountConfig,
-    account_name: str,
+    imap_block: ImapBlock,
+    imap_name: str,
     smtp_blocks: Dict[str, SmtpConfig],
     identity: Any,
     save_sent_override: Optional[bool],
@@ -532,8 +530,8 @@ def _perform_send(
     Args:
         client: Connected ImapClient (used for FCC and folder discovery).
         mime_message: Built MIME message ready to serialise.
-        account: Selected account's config.
-        account_name: Name of the selected account (for error messages).
+        imap_block: Selected [imap.NAME] block.
+        imap_name: Name of the selected block (for error messages).
         smtp_blocks: Top-level ``[smtp.*]`` map from the loaded config.
         identity: Resolved ``Identity`` driving From, SMTP route, sent_folder.
         save_sent_override: When set, overrides the SMTP block's
@@ -549,7 +547,7 @@ def _perform_send(
     from mailroom.smtp_transport import send as smtp_send
 
     try:
-        smtp = resolve_smtp_for_identity(identity, account, account_name, smtp_blocks)
+        smtp = resolve_smtp_for_identity(identity, imap_block, imap_name, smtp_blocks)
     except SmtpUnresolved as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1)
@@ -590,7 +588,7 @@ def _print_eager_warnings_if_relevant() -> None:
     """Print config warnings to stderr when user is 'checking in' on mailroom.
 
     Detects no-args, ``--help``, or ``-h`` in argv (after stripping known
-    global options like ``--config``/``--account``). Surfaces warnings before
+    global options like ``--config``/``--imap``). Surfaces warnings before
     typer takes over so the user sees them above the help text.
 
     Safe-fails: any error in load (missing config, bad TOML) is swallowed
@@ -598,7 +596,7 @@ def _print_eager_warnings_if_relevant() -> None:
     they then run a real command.
     """
     args = sys.argv[1:]
-    globals_with_value = {"--config", "-c", "--account", "-a"}
+    globals_with_value = {"--config", "-c", "--imap", "-i"}
 
     config_path: Optional[str] = None
     first_real: Optional[str] = None
@@ -633,9 +631,9 @@ def _print_eager_warnings_if_relevant() -> None:
 
 
 def _empty_search_result() -> Dict[str, Any]:
-    """Return the wrapped result shape for an account that returned nothing.
+    """Return the wrapped result shape for a block that returned nothing.
 
-    Used when client construction or connection fails, so the per-account
+    Used when client construction or connection fails, so the per-block
     output stays uniform with successful calls.
     """
     return {
@@ -662,12 +660,12 @@ def _format_provenance_line(provenance: Dict[str, Any]) -> str:
 def _format_batch_text(batch: Dict[str, Dict[str, Any]]) -> str:
     """Render a batch result as multi-line, prompt-friendly text."""
     sections: List[str] = []
-    for op_key, accounts in batch.items():
+    for op_key, blocks in batch.items():
         lines: List[str] = [f"=== {op_key} ==="]
-        for account, value in accounts.items():
+        for imap_name, value in blocks.items():
             hits: List[Dict[str, Any]] = value.get("results", []) or []
             provenance = value.get("provenance") or {}
-            lines.append(f"== {account} ==")
+            lines.append(f"== {imap_name} ==")
             if "error" in value and not hits:
                 lines.append(f"(error: {value['error']})")
             else:
@@ -696,14 +694,14 @@ def _format_batch_text(batch: Dict[str, Dict[str, Any]]) -> str:
 def _format_batch_oneline(batch: Dict[str, Dict[str, Any]]) -> str:
     """Render a batch result as one tab-separated line per result.
 
-    Columns: op_key, account, date, subject, from → to, message_id.
+    Columns: op_key, imap_name, date, subject, from -> to, message_id.
     """
     lines: List[str] = []
-    for op_key, accounts in batch.items():
-        for account, value in accounts.items():
+    for op_key, blocks in batch.items():
+        for imap_name, value in blocks.items():
             hits: List[Dict[str, Any]] = value.get("results", []) or []
             if not hits:
-                lines.append(f"{op_key}\t{account}\t(no results)")
+                lines.append(f"{op_key}\t{imap_name}\t(no results)")
                 continue
             for r in hits:
                 date = str(r.get("date", ""))[:10]
@@ -713,14 +711,14 @@ def _format_batch_oneline(batch: Dict[str, Dict[str, Any]]) -> str:
                 to_addr = _email_only(to_list[0]) if to_list[0] else ""
                 message_id = r.get("message_id", "")
                 lines.append(
-                    f"{op_key}\t{account}\t{date}\t{subject}"
-                    f"\t{from_addr} → {to_addr}\t{message_id}"
+                    f"{op_key}\t{imap_name}\t{date}\t{subject}"
+                    f"\t{from_addr} -> {to_addr}\t{message_id}"
                 )
     return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
-# list-accounts
+# config-check, list, status
 # ---------------------------------------------------------------------------
 
 
@@ -730,8 +728,9 @@ def config_check() -> None:
 
     Reports hard errors on invalid TOML or bad cross-references (typo'd
     default_smtp, identity smtp referencing an undefined block, duplicate
-    addresses, etc.) and lists non-fatal warnings (send-disabled accounts,
-    shared credential-less SMTP on non-Gmail hosts, no smtp blocks).
+    addresses within one [imap.NAME] block, etc.) and lists non-fatal
+    warnings (send-disabled blocks, shared credential-less SMTP on
+    non-Gmail hosts, no smtp blocks).
 
     Exit codes:
         0  config is valid (warnings may still be present on stderr)
@@ -750,57 +749,72 @@ def config_check() -> None:
         print(f"  ({len(warnings)} warning(s) above)")
 
 
-@app.command("list-accounts")
-def list_accounts() -> None:
-    """List configured email accounts."""
+def _build_inventory(cfg: MailroomConfig) -> Dict[str, Any]:
+    """Build the unified JSON inventory of [imap.*]/[smtp.*]/[identity.*]."""
+    by_imap: Dict[str, List[str]] = {}
+    for ident_name, ident in cfg.identities.items():
+        by_imap.setdefault(ident.imap, []).append(ident_name)
+    imap_out: Dict[str, Any] = {}
+    for name, block in cfg.imap_blocks.items():
+        imap_out[name] = {
+            "host": block.host,
+            "port": block.port,
+            "username": block.username,
+            "ssl": block.use_ssl,
+            "default_smtp": block.default_smtp,
+            "maildir": block.maildir,
+            "allowed_folders": (
+                list(block.allowed_folders) if block.allowed_folders else None
+            ),
+            "identities": sorted(by_imap.get(name, [])),
+        }
+    smtp_out: Dict[str, Any] = {}
+    for name, smtp in cfg.smtp_blocks.items():
+        smtp_out[name] = {
+            "host": smtp.host,
+            "port": smtp.port,
+            "has_creds": bool(smtp.username and smtp.password),
+            "save_sent": smtp.save_sent,
+            "rewrite_msgid_from_response": smtp.rewrite_msgid_from_response,
+        }
+    identity_out: Dict[str, Any] = {}
+    for name, ident in cfg.identities.items():
+        identity_out[name] = {
+            "imap": ident.imap,
+            "address": ident.address,
+            "name": ident.name or None,
+            "smtp": ident.smtp,
+            "sent_folder": ident.sent_folder,
+        }
+    return {
+        "default_imap": cfg.default_imap,
+        "imap": imap_out,
+        "smtp": smtp_out,
+        "identity": identity_out,
+    }
+
+
+@app.command("list")
+def list_cmd() -> None:
+    """List configured [imap.*], [smtp.*], and [identity.*] blocks as JSON."""
     cfg = _load_cfg_or_exit()
-    accounts = []
-    for name, acct in cfg.accounts.items():
-        accounts.append(
-            {
-                "name": name,
-                "default": name == cfg.default_account,
-                "user": acct.imap.username,
-                "host": acct.imap.host,
-            }
-        )
-    _out(accounts)
+    _out(_build_inventory(cfg))
     for w in cfg.warnings:
         print(f"warn: {w}", file=sys.stderr)
 
 
-# ---------------------------------------------------------------------------
-# status
-# ---------------------------------------------------------------------------
-
-
 @app.command("status")
 def status() -> None:
-    """Show IMAP server status and configuration."""
+    """Show server status: inventory plus version metadata.
+
+    Same shape as `list` with ``server`` and ``version`` keys prepended.
+    Use ``list`` for a tighter inventory; use ``status`` when scripts
+    want the version stamp alongside the configuration.
+    """
     cfg = _load_cfg_or_exit()
-    accounts_map: Dict[str, Any] = {}
-    status_data: Dict[str, Any] = {
-        "server": "Mailroom",
-        "version": __version__,
-        "default_account": cfg.default_account,
-        "accounts": accounts_map,
-        "smtp_blocks": sorted(cfg.smtp_blocks),
-    }
-    for name, acct in cfg.accounts.items():
-        status_data["accounts"][name] = {
-            "imap_host": acct.imap.host,
-            "imap_port": acct.imap.port,
-            "imap_user": acct.imap.username,
-            "imap_ssl": acct.imap.use_ssl,
-            "default_smtp": acct.default_smtp,
-            "identities": (
-                [i.address for i in acct.identities] if acct.identities else None
-            ),
-            "allowed_folders": (
-                list(acct.allowed_folders) if acct.allowed_folders else "all"
-            ),
-        }
-    _out(status_data)
+    out: Dict[str, Any] = {"server": "Mailroom", "version": __version__}
+    out.update(_build_inventory(cfg))
+    _out(out)
     for w in cfg.warnings:
         print(f"warn: {w}", file=sys.stderr)
 
@@ -853,23 +867,24 @@ def search(
 ) -> None:
     """Search for emails.
 
-    Output is a JSON object keyed first by operation string, then by account
-    name. Each per-account value is ``{"results": [...], "provenance": {...}}``
-    where ``provenance`` reports whether the result came from IMAP
-    (``source: "remote"``) or from a local mu cache (``source: "local"``).
-    ``--limit`` is applied per account.
+    Output is a JSON object keyed first by operation string, then by
+    [imap.NAME] block. Each per-block value is ``{"results": [...],
+    "provenance": {...}}`` where ``provenance`` reports whether the
+    result came from IMAP (``source: "remote"``) or from a local mu
+    cache (``source: "local"``). ``--limit`` is applied per block.
 
-    ``--format text`` renders multi-line, prompt-friendly output grouped by
-    operation and account; ``--format oneline`` renders one tab-separated line
-    per result (op_key, account, date, subject, from→to, message_id).
+    ``--format text`` renders multi-line, prompt-friendly output grouped
+    by operation and block; ``--format oneline`` renders one
+    tab-separated line per result (op_key, imap_name, date, subject,
+    from -> to, message_id).
 
-    Exit code: 0 on hits, 1 when every account returned zero results, so
+    Exit code: 0 on hits, 1 when every block returned zero results, so
     shell fallback chains work: ``mailroom search 'from:x' || mailroom
     search 'x'``.
     """
     effective = query_opt if query_opt is not None else query
     op_key = _build_op_key("search", query=effective, folder=folder, limit=limit)
-    names = _resolve_accounts()
+    names = _resolve_imap_names()
     try:
         batch = _execute_batch(
             [
@@ -898,8 +913,8 @@ def search(
         raise typer.Exit(2)
     has_results = any(
         v.get("results")
-        for per_account in batch.values()
-        for v in per_account.values()
+        for per_block in batch.values()
+        for v in per_block.values()
         if isinstance(v, dict)
     )
     if not has_results:
@@ -932,18 +947,18 @@ def batch_cmd(
         help="Output format: json (default), text, or oneline.",
     ),
 ) -> None:
-    """Execute multiple operations in one IMAP connection per account.
+    """Execute multiple operations in one IMAP connection per block.
 
-    Supply operations as positional arguments, via ``--file``, or as a JSON
-    array on stdin. Each operation is a subcommand string identical to what
-    you would pass on the command line (e.g. ``"search from:x"``).
+    Supply operations as positional arguments, via ``--file``, or as a
+    JSON array on stdin. Each operation is a subcommand string identical
+    to what you would pass on the command line (e.g. ``"search from:x"``).
 
-    All operations for a given account are executed over a single connection
-    before moving to the next account, which avoids per-query reconnections
-    and server-side throttling.
+    All operations for a given [imap.NAME] block are executed over a
+    single connection before moving to the next block, which avoids
+    per-query reconnections and server-side throttling.
 
-    Output JSON is keyed by operation string, then by account name — the same
-    shape as a single-command run but with multiple outer keys.
+    Output JSON is keyed by operation string, then by block name -- the
+    same shape as a single-command run but with multiple outer keys.
 
     Exit code: 0 if any search operation returned results, 1 otherwise.
     """
@@ -977,7 +992,7 @@ def batch_cmd(
             typer.echo(f"Error parsing operation {s!r}: {exc}", err=True)
             raise typer.Exit(1)
 
-    names = _resolve_accounts()
+    names = _resolve_imap_names()
     try:
         batch = _execute_batch(parsed, names)
     except ValueError as exc:
@@ -998,8 +1013,8 @@ def batch_cmd(
         raise typer.Exit(2)
     has_results = any(
         v.get("results")
-        for per_account in batch.values()
-        for v in per_account.values()
+        for per_block in batch.values()
+        for v in per_block.values()
         if isinstance(v, dict)
     )
     if not has_results:
@@ -1018,10 +1033,10 @@ def read(
 ) -> None:
     """Read an email's content.
 
-    Output is a JSON object keyed by operation string, then by account name,
-    consistent with the batch output format.
+    Output is a JSON object keyed by operation string, then by [imap.NAME]
+    block, consistent with the batch output format.
     """
-    name = _resolve_single_account_name()
+    name = _resolve_single_imap_name()
     client = _make_client()
     try:
         result = _fetch_email_result(client, folder, uid)
@@ -1070,9 +1085,7 @@ def move(
 
 @app.command("copy")
 def copy_cmd(
-    from_account: str = typer.Option(
-        ..., "--from-account", help="Source account name."
-    ),
+    from_imap: str = typer.Option(..., "--from-imap", help="Source [imap.NAME] block."),
     from_folder: str = typer.Option(..., "--from-folder", help="Source folder."),
     uid: int = typer.Option(..., "--uid", "-u", help="Email UID in the source folder."),
     to_folder: str = typer.Option(
@@ -1085,18 +1098,18 @@ def copy_cmd(
         False, "--preserve-flags", help="Copy original flags to destination."
     ),
 ) -> None:
-    """Copy an email from one account into another.
+    """Copy an email from one [imap.NAME] block into another.
 
-    The global --account/-a selects the destination account.
+    The global --imap/-i selects the destination block.
     Fetches the raw RFC 822 message from the source and APPENDs it to the
     destination, preserving the message byte-for-byte and its original date.
     """
-    from mailroom.imap_client import copy_email_between_accounts
+    from mailroom.imap_client import copy_email_between_imap_blocks
 
-    source = _make_client(account_override=from_account)
+    source = _make_client(imap_override=from_imap)
     dest = _make_client()
     try:
-        result = copy_email_between_accounts(
+        result = copy_email_between_imap_blocks(
             source,
             dest,
             uid,
@@ -1112,7 +1125,7 @@ def copy_cmd(
             {
                 "success": True,
                 "subject": result["subject"],
-                "source": f"{from_account}/{from_folder}/{uid}",
+                "source": f"{from_imap}/{from_folder}/{uid}",
                 "destination": to_folder,
                 "new_uid": result["new_uid"],
                 "moved": result["moved"],
@@ -1460,7 +1473,10 @@ def compose(
     from_email: Optional[str] = typer.Option(
         None,
         "--from",
-        help="Identity address to send as. Defaults to the account's first identity.",
+        help=(
+            "Identity address to send as. Defaults to the first identity "
+            "pointing at the selected [imap.NAME] block."
+        ),
     ),
     save_sent: Optional[bool] = typer.Option(
         None,
@@ -1482,7 +1498,11 @@ def compose(
     """
     import email.utils
 
-    from mailroom.identity import IdentityNotFound, resolve_identity_for_send
+    from mailroom.identity import (
+        IdentityNotFound,
+        SendDisabled,
+        resolve_identity_for_send,
+    )
     from mailroom.models import EmailAddress
     from mailroom.smtp_client import create_mime
 
@@ -1491,12 +1511,12 @@ def compose(
         raise typer.Exit(2)
 
     cfg = _load_cfg_or_exit()
-    name = _resolve_single_account_name()
-    account = cfg.accounts[name]
+    name = _resolve_single_imap_name()
+    block = cfg.imap_blocks[name]
 
     try:
-        identity = resolve_identity_for_send(account, from_addr=from_email)
-    except IdentityNotFound as exc:
+        identity = resolve_identity_for_send(cfg, name, from_addr=from_email)
+    except (IdentityNotFound, SendDisabled) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1)
 
@@ -1525,7 +1545,7 @@ def compose(
                 _perform_send(
                     client,
                     mime_message,
-                    account,
+                    block,
                     name,
                     cfg.smtp_blocks,
                     identity,
@@ -1617,13 +1637,14 @@ def reply(
     Default: saves to drafts.
     --output: writes raw RFC 822.
     --send: transmits via SMTP and FCCs to Sent.
-    Reply identity defaults to whichever account identity matches the
+    Reply identity defaults to whichever block identity matches the
     parent's recipients (so a reply to alias X is sent as alias X).
     """
     import email.utils
 
     from mailroom.identity import (
         IdentityNotFound,
+        SendDisabled,
         resolve_identity_for_reply,
         resolve_identity_for_send,
     )
@@ -1635,8 +1656,8 @@ def reply(
         raise typer.Exit(2)
 
     cfg = _load_cfg_or_exit()
-    name = _resolve_single_account_name()
-    account = cfg.accounts[name]
+    name = _resolve_single_imap_name()
+    block = cfg.imap_blocks[name]
 
     client = _make_client()
     try:
@@ -1647,10 +1668,10 @@ def reply(
 
         try:
             if from_email is not None:
-                identity = resolve_identity_for_send(account, from_addr=from_email)
+                identity = resolve_identity_for_send(cfg, name, from_addr=from_email)
             else:
-                identity = resolve_identity_for_reply(email_obj, account)
-        except IdentityNotFound as exc:
+                identity = resolve_identity_for_reply(cfg, name, email_obj)
+        except (IdentityNotFound, SendDisabled) as exc:
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(1)
 
@@ -1676,7 +1697,7 @@ def reply(
                 _perform_send(
                     client,
                     mime_message,
-                    account,
+                    block,
                     name,
                     cfg.smtp_blocks,
                     identity,
@@ -1744,9 +1765,9 @@ def send_draft(
     """Send an existing draft as-is.
 
     The draft's From header is parsed and matched against the selected
-    account's identities. An unknown From is a hard error (no silent
-    fallback) so that an AI accidentally drafting from the wrong identity
-    cannot send through the wrong SMTP route.
+    [imap.NAME] block's identities. An unknown From is a hard error (no
+    silent fallback) so that drafting from the wrong identity cannot
+    send through the wrong SMTP route.
 
     On success the draft is deleted from the source folder unless
     --keep-draft is set, and the message is FCC'd to Sent unless
@@ -1756,6 +1777,7 @@ def send_draft(
 
     from mailroom.identity import (
         IdentityNotFound,
+        SendDisabled,
         SmtpUnresolved,
         resolve_identity_for_send,
         resolve_smtp_for_identity,
@@ -1763,8 +1785,8 @@ def send_draft(
     from mailroom.smtp_transport import _pick_default_transport
 
     cfg = _load_cfg_or_exit()
-    name = _resolve_single_account_name()
-    account = cfg.accounts[name]
+    name = _resolve_single_imap_name()
+    block = cfg.imap_blocks[name]
 
     client = _make_client()
     try:
@@ -1784,13 +1806,13 @@ def send_draft(
             raise typer.Exit(1)
 
         try:
-            identity = resolve_identity_for_send(account, from_addr=from_addr_only)
-        except IdentityNotFound as exc:
+            identity = resolve_identity_for_send(cfg, name, from_addr=from_addr_only)
+        except (IdentityNotFound, SendDisabled) as exc:
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(1)
 
         try:
-            smtp = resolve_smtp_for_identity(identity, account, name, cfg.smtp_blocks)
+            smtp = resolve_smtp_for_identity(identity, block, name, cfg.smtp_blocks)
         except SmtpUnresolved as exc:
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(1)
@@ -1828,7 +1850,7 @@ def send_draft(
         result = _perform_send(
             client,
             msg,
-            account,
+            block,
             name,
             cfg.smtp_blocks,
             identity,
@@ -1921,7 +1943,7 @@ def _rewrite_argv(argv: List[str]) -> List[str]:
     1. If the subcommand is one of the known search aliases
        (``email_search``, ``email-search``, ``search_email``, ``search-email``),
        rewrite it to ``search`` and emit a note to stderr.
-    2. If ``-a``/``--account`` appears after the subcommand, hoist it to
+    2. If ``-i``/``--imap`` appears after the subcommand, hoist it to
        before the subcommand so Typer's global callback sees it.
 
     Skips when ``_MAILROOM_COMPLETE`` is set so shell-completion is undisturbed.
@@ -1929,7 +1951,7 @@ def _rewrite_argv(argv: List[str]) -> List[str]:
     if os.environ.get("_MAILROOM_COMPLETE"):
         return argv
     out = list(argv)
-    globals_with_value = {"--config", "-c", "--account", "-a"}
+    globals_with_value = {"--config", "-c", "--imap", "-i"}
     sub_idx: Optional[int] = None
     i = 0
     while i < len(out):
@@ -1957,25 +1979,25 @@ def _rewrite_argv(argv: List[str]) -> List[str]:
     if sub in _SEARCH_ALIASES:
         sys.stderr.write(f"note: no such subcommand {sub!r}; running 'search'\n")
         out[sub_idx] = "search"
-    accounts: List[str] = []
+    imap_values: List[str] = []
     tail: List[str] = []
     j = sub_idx + 1
     while j < len(out):
         tok = out[j]
-        if tok in ("--account", "-a") and j + 1 < len(out):
-            accounts.append(out[j + 1])
+        if tok in ("--imap", "-i") and j + 1 < len(out):
+            imap_values.append(out[j + 1])
             j += 2
             continue
-        if tok.startswith("--account=") or tok.startswith("-a="):
-            accounts.append(tok.split("=", 1)[1])
+        if tok.startswith("--imap=") or tok.startswith("-i="):
+            imap_values.append(tok.split("=", 1)[1])
             j += 1
             continue
         tail.append(tok)
         j += 1
-    if accounts:
+    if imap_values:
         flat: List[str] = []
-        for a in accounts:
-            flat.extend(["--account", a])
+        for v in imap_values:
+            flat.extend(["--imap", v])
         return out[:sub_idx] + flat + [out[sub_idx]] + tail
     return out
 

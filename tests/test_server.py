@@ -8,28 +8,29 @@ from unittest import mock
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from mailroom.config import AccountConfig, ImapConfig, MultiAccountConfig
+from mailroom.config import ImapBlock, MailroomConfig
 from mailroom.mcp_server import create_server, main, server_lifespan
+
+
+def _block(**kwargs) -> ImapBlock:
+    """Build a minimal ImapBlock with defaults overridable per-test."""
+    defaults = {
+        "host": "imap.example.com",
+        "port": 993,
+        "username": "test@example.com",
+        "password": "password",
+    }
+    defaults.update(kwargs)
+    return ImapBlock(**defaults)
 
 
 class TestServer:
     """Tests for the server module."""
 
-    def test_create_server(self, monkeypatch):
+    def test_create_server(self):
         """Test server creation with default configuration."""
-        mock_config = MultiAccountConfig(
-            accounts={
-                "test": AccountConfig(
-                    imap=ImapConfig(
-                        host="imap.example.com",
-                        port=993,
-                        username="test@example.com",
-                        password="password",
-                        use_ssl=True,
-                    ),
-                    allowed_folders=["INBOX", "Sent"],
-                )
-            },
+        mock_config = MailroomConfig(
+            imap_blocks={"test": _block(allowed_folders=["INBOX", "Sent"])},
         )
 
         with mock.patch("mailroom.mcp_server.load_config", return_value=mock_config):
@@ -51,13 +52,9 @@ class TestServer:
 
     def test_create_server_with_debug(self):
         """Test server creation with debug mode enabled."""
-        mock_config = MultiAccountConfig(
-            accounts={
-                "test": AccountConfig(
-                    imap=ImapConfig(
-                        host="localhost", port=993, username="test", password="pw"
-                    ),
-                )
+        mock_config = MailroomConfig(
+            imap_blocks={
+                "test": _block(host="localhost", username="test", password="pw")
             },
         )
         with mock.patch("mailroom.mcp_server.load_config", return_value=mock_config):
@@ -77,16 +74,8 @@ class TestServer:
     async def test_server_lifespan(self):
         """Test server lifespan context manager."""
         mock_server = mock.MagicMock()
-        imap_cfg = ImapConfig(
-            host="imap.example.com",
-            port=993,
-            username="test@example.com",
-            password="password",
-            use_ssl=True,
-        )
-        mock_config = MultiAccountConfig(
-            accounts={"test": AccountConfig(imap=imap_cfg)},
-        )
+        block = _block()
+        mock_config = MailroomConfig(imap_blocks={"test": block})
         mock_server._config = mock_config
 
         with mock.patch("mailroom.mcp_server.ImapClient") as MockImapClient:
@@ -95,15 +84,10 @@ class TestServer:
             async with AsyncExitStack() as stack:
                 context = await stack.enter_async_context(server_lifespan(mock_server))
 
-                MockImapClient.assert_called_once_with(
-                    imap_cfg,
-                    None,
-                    local_cache=None,
-                    account_cfg=mock_config.accounts["test"],
-                )
+                MockImapClient.assert_called_once_with(block, local_cache=None)
                 mock_client.connect.assert_called_once()
                 assert context["imap_clients"]["test"] == mock_client
-                assert context["default_account"] == "test"
+                assert context["default_imap"] == "test"
 
             mock_client.disconnect.assert_called_once()
 
@@ -113,18 +97,7 @@ class TestServer:
         mock_server = mock.MagicMock()
         mock_server._config = None
 
-        mock_config = MultiAccountConfig(
-            accounts={
-                "test": AccountConfig(
-                    imap=ImapConfig(
-                        host="imap.example.com",
-                        port=993,
-                        username="test@example.com",
-                        password="password",
-                    ),
-                )
-            },
-        )
+        mock_config = MailroomConfig(imap_blocks={"test": _block()})
 
         with mock.patch(
             "mailroom.mcp_server.load_config", return_value=mock_config
@@ -137,30 +110,17 @@ class TestServer:
     @pytest.mark.asyncio
     async def test_server_lifespan_invalid_config(self):
         """Test server lifespan with invalid config."""
-        # Create mock server with invalid config
         mock_server = mock.MagicMock()
-        mock_server._config = "not a MultiAccountConfig object"
+        mock_server._config = "not a MailroomConfig object"
 
-        # Verify TypeError is raised
         with pytest.raises(TypeError, match="Invalid server configuration"):
             async with server_lifespan(mock_server):
                 pass
 
     def test_status_tool(self):
         """Test the status tool."""
-        mock_config = MultiAccountConfig(
-            accounts={
-                "test": AccountConfig(
-                    imap=ImapConfig(
-                        host="imap.example.com",
-                        port=993,
-                        username="test@example.com",
-                        password="password",
-                        use_ssl=True,
-                    ),
-                    allowed_folders=["INBOX", "Sent"],
-                )
-            },
+        mock_config = MailroomConfig(
+            imap_blocks={"test": _block(allowed_folders=["INBOX", "Sent"])},
         )
 
         with mock.patch("mailroom.mcp_server.load_config", return_value=mock_config):

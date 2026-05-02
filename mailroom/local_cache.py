@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from .config import AccountConfig, LocalCacheConfig
+from .config import ImapBlock, LocalCacheConfig
 from .query_parser import UntranslatableQuery, parse_query_to_mu
 
 logger = logging.getLogger(__name__)
@@ -56,8 +56,8 @@ class EligibilityResult:
 class MuBackend:
     """Local-cache search backend driven by ``mu find`` subprocess calls.
 
-    A single instance is shared across accounts; per-account scoping is
-    applied at search time via the maildir predicate, not at
+    A single instance is shared across [imap.*] blocks; per-block
+    scoping is applied at search time via the maildir predicate, not at
     initialisation.  The resolved muhome is cached in process memory.
     """
 
@@ -126,13 +126,13 @@ class MuBackend:
             return None
         return os.path.join(home, "xapian")
 
-    def is_eligible(self, account_cfg: AccountConfig) -> EligibilityResult:
-        """Check whether the local cache can serve a call for the account.
+    def is_eligible(self, imap_block: ImapBlock) -> EligibilityResult:
+        """Check whether the local cache can serve a call for the block.
 
         Args:
-            account_cfg: Account configuration; ``maildir`` must already
-                be set by the caller (callers that have not opted the
-                account in should bypass this method).
+            imap_block: [imap.NAME] block; ``maildir`` must already be
+                set by the caller (callers that have not opted the block
+                in should bypass this method).
 
         Returns:
             ``EligibilityResult(eligible=True)`` on success, otherwise
@@ -173,15 +173,15 @@ class MuBackend:
 
     def search(
         self,
-        account_cfg: AccountConfig,
+        imap_block: ImapBlock,
         query: str,
         limit: int,
     ) -> List[Dict[str, Any]]:
-        """Run a search against the local mu store, scoped to the account.
+        """Run a search against the local mu store, scoped to the block.
 
         Args:
-            account_cfg: Account whose ``maildir`` defines the search
-                scope.  Must have ``maildir`` configured.
+            imap_block: [imap.NAME] block whose ``maildir`` defines the
+                search scope.  Must have ``maildir`` configured.
             query: User query string in mailroom syntax.
             limit: Maximum number of results to return.
 
@@ -194,16 +194,18 @@ class MuBackend:
                 mu (re-raised from the query translator).
             MuFailure: When mu invocation fails (timeout, non-zero
                 exit, malformed output).
-            ValueError: When ``account_cfg.maildir`` is not configured.
+            ValueError: When ``imap_block.maildir`` is not configured.
         """
-        if not account_cfg.maildir:
-            raise ValueError("Account has no maildir configured for local cache.")
+        if not imap_block.maildir:
+            raise ValueError(
+                "[imap.NAME] block has no maildir configured for local cache."
+            )
         home = self.muhome
         if not home:
             raise MuFailure("muhome could not be resolved")
 
         translated = parse_query_to_mu(query)
-        scoped = self._scope_query(account_cfg.maildir, translated)
+        scoped = self._scope_query(imap_block.maildir, translated)
 
         # ``--muhome`` is parsed by ``mu find`` (the subcommand), not the
         # outer ``mu`` driver, so it must follow ``find`` in the argv.
@@ -241,11 +243,11 @@ class MuBackend:
             raise MuFailure(f"could not decode mu json output: {e}") from e
         if not isinstance(raw, list):
             raise MuFailure("mu json output was not a list")
-        return [self._format_result(account_cfg, rec) for rec in raw]
+        return [self._format_result(imap_block, rec) for rec in raw]
 
     @staticmethod
     def _scope_query(maildir: str, translated: str) -> str:
-        """Wrap a translated query with a per-account maildir predicate."""
+        """Wrap a translated query with a per-block maildir predicate."""
         basename = os.path.basename(maildir.rstrip("/"))
         scope = f"maildir:/{basename}/"
         if translated:
@@ -253,14 +255,14 @@ class MuBackend:
         return scope
 
     def _format_result(
-        self, account_cfg: AccountConfig, rec: Dict[str, Any]
+        self, imap_block: ImapBlock, rec: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Translate a single mu json record into mailroom result shape."""
         flags = rec.get(":flags") or []
         return {
             "message_id": rec.get(":message-id", ""),
             "path": rec.get(":path", ""),
-            "folder": self._derive_folder(account_cfg.maildir, rec.get(":maildir")),
+            "folder": self._derive_folder(imap_block.maildir, rec.get(":maildir")),
             "from": self._format_address_first(rec.get(":from")),
             "to": self._format_address_list(rec.get(":to")),
             "subject": rec.get(":subject", ""),
@@ -317,20 +319,20 @@ class MuBackend:
             return None
 
     @staticmethod
-    def _derive_folder(account_maildir: Optional[str], mu_maildir: Any) -> str:
+    def _derive_folder(block_maildir: Optional[str], mu_maildir: Any) -> str:
         """Derive the relative folder name from mu's ``:maildir`` field.
 
         mu reports ``:maildir`` as a path relative to its store root
-        (e.g. ``/director-rivermill-au/Deleted Messages``).  Strip the
-        leading ``/<basename>/`` of the account's maildir to get the
-        folder relative to the account; report ``"INBOX"`` for messages
-        sitting at the account root.
+        (e.g. ``/work/Deleted Messages``).  Strip the leading
+        ``/<basename>/`` of the block's maildir to get the folder
+        relative to the block; report ``"INBOX"`` for messages sitting
+        at the block root.
         """
         if not isinstance(mu_maildir, str):
             return ""
-        if not account_maildir:
+        if not block_maildir:
             return mu_maildir.lstrip("/")
-        basename = os.path.basename(account_maildir.rstrip("/"))
+        basename = os.path.basename(block_maildir.rstrip("/"))
         prefix = f"/{basename}"
         if mu_maildir == prefix:
             return "INBOX"

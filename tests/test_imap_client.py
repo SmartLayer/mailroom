@@ -1,10 +1,11 @@
 """Tests for the IMAP client."""
 
+from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mailroom.config import AccountConfig, ImapConfig
+from mailroom.config import ImapBlock
 from mailroom.imap_client import ImapClient
 from mailroom.local_cache import EligibilityResult, MuFailure
 from mailroom.models import Email
@@ -16,7 +17,7 @@ class TestImapClient:
 
     def test_init(self):
         """Test initializing the client."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -25,7 +26,7 @@ class TestImapClient:
         )
         client = ImapClient(config)
 
-        assert client.config == config
+        assert client.block == config
         assert client.allowed_folders is None
         assert client.client is None
         assert client.folder_cache == {}
@@ -33,12 +34,12 @@ class TestImapClient:
 
         # Test with allowed folders
         allowed_folders = ["INBOX", "Sent"]
-        client = ImapClient(config, allowed_folders=allowed_folders)
+        client = ImapClient(replace(config, allowed_folders=allowed_folders))
         assert client.allowed_folders == set(allowed_folders)
 
     def test_connect_success(self, mock_imap_client):
         """Test successful connection."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -67,7 +68,7 @@ class TestImapClient:
 
     def test_connect_failure(self):
         """Test connection failure."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -92,7 +93,7 @@ class TestImapClient:
 
     def test_disconnect(self, mock_imap_client):
         """Test disconnection."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -118,7 +119,7 @@ class TestImapClient:
 
     def test_disconnect_with_exception(self, mock_imap_client):
         """Test disconnection with exception."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -147,7 +148,7 @@ class TestImapClient:
 
     def test_ensure_connected_when_not_connected(self, mock_imap_client):
         """Test ensuring connection when not connected."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -174,7 +175,7 @@ class TestImapClient:
 
     def test_ensure_connected_when_already_connected(self, mock_imap_client):
         """Test ensuring connection when already connected."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -203,7 +204,7 @@ class TestImapClient:
 
     def test_list_folders_from_cache(self, mock_imap_client):
         """Test listing folders from cache."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -237,7 +238,7 @@ class TestImapClient:
 
     def test_list_folders_refresh(self, mock_imap_client):
         """Test listing folders with refresh."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -282,7 +283,7 @@ class TestImapClient:
 
     def test_list_folders_with_allowed_folders(self, mock_imap_client):
         """Test listing folders with allowed folders filter."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -290,7 +291,7 @@ class TestImapClient:
             use_ssl=True,
         )
         allowed_folders = ["INBOX", "Sent"]
-        client = ImapClient(config, allowed_folders=allowed_folders)
+        client = ImapClient(replace(config, allowed_folders=allowed_folders))
 
         with patch("imapclient.IMAPClient") as mock_client_class:
             mock_client_class.return_value = mock_imap_client
@@ -320,7 +321,7 @@ class TestImapClient:
 
     def test_select_folder(self, mock_imap_client):
         """Test selecting a folder."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -362,7 +363,7 @@ class TestImapClient:
 
     def test_select_folder_not_allowed(self, mock_imap_client):
         """Test selecting a folder that's not allowed."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -370,7 +371,7 @@ class TestImapClient:
             use_ssl=True,
         )
         allowed_folders = ["INBOX", "Sent"]
-        client = ImapClient(config, allowed_folders=allowed_folders)
+        client = ImapClient(replace(config, allowed_folders=allowed_folders))
 
         with patch("imapclient.IMAPClient") as mock_client_class:
             mock_client_class.return_value = mock_imap_client
@@ -390,7 +391,7 @@ class TestImapClient:
 
     def test_search_with_string_criteria(self, mock_imap_client):
         """Test searching with string criteria."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -448,7 +449,7 @@ class TestImapClient:
 
     def test_search_with_complex_criteria(self, mock_imap_client):
         """Test searching with complex criteria."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -486,7 +487,7 @@ class TestImapClient:
 
     def test_fetch_email(self, mock_imap_client, test_email_response_data):
         """Test fetching a single email."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -528,7 +529,7 @@ class TestImapClient:
 
     def test_fetch_email_not_found(self, mock_imap_client):
         """Test fetching an email that doesn't exist."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -565,7 +566,7 @@ class TestImapClient:
 
     def test_fetch_emails(self, mock_imap_client, make_test_email_response_data):
         """Test fetching multiple emails."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -640,7 +641,7 @@ class TestImapClient:
         self, mock_imap_client, make_test_email_response_data
     ):
         """Test fetching emails with a limit."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -701,7 +702,7 @@ class TestImapClient:
 
     def test_mark_email(self, mock_imap_client):
         """Test marking an email with a flag."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -755,7 +756,7 @@ class TestImapClient:
 
     def test_mark_email_failure(self, mock_imap_client):
         """Test marking an email with a flag when operation fails."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -790,7 +791,7 @@ class TestImapClient:
 
     def test_move_email(self, mock_imap_client):
         """Test moving an email to another folder."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -832,7 +833,7 @@ class TestImapClient:
 
     def test_move_email_with_allowed_folders(self, mock_imap_client):
         """Test moving an email with allowed folders restriction."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -840,7 +841,7 @@ class TestImapClient:
             use_ssl=True,
         )
         allowed_folders = ["INBOX", "Archive"]
-        client = ImapClient(config, allowed_folders=allowed_folders)
+        client = ImapClient(replace(config, allowed_folders=allowed_folders))
 
         with patch("imapclient.IMAPClient") as mock_client_class:
             mock_client_class.return_value = mock_imap_client
@@ -882,7 +883,7 @@ class TestImapClient:
 
     def test_move_email_failure(self, mock_imap_client):
         """Test moving an email when operation fails."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -919,7 +920,7 @@ class TestImapClient:
 
     def test_delete_email(self, mock_imap_client):
         """Test deleting an email."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -956,7 +957,7 @@ class TestImapClient:
 
     def test_delete_email_failure(self, mock_imap_client):
         """Test deleting an email when operation fails."""
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -1002,7 +1003,7 @@ class TestGmailSearchDispatch:
     """
 
     def _make_client(self, host: str = "imap.gmail.com") -> ImapClient:
-        config = ImapConfig(
+        config = ImapBlock(
             host=host,
             port=993,
             username="test@example.com",
@@ -1119,8 +1120,8 @@ class TestSearchEmailsDispatch:
     wrapping shape and the fallback-reason vocabulary.
     """
 
-    def _make_config(self, host: str = "imap.example.com") -> ImapConfig:
-        return ImapConfig(
+    def _make_config(self, host: str = "imap.example.com") -> ImapBlock:
+        return ImapBlock(
             host=host,
             port=993,
             username="test@example.com",
@@ -1128,10 +1129,17 @@ class TestSearchEmailsDispatch:
             use_ssl=True,
         )
 
-    def _make_account_cfg(
-        self, config: ImapConfig, maildir: str = "/var/local/mail/test-account"
-    ) -> AccountConfig:
-        return AccountConfig(imap=config, maildir=maildir)
+    def _make_block_with_maildir(
+        self, maildir: str = "/var/local/mail/test-block"
+    ) -> ImapBlock:
+        return ImapBlock(
+            host="imap.example.com",
+            port=993,
+            username="test@example.com",
+            password="password",
+            use_ssl=True,
+            maildir=maildir,
+        )
 
     def test_search_emails_wraps_with_provenance_imap_path(self):
         """No local_cache configured → IMAP path runs and result is wrapped."""
@@ -1153,8 +1161,7 @@ class TestSearchEmailsDispatch:
 
     def test_search_emails_dispatches_to_mu_when_eligible(self):
         """Eligible local_cache short-circuits the IMAP path."""
-        config = self._make_config()
-        account_cfg = self._make_account_cfg(config)
+        block = self._make_block_with_maildir()
 
         canned = [
             {
@@ -1174,13 +1181,13 @@ class TestSearchEmailsDispatch:
         mu.search.return_value = canned
         mu.index_mtime_iso.return_value = "2025-04-01T12:00:00+00:00"
 
-        client = ImapClient(config, local_cache=mu, account_cfg=account_cfg)
+        client = ImapClient(block, local_cache=mu)
 
         with patch.object(client, "_search_emails_imap") as mock_imap:
             result = client.search_emails("from:alice")
 
         mock_imap.assert_not_called()
-        mu.search.assert_called_once_with(account_cfg, "from:alice", 10)
+        mu.search.assert_called_once_with(block, "from:alice", 10)
         assert result["results"] == canned
         assert result["provenance"]["source"] == "local"
         assert result["provenance"]["indexed_at"] == "2025-04-01T12:00:00+00:00"
@@ -1188,14 +1195,13 @@ class TestSearchEmailsDispatch:
 
     def test_search_emails_falls_back_on_mu_exception(self):
         """A MuFailure from the backend triggers an IMAP fallback."""
-        config = self._make_config()
-        account_cfg = self._make_account_cfg(config)
+        block = self._make_block_with_maildir()
 
         mu = MagicMock()
         mu.is_eligible.return_value = EligibilityResult(True)
         mu.search.side_effect = MuFailure("boom")
 
-        client = ImapClient(config, local_cache=mu, account_cfg=account_cfg)
+        client = ImapClient(block, local_cache=mu)
 
         with patch.object(client, "_search_emails_imap", return_value=[]) as mock_imap:
             result = client.search_emails("from:alice")
@@ -1206,14 +1212,13 @@ class TestSearchEmailsDispatch:
 
     def test_search_emails_falls_back_on_untranslatable(self):
         """An UntranslatableQuery from the backend triggers an IMAP fallback."""
-        config = self._make_config()
-        account_cfg = self._make_account_cfg(config)
+        block = self._make_block_with_maildir()
 
         mu = MagicMock()
         mu.is_eligible.return_value = EligibilityResult(True)
         mu.search.side_effect = UntranslatableQuery("untranslatable")
 
-        client = ImapClient(config, local_cache=mu, account_cfg=account_cfg)
+        client = ImapClient(block, local_cache=mu)
 
         with patch.object(client, "_search_emails_imap", return_value=[]) as mock_imap:
             result = client.search_emails("imap:UNSEEN")
@@ -1224,13 +1229,12 @@ class TestSearchEmailsDispatch:
 
     def test_search_emails_folder_scope_forces_imap(self):
         """A non-None folder argument always routes to IMAP."""
-        config = self._make_config()
-        account_cfg = self._make_account_cfg(config)
+        block = self._make_block_with_maildir()
 
         mu = MagicMock()
         mu.is_eligible.return_value = EligibilityResult(True)
 
-        client = ImapClient(config, local_cache=mu, account_cfg=account_cfg)
+        client = ImapClient(block, local_cache=mu)
 
         with patch.object(client, "_search_emails_imap", return_value=[]) as mock_imap:
             result = client.search_emails("from:alice", folder="INBOX")
@@ -1243,13 +1247,12 @@ class TestSearchEmailsDispatch:
 
     def test_search_emails_falls_back_on_mu_missing(self):
         """is_eligible returning ``mu_missing`` forces an IMAP fallback."""
-        config = self._make_config()
-        account_cfg = self._make_account_cfg(config)
+        block = self._make_block_with_maildir()
 
         mu = MagicMock()
         mu.is_eligible.return_value = EligibilityResult(False, "mu_missing")
 
-        client = ImapClient(config, local_cache=mu, account_cfg=account_cfg)
+        client = ImapClient(block, local_cache=mu)
 
         with patch.object(client, "_search_emails_imap", return_value=[]) as mock_imap:
             result = client.search_emails("from:alice")
@@ -1263,7 +1266,7 @@ class TestProcessEmailAction:
     """Tests for ImapClient.process_email_action dispatcher."""
 
     def _make_client(self):
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",
@@ -1334,7 +1337,7 @@ class TestSearchEmailsImapResultShape:
     reply onto the parent."""
 
     def _make_client(self) -> ImapClient:
-        config = ImapConfig(
+        config = ImapBlock(
             host="imap.example.com",
             port=993,
             username="test@example.com",

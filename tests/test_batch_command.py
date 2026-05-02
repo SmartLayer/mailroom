@@ -63,20 +63,17 @@ def _patch_search(result=None):
     return patch("mailroom.__main__._make_client_soft", side_effect=factory)
 
 
-def _patch_config(account_name: str = "default"):
-    from mailroom.config import AccountConfig, ImapConfig, MultiAccountConfig
+def _patch_config(imap_name: str = "default"):
+    from mailroom.config import ImapBlock, MailroomConfig
 
-    imap_cfg = ImapConfig(
+    block = ImapBlock(
         host="imap.example.com",
         port=993,
         username="user@example.com",
         password="secret",
         use_ssl=True,
     )
-    acct = AccountConfig(imap=imap_cfg)
-    cfg = MultiAccountConfig(
-        accounts={account_name: acct}, _default_account=account_name
-    )
+    cfg = MailroomConfig(imap_blocks={imap_name: block}, _default_imap=imap_name)
     return patch("mailroom.__main__.load_config", return_value=cfg)
 
 
@@ -235,7 +232,7 @@ class TestBatchSubcommand:
                 side_effect=lambda: factory("default"),
             ),
             patch(
-                "mailroom.__main__._resolve_single_account_name", return_value="default"
+                "mailroom.__main__._resolve_single_imap_name", return_value="default"
             ),
         ):
             result = runner.invoke(

@@ -158,7 +158,7 @@ class TestDraftReplyTool:
     async def test_bcc_header_added(self, tools, mock_email, ctx):
         stored, imap_client = tools
         draft_reply = stored["reply"]
-        imap_client.config.username = "recipient@example.com"
+        imap_client.block.username = "recipient@example.com"
 
         with patch("mailroom.tools.get_client_from_context") as gc:
             gc.return_value = imap_client
@@ -232,7 +232,7 @@ class TestDraftReplyCLI:
     def mock_client(self, mock_email):
         client = MagicMock()
         client.fetch_email.return_value = mock_email
-        client.config.username = "recipient@example.com"
+        client.block.username = "recipient@example.com"
         client.save_draft_mime.return_value = 200
         client._get_drafts_folder.return_value = "Drafts"
         return client

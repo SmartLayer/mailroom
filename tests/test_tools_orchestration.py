@@ -17,7 +17,7 @@ class TestAcceptInviteWorkflow:
         """Create a mock IMAP client."""
         client = MagicMock()
         client.config = MagicMock()
-        client.config.username = "test@example.com"
+        client.block.username = "test@example.com"
         client.save_draft_mime = MagicMock(return_value=123)
         client._get_drafts_folder = MagicMock(return_value="Drafts")
         return client

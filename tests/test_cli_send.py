@@ -13,35 +13,31 @@ from typer.testing import CliRunner
 
 from mailroom.__main__ import app
 from mailroom.config import (
-    AccountConfig,
     Identity,
-    ImapConfig,
-    MultiAccountConfig,
+    ImapBlock,
+    MailroomConfig,
     SmtpConfig,
 )
 
 runner = CliRunner()
 
 
-def _cfg() -> MultiAccountConfig:
-    """Two-identity account on a Fastmail-style SMTP so FCC actually runs."""
-    imap = ImapConfig(
+def _cfg() -> MailroomConfig:
+    """Two-identity block on a Fastmail-style SMTP so FCC actually runs."""
+    block = ImapBlock(
         host="imap.fastmail.com",
         port=993,
         username="login@x.com",
         password="p",
-    )
-    acct = AccountConfig(
-        imap=imap,
         default_smtp="fast",
-        identities=[
-            Identity(address="primary@x.com", name="Primary"),
-            Identity(address="alias@x.com", name="Alias"),
-        ],
     )
-    return MultiAccountConfig(
-        accounts={"acct": acct},
-        _default_account="acct",
+    return MailroomConfig(
+        imap_blocks={"acct": block},
+        _default_imap="acct",
+        identities={
+            "primary": Identity(imap="acct", address="primary@x.com", name="Primary"),
+            "alias": Identity(imap="acct", address="alias@x.com", name="Alias"),
+        },
         smtp_blocks={
             "fast": SmtpConfig(
                 host="smtp.fastmail.com",
@@ -216,7 +212,7 @@ class TestComposeSend:
     def test_default_save_draft_uses_identity_from(self):
         """Backward-compat: no --send and no --output still saves draft, and
         the From header now uses the resolved identity (improvement over the
-        old account-blind client.config.username)."""
+        old account-blind client.block.username)."""
         cfg = _cfg()
         client = _client()
         with (

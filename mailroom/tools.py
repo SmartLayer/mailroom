@@ -43,13 +43,13 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         bcc: Optional[List[str]] = None,
         body_html: Optional[str] = None,
         attachments: Optional[List[str]] = None,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Composes a new email and saves it as a draft.
 
         Unlike ``reply``, this produces a fresh email with no threading
-        headers and no quoted original. The From address is taken from the
-        account configuration.
+        headers and no quoted original. The From address is taken from
+        the [imap.NAME] block's first identity.
 
         Args:
             to: List of recipient email addresses
@@ -61,14 +61,14 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             body_html: Optional HTML version of the body
             attachments: Optional list of filesystem paths to attach. Paths
                 are read by the MCP server process.
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             Dictionary with status and the UID of the created draft
         """
         from mailroom.smtp_client import compose_and_save_draft
 
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         return compose_and_save_draft(
             client,
             to,
@@ -91,7 +91,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         bcc: Optional[List[str]] = None,
         body_html: Optional[str] = None,
         attachments: Optional[List[str]] = None,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Creates a draft reply to an email and saves it to the drafts folder.
 
@@ -106,14 +106,14 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             body_html: Optional HTML version of the reply
             attachments: Optional list of filesystem paths to attach to the
                 draft. Paths are read by the MCP server process.
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             Dictionary with status and the UID of the created draft
         """
         from mailroom.smtp_client import compose_and_save_reply_draft
 
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         return compose_and_save_reply_draft(
             client,
             folder,
@@ -132,7 +132,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         uid: int,
         target_folder: str,
         ctx: Context,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> str:
         """Move email to another folder.
 
@@ -141,12 +141,12 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             uid: Email UID
             target_folder: Target folder
             ctx: MCP context
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             Success message or error message
         """
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         try:
             success = client.move_email(uid, folder, target_folder)
             return (
@@ -163,7 +163,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         folder: str,
         uid: int,
         ctx: Context,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> str:
         """Mark email as read.
 
@@ -171,12 +171,12 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             folder: Folder name
             uid: Email UID
             ctx: MCP context
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             Success message or error message
         """
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         try:
             success = client.mark_email(uid, folder, r"\Seen", True)
             return "Email marked as read" if success else "Failed to mark email as read"
@@ -189,7 +189,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         folder: str,
         uid: int,
         ctx: Context,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> str:
         """Mark email as unread.
 
@@ -197,12 +197,12 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             folder: Folder name
             uid: Email UID
             ctx: MCP context
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             Success message or error message
         """
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         try:
             success = client.mark_email(uid, folder, r"\Seen", False)
             return (
@@ -220,7 +220,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         uid: int,
         ctx: Context,
         flag: bool = True,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> str:
         """Flag or unflag email.
 
@@ -229,12 +229,12 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             uid: Email UID
             flag: True to flag, False to unflag
             ctx: MCP context
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             Success message or error message
         """
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         try:
             success = client.mark_email(uid, folder, r"\Flagged", flag)
             action = "flagged" if flag else "unflagged"
@@ -252,7 +252,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         folder: str,
         uid: int,
         ctx: Context,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> str:
         """Delete email.
 
@@ -260,12 +260,12 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             folder: Folder name
             uid: Email UID
             ctx: MCP context
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             Success message or error message
         """
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         try:
             success = client.delete_email(uid, folder)
             return "Email deleted" if success else "Failed to delete email"
@@ -279,7 +279,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         ctx: Optional[Context] = None,
         folder: Optional[str] = None,
         limit: int = 10,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> str:
         """Search for emails using Gmail-style query syntax.
 
@@ -296,7 +296,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             folder: Folder to search in (None for all folders)
             limit: Maximum number of results
             ctx: MCP context
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             JSON-formatted dict ``{"results": [...], "provenance": {...}}``.
@@ -310,7 +310,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         """
         if ctx is None:
             return json.dumps({"error": "No MCP context available"})
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         try:
             results = await asyncio.wait_for(
                 asyncio.to_thread(
@@ -337,7 +337,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         ctx: Context,
         notes: Optional[str] = None,
         target_folder: Optional[str] = None,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> str:
         """Process an email with specified action.
 
@@ -351,12 +351,12 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             notes: Optional notes about the decision
             target_folder: Target folder for move action
             ctx: MCP context
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             Success message or error message
         """
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         email_obj = client.fetch_email(uid, folder)
         if not email_obj:
             return f"Email with UID {uid} not found in folder {folder}"
@@ -376,7 +376,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         uid: int,
         ctx: Context,
         availability_mode: str = "random",
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> dict:
         """Process a meeting invite email and create a draft reply.
 
@@ -399,7 +399,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         """
         from mailroom.workflows.meeting_reply import process_meeting_invite_workflow
 
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         return process_meeting_invite_workflow(client, folder, uid, availability_mode)
 
     @mcp.tool(name="attachments")
@@ -407,7 +407,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         folder: str,
         uid: int,
         ctx: Context,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> str:
         """List attachments for a specific email.
 
@@ -415,12 +415,12 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             folder: Folder name
             uid: Email UID
             ctx: MCP context
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             JSON-formatted list of attachments with metadata
         """
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         try:
             email_obj = client.fetch_email(uid, folder)
             if not email_obj:
@@ -439,7 +439,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         identifier: str,
         save_path: str,
         ctx: Context,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> str:
         """Download an attachment by filename or index.
 
@@ -449,12 +449,12 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             identifier: Attachment filename or index (as string)
             save_path: Path where to save the attachment
             ctx: MCP context
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             Success message with filename and size, or error message
         """
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         try:
             email_obj = client.fetch_email(uid, folder)
             if not email_obj:
@@ -477,7 +477,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         save_path: str,
         ctx: Context,
         raw: bool = False,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> str:
         """Export an email to a standalone file.
 
@@ -491,12 +491,12 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             save_path: Path where to save the exported file
             ctx: MCP context
             raw: If True, save the raw RFC 822 bytes instead of HTML
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             Success message with file path and size, or error message
         """
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         try:
             if raw:
                 fetched = client.fetch_raw(uid, folder)
@@ -528,43 +528,43 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
 
     @mcp.tool(name="copy")
     async def copy(
-        from_account: str,
+        from_imap: str,
         from_folder: str,
         uid: int,
         ctx: Context,
         to_folder: str = "INBOX",
         move: bool = False,
         preserve_flags: bool = False,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> str:
-        """Import an email from one account into another account's IMAP folder.
+        """Import an email from one [imap.NAME] block into another's folder.
 
-        Fetches the raw RFC 822 message from the source account and APPENDs it
-        to the destination, preserving the message byte-for-byte. The original
-        internal date is always preserved so the email appears at its original
-        chronological position.
+        Fetches the raw RFC 822 message from the source block and APPENDs
+        it to the destination, preserving the message byte-for-byte. The
+        original internal date is always preserved so the email appears
+        at its original chronological position.
 
         Args:
-            from_account: Source account name.
-            from_folder: Folder in the source account containing the email.
+            from_imap: Source [imap.NAME] block.
+            from_folder: Folder in the source block containing the email.
             uid: UID of the email in the source folder.
             ctx: MCP context.
             to_folder: Destination folder (default: INBOX).
             move: If True, delete the email from the source after import.
             preserve_flags: If True, copy original flags to the destination.
                 If False, email arrives with no flags (unread, unflagged).
-            account: Destination account name (None for default account).
+            imap: Destination [imap.NAME] block (None for default).
 
         Returns:
             Status message with the UID assigned by the destination server.
         """
-        from mailroom.imap_client import copy_email_between_accounts
+        from mailroom.imap_client import copy_email_between_imap_blocks
 
-        source_client = get_client_from_context(ctx, from_account)
-        dest_client = get_client_from_context(ctx, account)
+        source_client = get_client_from_context(ctx, from_imap)
+        dest_client = get_client_from_context(ctx, imap)
 
         try:
-            result = copy_email_between_accounts(
+            result = copy_email_between_imap_blocks(
                 source_client,
                 dest_client,
                 uid,
@@ -582,13 +582,13 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             if result["moved"]:
                 return (
                     f'Imported and removed from source: "{subject}" '
-                    f"(UID {uid} from {from_account}/{from_folder}) → "
+                    f"(UID {uid} from {from_imap}/{from_folder}) -> "
                     f"{to_folder}{uid_info}"
                 )
 
             return (
                 f'Imported "{subject}" '
-                f"(UID {uid} from {from_account}/{from_folder}) "
+                f"(UID {uid} from {from_imap}/{from_folder}) "
                 f"into {to_folder}{uid_info}"
             )
         except Exception as e:
@@ -600,7 +600,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         folder: str,
         uids: List[int],
         ctx: Context,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> str:
         """Extract all links from email HTML content for multiple emails.
 
@@ -612,12 +612,12 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             folder: Folder name
             uids: List of email UIDs
             ctx: MCP context
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             JSON-formatted list of results, one per UID
         """
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         results = extract_links_batch(client.fetch_email, folder, uids)
         return json.dumps(results, indent=2)
 
@@ -626,7 +626,7 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
         folder: str,
         uid: int,
         ctx: Context,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> str:
         """Read an email's content by folder and UID.
 
@@ -634,12 +634,12 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             folder: Folder name
             uid: Email UID
             ctx: MCP context
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             JSON-formatted email with headers, content, and attachment list
         """
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         try:
             email_obj = client.fetch_email(uid, folder)
             if not email_obj:
@@ -675,18 +675,18 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
     @mcp.tool(name="folders")
     async def folders(
         ctx: Context,
-        account: Optional[str] = None,
+        imap: Optional[str] = None,
     ) -> str:
         """List available email folders.
 
         Args:
             ctx: MCP context
-            account: Account name (None for default account)
+            imap: [imap.NAME] block name (None for default)
 
         Returns:
             JSON-formatted list of folder names
         """
-        client = get_client_from_context(ctx, account)
+        client = get_client_from_context(ctx, imap)
         try:
             folder_list = client.list_folders()
             return json.dumps(folder_list, indent=2)
