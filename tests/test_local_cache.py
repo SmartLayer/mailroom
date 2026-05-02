@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from mailroom.config import AccountConfig, ImapConfig, LocalCacheConfig
-from mailroom.local_cache import EligibilityResult, MuBackend, MuFailure
+from mailroom.local_cache import MuBackend, MuFailure
 from mailroom.query_parser import UntranslatableQuery
 
 

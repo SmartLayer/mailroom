@@ -3,13 +3,12 @@
 import argparse
 import logging
 import os
-
-from mailroom import __version__
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Dict, Optional
 
 from mcp.server.fastmcp import FastMCP
 
+from mailroom import __version__
 from mailroom.config import MultiAccountConfig, load_config
 from mailroom.imap_client import ImapClient
 from mailroom.local_cache import MuBackend
