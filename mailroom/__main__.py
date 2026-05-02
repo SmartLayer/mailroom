@@ -727,6 +727,32 @@ def _format_batch_oneline(batch: Dict[str, Dict[str, Any]]) -> str:
 # ---------------------------------------------------------------------------
 
 
+@app.command("config-check")
+def config_check() -> None:
+    """Validate the configuration file without invoking IMAP or SMTP.
+
+    Reports hard errors on invalid TOML or bad cross-references (typo'd
+    default_smtp, identity smtp referencing an undefined block, duplicate
+    addresses, etc.) and lists non-fatal warnings (send-disabled accounts,
+    shared credential-less SMTP on non-Gmail hosts, no smtp blocks).
+
+    Exit codes:
+        0  config is valid (warnings may still be present on stderr)
+        1  config is invalid (errors on stderr)
+    """
+    try:
+        _, warnings = load_config_with_warnings(_config_path)
+    except (ValueError, FileNotFoundError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1)
+    for w in warnings:
+        print(f"warn: {w}", file=sys.stderr)
+    path = _config_path or "~/.config/mailroom/config.toml"
+    print(f"config-check: OK ({path})")
+    if warnings:
+        print(f"  ({len(warnings)} warning(s) above)")
+
+
 @app.command("list-accounts")
 def list_accounts() -> None:
     """List configured email accounts."""
