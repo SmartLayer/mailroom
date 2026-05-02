@@ -580,10 +580,7 @@ def _perform_send(
     return {
         "status": "success",
         "identity": identity.address,
-        "message_id_local": send_result.message_id_local,
-        "message_id_sent": send_result.message_id_sent,
-        "smtp_response": send_result.smtp_response,
-        "accepted_recipients": send_result.accepted_recipients,
+        **send_result,
         "fcc_folder": fcc_folder,
         "fcc_uid": fcc_uid,
     }
