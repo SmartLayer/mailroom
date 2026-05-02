@@ -7,7 +7,6 @@ This file covers the new identity-aware CLI handlers and the --send / --from
 """
 
 import json
-from email.message import EmailMessage
 from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
