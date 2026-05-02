@@ -46,7 +46,7 @@ Do **not** report the release as done if any of the above is missing. Do not sto
 - One-line execution with dependencies: `uvx mailroom mcp`
 
 ## Code Style Guidelines
-- **Formatting gate**: CI runs `black --check` and will reject code that is not Black-formatted. After editing any Python file, run `uv run black <changed files>` before committing. This is not optional — CI will fail even if the code is functionally correct.
+- **CI gate**: the `Code Quality Checks` workflow runs `./scripts/run_checks.sh --ci --skip-integration`, which chains ruff, black, isort (black profile), mypy (non-blocking), and pytest with coverage. Before declaring a branch green, run that script locally; partial substitutes (just black, just pytest) miss real failures. Past incident: an inline import in `mailroom/__main__.py` was black-clean but isort-dirty, so a session that ran black + pytest only declared the branch ready, the merge to main turned CI red, and a follow-up commit was needed to fix it.
 - Use Black with 88 character line length
 - Imports: Use isort with Black profile
 - Types: All functions must have type hints (mypy enforces this)
