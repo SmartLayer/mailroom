@@ -772,6 +772,42 @@ class ImapClient:
                 "Valid: move, read, unread, flag, unflag, delete"
             )
 
+    def _get_sent_folder(self) -> str:
+        """Get the Sent-mail folder name for the current server.
+
+        Mirrors ``_get_drafts_folder``: prefers Gmail's special
+        ``[Gmail]/Sent Mail`` style when on Gmail, then walks a list of
+        commonly-used Sent folder names. Falls back to ``"Sent"`` so the
+        APPEND can still be attempted (and surface a clean IMAP error if
+        the server has no such folder), rather than silently dropping the
+        FCC.
+        """
+        self.ensure_connected()
+        folders = self.list_folders(refresh=True)
+
+        if self.config.host and "gmail" in self.config.host.lower():
+            gmail_sent = [f for f in folders if f.lower().endswith("/sent mail")]
+            if gmail_sent:
+                logger.debug(f"Using Gmail sent folder: {gmail_sent[0]}")
+                return gmail_sent[0]
+
+        sent_folder_names = [
+            "Sent",
+            "Sent Mail",
+            "Sent Items",
+            "Sent Messages",
+            "Envoyés",
+            "Enviados",
+            "Gesendet",
+        ]
+        for folder in folders:
+            if folder.lower() in [name.lower() for name in sent_folder_names]:
+                logger.debug(f"Using sent folder: {folder}")
+                return folder
+
+        logger.warning("No sent folder found, using 'Sent' as fallback")
+        return "Sent"
+
     def _get_drafts_folder(self) -> str:
         """Get the drafts folder name for the current server.
 
