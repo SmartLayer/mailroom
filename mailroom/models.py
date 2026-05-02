@@ -95,9 +95,17 @@ class EmailAddress:
         return cls(name="", address=address_str.strip())
 
     def __str__(self) -> str:
-        """Return string representation."""
+        """Return RFC 5322-compliant address.
+
+        Uses ``email.utils.formataddr`` so display names containing specials
+        (commas, parens, dots, etc.) are quoted and non-ASCII names are
+        MIME-encoded. Plain f-string formatting would emit
+        ``Smith, John <x@y>`` which an RFC 5322 parser splits at the
+        comma into two addresses; ``formataddr`` produces
+        ``"Smith, John" <x@y>``.
+        """
         if self.name:
-            return f"{self.name} <{self.address}>"
+            return email.utils.formataddr((self.name, self.address))
         return self.address
 
 

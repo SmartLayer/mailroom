@@ -48,6 +48,13 @@ class TestModels(unittest.TestCase):
         addr = EmailAddress("", "jane@example.com")
         self.assertEqual(str(addr), "jane@example.com")
 
+        # RFC 5322: display names with specials must be quoted on emit, or
+        # an address parser splits at the comma into two addresses.
+        addr = EmailAddress("Smith, John", "smith@example.com")
+        self.assertEqual(str(addr), '"Smith, John" <smith@example.com>')
+        addr = EmailAddress("Smith (work)", "smith@example.com")
+        self.assertEqual(str(addr), '"Smith (work)" <smith@example.com>')
+
     def test_email_from_message(self):
         """Test creating email from message."""
         # Create a multipart email

@@ -2,12 +2,32 @@
 
 import logging
 import os
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
+
+# Display-name characters mailroom refuses to accept on configured
+# identities. Two groups, both rejected at config-load time:
+#
+#   1. C0 control characters and DEL. Header-injection vector (LF/CR) and
+#      MIME-composition hazards (NUL).
+#   2. RFC 5322 specials that require quoting in a display-name:
+#      ``, ( ) < > [ ] : ; @ \ "``. ``email.utils.formataddr`` would quote
+#      these correctly on emit, but the failure mode when something
+#      downstream re-parses the header without honouring the quotes is
+#      severe: a comma in a display-name has been observed to reach an
+#      MTA as an address-list separator, splitting one address into two
+#      and triggering ``User name is missing`` at MAIL FROM. The cost of
+#      using a quote-free name is small; the risk of a quoted name
+#      surviving end to end across an unfamiliar mail path is not.
+#
+# Atext characters (alphanumeric, plus ``! # $ % & ' * + - / = ? ^ _ ` {
+# | } ~``), spaces, and dots remain acceptable.
+_INVALID_DISPLAY_NAME_RE = re.compile(r"[\x00-\x08\x0a-\x1f\x7f,()<>\[\]:;@\\\"]")
 
 logger = logging.getLogger(__name__)
 
@@ -318,6 +338,17 @@ class Identity:
         name = data.get("name", "")
         if not isinstance(name, str):
             raise ValueError(f"{where}: 'name' must be a string when present")
+        bad = _INVALID_DISPLAY_NAME_RE.search(name)
+        if bad is not None:
+            raise ValueError(
+                f"{where}: 'name' contains a character that requires RFC "
+                f"5322 quoting or that breaks MIME composition: "
+                f"{bad.group(0)!r}. Use a quote-free display name (no "
+                f"commas, parens, angle brackets, square brackets, "
+                f"colons, semicolons, at-signs, backslashes, or double "
+                f"quotes), or omit the 'name' field to send From the "
+                f"bare address."
+            )
         smtp = data.get("smtp")
         if smtp is not None and not isinstance(smtp, str):
             raise ValueError(

@@ -435,6 +435,34 @@ class TestIdentity:
         with pytest.raises(ValueError, match="missing or invalid 'address'"):
             Identity.from_dict("[where]", {"address": "not-an-email"})
 
+    def test_name_with_safe_chars_accepted(self):
+        # Atext, dots, and apostrophes compose cleanly in a From header
+        # without quoting; mailroom keeps these.
+        for name in ["Smith Jane", "Dr. Smith", "O'Brien", "Anne-Marie"]:
+            ident = Identity.from_dict("[where]", {"address": "x@y.com", "name": name})
+            assert ident.name == name
+
+    def test_name_with_quoting_specials_rejected(self):
+        # RFC 5322 specials require quoting; mailroom refuses rather than
+        # rely on every downstream parser honouring quoted display-names.
+        for bad in [
+            "Smith, Jane",
+            "Smith (work)",
+            "Sender; tag",
+            "Smith <fake@x.com>",
+            "user@host",
+            'Bob "Bobby" Smith',
+        ]:
+            with pytest.raises(ValueError, match="requires RFC 5322 quoting"):
+                Identity.from_dict("[where]", {"address": "x@y.com", "name": bad})
+
+    def test_name_with_control_chars_rejected(self):
+        for bad in ["foo\nbar", "foo\rbar", "foo\x00bar", "foo\x01bar", "foo\x7fbar"]:
+            with pytest.raises(
+                ValueError, match="requires RFC 5322 quoting|breaks MIME"
+            ):
+                Identity.from_dict("[where]", {"address": "x@y.com", "name": bad})
+
 
 class TestAccountIdentities:
     """AccountConfig with default_smtp and identities."""
