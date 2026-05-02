@@ -545,7 +545,7 @@ def _perform_send(
         The standard send-result JSON shape (status, identity, message_ids,
         smtp_response, accepted_recipients, fcc_folder, fcc_uid).
     """
-    from mailroom.identity import resolve_smtp_for_identity, SmtpUnresolved
+    from mailroom.identity import SmtpUnresolved, resolve_smtp_for_identity
     from mailroom.smtp_transport import send as smtp_send
 
     try:
