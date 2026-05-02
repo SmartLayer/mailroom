@@ -15,25 +15,26 @@ Give your script or AI assistant access to your email.
 - [CLI usage](#cli-usage)
 - [MCP server](#mcp-server)
 - [Scripting and automation](#scripting-and-automation)
-- [Multi-account](#multi-account)
+- [Multi-account and send-as](#multi-account-and-send-as)
 - [Local cache (mu)](#local-cache-mu)
 - [Connection handling](#connection-handling)
 - [Security](#security)
 - [License](#license)
 
-Mailroom connects to your existing mailbox — Gmail, Outlook, Fastmail, or any IMAP provider. It does not create new email addresses or route mail through a third-party service.
+Mailroom connects to your existing mailbox on Gmail, Outlook, Fastmail, or any IMAP provider. It does not create new email addresses or route mail through a third-party service.
 
-Commandline users, script authors and AI assistants can search, read, download, reply to, and organize email. Two interfaces serve different environments: a CLI that outputs JSON (for terminal-based agents, scripts, and automation) and an MCP server (for web-based AI chats and MCP clients). Both expose the same operations.
+Commandline users, script authors, and AI assistants can search, read, download, reply, send, and organize email. Two interfaces serve different environments: a CLI that outputs JSON (for terminal-based agents, scripts, and automation) and an MCP server (for web-based AI chats and MCP clients). Both expose the same operations.
 
 ## What your AI can do with it
 
 - Find a booking confirmation buried in your inbox
 - Download the PDF attachment from an invoice
 - Check all the links in a suspicious email
-- Draft a reply (with attachments) that lands in the right thread (CLI can also emit raw RFC 822 to stdout for piping into another tool)
+- Reply with attachments, in the right thread, saved to drafts or sent
+- Compose and send a new message as the right alias
 - Move, flag, or archive messages
 - Search across all folders at once
-- Handle a meeting invite — check availability, draft a response
+- Handle a meeting invite (check availability, draft a response)
 
 ## Installation
 
@@ -47,31 +48,39 @@ Copy the sample and fill in your credentials:
 cp examples/config.sample.toml ~/.config/mailroom/config.toml
 ```
 
-For Gmail with OAuth2:
+A minimal account uses a password or app-specific password, plus a named SMTP endpoint for outgoing mail:
 
 ```toml
-[imap]
+[smtp.gmail]
+host = "smtp.gmail.com"
+port = 587
+
+[accounts.personal]
 host = "imap.gmail.com"
 port = 993
-username = "your-email@gmail.com"
-use_ssl = true
+username = "you@gmail.com"
+password = "abcdefghijklmnop"
+default_smtp = "gmail"
+```
 
-[imap.oauth2]
+Gmail OAuth2 uses dedicated keys on the same account block:
+
+```toml
+[accounts.personal]
+host = "imap.gmail.com"
+port = 993
+username = "you@gmail.com"
 client_id = "YOUR_CLIENT_ID"
 client_secret = "YOUR_CLIENT_SECRET"
 refresh_token = "YOUR_REFRESH_TOKEN"
+default_smtp = "gmail"
 ```
 
-For other providers, use a password or app-specific password:
+`[smtp.NAME]` blocks declare named SMTP endpoints. When the block omits credentials, mailroom inherits them from the account in scope at send time, the right shape for Gmail and Fastmail where IMAP and SMTP share one credential. When the block carries its own `username` and `password`, mailroom uses those, the right shape for AWS SES and similar smarthosts where one IAM SMTP user serves many From addresses.
 
-```toml
-[imap]
-host = "imap.your-provider.com"
-port = 993
-username = "your-email@provider.com"
-use_ssl = true
-password = "YOUR_APP_PASSWORD"
-```
+Sending is optional. An account without an SMTP route is read-only for sending; that is a valid state, not an error. Drafting still works.
+
+`mailroom config-check` validates the config (cross-references, identity addresses, send-route resolution) without performing any IMAP or SMTP traffic. The same warnings surface on `mailroom`, `mailroom --help`, `mailroom status`, and `mailroom list-accounts`.
 
 Gmail OAuth2 setup requires a Google Cloud project with the Gmail API enabled. See [GMAIL_SETUP.md](docs/GMAIL_SETUP.md) for the full walkthrough.
 
@@ -83,7 +92,7 @@ With uv (any platform):
 uvx mailroom search "subject:invoice"
 ```
 
-No installation step — `uvx` runs it directly. To install permanently:
+No installation step; `uvx` runs it directly. To install permanently:
 
 ```bash
 uv tool install mailroom
@@ -93,16 +102,12 @@ On Ubuntu 25.04 or later, the CLI dependencies are in the standard repositories.
 
 ```bash
 sudo apt-get install python3-typer python3-dotenv python3-imapclient python3-requests
-```
-Then you can run it directly without uv
-
-```bash
 python3 -m mailroom search "subject:invoice"
 ```
 
 Mailroom looks for a config file at `~/.config/mailroom/config.toml`. Use `--config /path/to/config.toml` to point to a different location.
 
-The MCP server (`mailroom mcp`) requires the `mcp` Python package, which is not in apt. Use `uv` or `pip` for that. Manuy people prefer to use cli instead of mcp as the latter loads 80+ tools into every conversation, in that case no need to install mcp package.
+The MCP server (`mailroom mcp`) requires the `mcp` Python package, which is not in apt. Use `uv` or `pip` for that. Many users prefer the CLI to MCP because the latter loads 80+ tools into every conversation; the CLI is the lighter footprint.
 
 ## CLI usage
 
@@ -124,14 +129,21 @@ mailroom save -f INBOX -u 4523 -i itinerary.pdf -o /tmp/itinerary.pdf
 
 # Export an HTML email as a standalone file (images embedded)
 mailroom export -f INBOX -u 4523 -o /tmp/email.html
-mailroom export -f INBOX -u 4523 -o /tmp/email.eml --raw  # raw RFC 822 bytes; use -o - to stream
+mailroom export -f INBOX -u 4523 -o /tmp/email.eml --raw
 
-# Extract all links from several emails (useful for phishing checks)
+# Extract all links from several emails
 mailroom links -f INBOX -u 4523 -u 4524 -u 4525
 
-# Draft a threaded reply
+# Reply, saved to drafts by default; --send transmits via SMTP
 mailroom reply -f INBOX -u 4523 -b "Thanks, confirmed."
 mailroom reply -f INBOX -u 4523 -b "Invoice attached." --attach /tmp/invoice.pdf
+mailroom reply -f INBOX -u 4523 -b "Thanks, confirmed." --send
+
+# Compose a new message
+mailroom compose --to alice@example.com --subject "Meeting" -b "See attached." --send
+
+# Send a draft
+mailroom send-draft -f Drafts -u 4530
 
 # Organize
 mailroom move -f INBOX -u 4523 -t Archive
@@ -153,7 +165,7 @@ This starts an MCP server exposing the same operations as tools. The MCP package
 
 ## Scripting and automation
 
-Because every command returns JSON and uses non-zero exit codes on failure, Mailroom works as a building block in pipelines and cron jobs. A few patterns:
+Because every command returns JSON and uses non-zero exit codes on failure, Mailroom works as a building block in pipelines and cron jobs.
 
 ```bash
 # Forward all emails from a sender to another folder
@@ -164,28 +176,42 @@ mailroom search "from:sender@example.com" --folder INBOX \
 # Daily digest: save today's unread subjects to a file
 mailroom search "is:unread" --folder INBOX \
   | jq -r '.[].subject' > ~/daily-digest.txt
+
+# Auto-acknowledge incoming invoices
+mailroom search "is:unread subject:invoice" --folder INBOX \
+  | jq -r '.[].uid' \
+  | xargs -I{} mailroom reply -f INBOX -u {} -b "Received, processing." --send
 ```
 
-AI agents with skill/hook systems can call Mailroom the same way — define a skill that runs a shell command and parses the JSON output.
+AI agents with skill/hook systems call Mailroom the same way: define a skill that runs a shell command and parses the JSON output.
 
-## Multi-account
+## Multi-account and send-as
 
-A single config file can hold multiple accounts:
+A single config holds multiple accounts and SMTP endpoints:
 
 ```toml
 default_account = "personal"
 
+[smtp.gmail]
+host = "smtp.gmail.com"
+port = 587
+
+[smtp.ses-syd]
+host = "email-smtp.ap-southeast-2.amazonaws.com"
+port = 587
+username = "AKIA..."
+password = "BPa+..."
+
 [accounts.personal]
 host = "imap.gmail.com"
 username = "you@gmail.com"
-client_id = "YOUR_CLIENT_ID"
-client_secret = "YOUR_CLIENT_SECRET"
-refresh_token = "YOUR_REFRESH_TOKEN"
+password = "personal-app-password"
+default_smtp = "gmail"
 
 [accounts.work]
 host = "outlook.office365.com"
 username = "you@company.com"
-password = "YOUR_APP_PASSWORD"
+password = "work-app-password"
 ```
 
 Select an account with `-a`:
@@ -194,27 +220,54 @@ Select an account with `-a`:
 mailroom -a work search "is:unread"
 ```
 
+A single account can also send as several different addresses, useful when one Gmail mailbox handles personal mail and an organisational alias routed through SES:
+
+```toml
+[accounts.director]
+host = "imap.gmail.com"
+username = "alias-host@gmail.com"
+password = "gmail-app-password"
+default_smtp = "gmail"
+
+[[accounts.director.identities]]
+address = "director@example.org"
+name = "Director Name"
+smtp = "ses-syd"
+sent_folder = "[Gmail]/Sent Mail"
+
+[[accounts.director.identities]]
+address = "alias-host@gmail.com"
+```
+
+Pick the From identity at send time with `--from`:
+
+```bash
+mailroom -a director compose --to client@example.com --from director@example.org -b "..." --send
+```
+
+`mailroom reply` defaults to the identity that received the parent email, so a reply to alias X is sent as X. `mailroom send-draft` reads the From header on the draft and refuses to send if it does not match a configured identity, which prevents a script or AI from accidentally sending through the wrong route.
+
 ## Local cache (mu)
 
-If you already have your maildir indexed by [mu](https://www.djcbsoftware.nl/code/mu/), `search` can be served from the local Xapian index instead of IMAP — orders of magnitude faster. Opt in by adding a `[local_cache]` block plus a per-account `maildir`:
+If you already have your maildir indexed by [mu](https://www.djcbsoftware.nl/code/mu/), `search` can be served from the local Xapian index instead of IMAP, orders of magnitude faster. Opt in by adding a `[local_cache]` block plus a per-account `maildir`:
 
 ```toml
 [local_cache]
 indexer = "mu"
-max_staleness_seconds = 4000   # ~67 minutes; bypassed if older
+max_staleness_seconds = 4000
 
 [accounts.gmail]
 host = "imap.gmail.com"
 username = "you@gmail.com"
-maildir = "/var/local/mail/you-gmail-com"   # opts this account in
-# ... existing fields ...
+password = "..."
+maildir = "/var/local/mail/you-gmail-com"
 ```
 
-The contract is "a maildir exists and mu indexes it" — mailroom does not run `mbsync`, `offlineimap`, or `mu index`. When the index is stale, the query is untranslatable (`imap:` raw escape), the call is folder-scoped, mu is missing, or any error occurs, the search falls back to IMAP transparently. Every `search` response carries a `provenance` field reporting `source` (`"local"` or `"remote"`), the index `indexed_at` timestamp, and a `fell_back_reason` tag when applicable.
+The contract is "a maildir exists and mu indexes it"; mailroom does not run `mbsync`, `offlineimap`, or `mu index`. When the index is stale, the query is untranslatable, the call is folder-scoped, mu is missing, or any error occurs, the search falls back to IMAP transparently. Every `search` response carries a `provenance` field reporting `source` (`"local"` or `"remote"`), the index `indexed_at` timestamp, and a `fell_back_reason` tag when applicable.
 
 ## Connection handling
 
-IMAP servers drop idle connections after 10-30 minutes. AI assistants work in bursts — a flurry of operations, then thinking time. Mailroom tracks connection age and reconnects transparently before operations fail. The default idle timeout is 300 seconds; set `idle_timeout` in the config to adjust.
+IMAP servers drop idle connections after 10-30 minutes. AI assistants work in bursts: a flurry of operations, then thinking time. Mailroom tracks connection age and reconnects transparently before operations fail. The default idle timeout is 300 seconds; set `idle_timeout` in the config to adjust.
 
 ## Security
 
