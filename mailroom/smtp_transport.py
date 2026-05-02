@@ -16,9 +16,8 @@ the "FCC instead of BCC-self" capability discussed in the design.
 
 import re
 import smtplib
-from dataclasses import dataclass
 from email.parser import BytesParser
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from mailroom.config import SmtpConfig
 
@@ -30,30 +29,14 @@ from mailroom.config import SmtpConfig
 _SES_RESPONSE_RE = re.compile(rb"^\s*Ok\s+([0-9a-fA-F][0-9a-fA-F-]*)", re.IGNORECASE)
 
 
-@dataclass
-class SendResult:
-    """The outcome of one successful SMTP send.
-
-    Carries the information callers need to render the user-facing JSON
-    shape and to write log/audit records: the message-id we put on the wire,
-    the message-id the recipient will see (these differ for SES), the raw
-    server response (which carries the SES token verbatim), and the list of
-    addresses the server accepted at RCPT TO.
-
-    Attributes:
-        message_id_local: Message-ID header as written at send time.
-        message_id_sent: Message-ID the recipient sees. Equal to
-            ``message_id_local`` unless the SMTP block requested
-            ``rewrite_msgid_from_response`` and the server returned a
-            recognisable tracking token.
-        smtp_response: Decoded response after DATA, e.g. ``"Ok 0102019..."``.
-        accepted_recipients: Bare addresses the server accepted.
-    """
-
-    message_id_local: str
-    message_id_sent: str
-    smtp_response: str
-    accepted_recipients: List[str]
+# send() returns (fcc_bytes, result_dict) where result_dict has these keys:
+#   message_id_local      Message-ID header as written at send time.
+#   message_id_sent       Message-ID the recipient sees. Equal to
+#                         message_id_local unless the SMTP block requested
+#                         rewrite_msgid_from_response and the server returned
+#                         a recognisable tracking token (e.g. SES).
+#   smtp_response         Decoded response after DATA, e.g. "Ok 0102019...".
+#   accepted_recipients   Bare addresses the server accepted at RCPT TO.
 
 
 def _extract_addresses(mime: Any, header: str) -> List[str]:
@@ -144,7 +127,7 @@ def send(
     mime_msg: Any,
     smtp_cfg: SmtpConfig,
     transport: Optional[Callable[..., smtplib.SMTP]] = None,
-) -> Tuple[bytes, SendResult]:
+) -> Tuple[bytes, Dict[str, Any]]:
     """Transmit *mime_msg* via SMTP and capture the post-DATA server response.
 
     Args:
@@ -157,8 +140,9 @@ def send(
             otherwise. Tests inject a fake here.
 
     Returns:
-        ``(fcc_bytes, SendResult)``. ``fcc_bytes`` has Bcc stripped and
-        Message-ID rewritten if the SMTP block requested it; pass to
+        ``(fcc_bytes, result)`` where ``result`` is a dict with the keys
+        documented at the top of this module. ``fcc_bytes`` has Bcc stripped
+        and Message-ID rewritten if the SMTP block requested it; pass to
         ``ImapClient.append_raw`` for the FCC step.
 
     Raises:
@@ -218,9 +202,9 @@ def send(
     else:
         response_str = str(response)
 
-    return fcc_bytes, SendResult(
-        message_id_local=msgid,
-        message_id_sent=msgid_sent,
-        smtp_response=response_str,
-        accepted_recipients=accepted,
-    )
+    return fcc_bytes, {
+        "message_id_local": msgid,
+        "message_id_sent": msgid_sent,
+        "smtp_response": response_str,
+        "accepted_recipients": accepted,
+    }

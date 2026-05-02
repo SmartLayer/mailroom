@@ -23,7 +23,6 @@ from mailroom.config import (
     MultiAccountConfig,
     SmtpConfig,
 )
-from mailroom.smtp_transport import SendResult
 
 runner = CliRunner()
 
@@ -73,13 +72,13 @@ def _cfg_with_identities() -> MultiAccountConfig:
     )
 
 
-def _build_send_result() -> SendResult:
-    return SendResult(
-        message_id_local="<draft@local>",
-        message_id_sent="<draft@local>",
-        smtp_response="OK",
-        accepted_recipients=["recipient@y.com"],
-    )
+def _build_send_result() -> dict:
+    return {
+        "message_id_local": "<draft@local>",
+        "message_id_sent": "<draft@local>",
+        "smtp_response": "OK",
+        "accepted_recipients": ["recipient@y.com"],
+    }
 
 
 def _client_with_draft(from_addr: str = "alice@x.com") -> MagicMock:

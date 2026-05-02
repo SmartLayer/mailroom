@@ -136,7 +136,7 @@ class TestSendBccHandling:
 
         rcpts = [c[1] for c in captured[0].calls if c[0] == "rcpt"]
         assert "secret@hidden.com" in rcpts
-        assert "secret@hidden.com" in result.accepted_recipients
+        assert "secret@hidden.com" in result["accepted_recipients"]
         assert b"Bcc" not in fcc_bytes
         assert b"secret@hidden.com" not in fcc_bytes
 
@@ -178,8 +178,8 @@ class TestSesRewriteRoundTrip:
         )
         fcc, result = send(_build_msg(), ses, transport=_FakeSESSMTP)
         expected = f"<{SES_TOKEN}@email.amazonses.com>"
-        assert result.message_id_sent == expected
-        assert result.message_id_local == "<original@local>"
+        assert result["message_id_sent"] == expected
+        assert result["message_id_local"] == "<original@local>"
         assert expected.encode() in fcc
 
     def test_gmail_passthrough(self):
@@ -190,8 +190,8 @@ class TestSesRewriteRoundTrip:
             password="p",
         )
         fcc, result = send(_build_msg(), gmail, transport=_FakeGmailSMTP)
-        assert result.message_id_local == result.message_id_sent
-        assert result.message_id_sent == "<original@local>"
+        assert result["message_id_local"] == result["message_id_sent"]
+        assert result["message_id_sent"] == "<original@local>"
 
     def test_false_positive_guard(self):
         """Even if rewrite is wrongly enabled on a non-SES smarthost, the
@@ -205,7 +205,7 @@ class TestSesRewriteRoundTrip:
             rewrite_msgid_from_response=True,
         )
         fcc, result = send(_build_msg(), forced, transport=_FakeGmailSMTP)
-        assert result.message_id_sent == "<original@local>"
+        assert result["message_id_sent"] == "<original@local>"
 
 
 class TestSendValidation:
