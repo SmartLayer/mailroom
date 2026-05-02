@@ -38,9 +38,33 @@ except ImportError:
         return None
 
 
-from mailroom.config import ImapConfig, OAuth2Config
+from mailroom.config import AccountConfig, ImapConfig, MultiAccountConfig, OAuth2Config
 from mailroom.imap_client import ImapClient
 from mailroom.models import Email, EmailAddress, EmailContent
+
+
+def patch_default_cli_config(username: str = "me@example.com"):
+    """Return a context manager that patches load_config for compose/reply CLI tests.
+
+    The new CLI handlers call load_config to resolve identities; the legacy
+    compose/reply tests mock _make_client only and need a parallel cfg mock.
+    Use as ``with patch_default_cli_config(): ...``.
+    """
+    cfg = MultiAccountConfig(
+        accounts={
+            "default": AccountConfig(
+                imap=ImapConfig(
+                    host="imap.example.com",
+                    port=993,
+                    username=username,
+                    password="x",
+                )
+            )
+        },
+        _default_account="default",
+    )
+    return patch("mailroom.__main__.load_config", return_value=cfg)
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

@@ -10,6 +10,7 @@ from mcp.server.fastmcp import Context, FastMCP
 
 from mailroom.models import Email, EmailAddress, EmailContent
 from mailroom.tools import register_tools
+from tests.conftest import patch_default_cli_config
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -243,7 +244,10 @@ class TestDraftReplyCLI:
 
         runner = CliRunner()
 
-        with patch("mailroom.__main__._make_client", return_value=mock_client):
+        with (
+            patch("mailroom.__main__._make_client", return_value=mock_client),
+            patch_default_cli_config(),
+        ):
             with patch("mailroom.smtp_client.create_mime") as mock_create:
                 mock_create.return_value = MagicMock()
                 result = runner.invoke(
@@ -280,7 +284,10 @@ class TestDraftReplyCLI:
         mime_msg.set_content("Hello")
         mime_msg["Subject"] = "Re: Test"
 
-        with patch("mailroom.__main__._make_client", return_value=mock_client):
+        with (
+            patch("mailroom.__main__._make_client", return_value=mock_client),
+            patch_default_cli_config(),
+        ):
             with patch("mailroom.smtp_client.create_mime", return_value=mime_msg):
                 result = runner.invoke(
                     app,
@@ -317,7 +324,10 @@ class TestDraftReplyCLI:
         mime_msg.set_content("Stdout body")
         mime_msg["Subject"] = "Re: Stdout"
 
-        with patch("mailroom.__main__._make_client", return_value=mock_client):
+        with (
+            patch("mailroom.__main__._make_client", return_value=mock_client),
+            patch_default_cli_config(),
+        ):
             with patch("mailroom.smtp_client.create_mime", return_value=mime_msg):
                 result = runner.invoke(
                     app,
@@ -348,7 +358,10 @@ class TestDraftReplyCLI:
         runner = CliRunner()
         out_path = str(tmp_path / "reply_bcc.eml")
 
-        with patch("mailroom.__main__._make_client", return_value=mock_client):
+        with (
+            patch("mailroom.__main__._make_client", return_value=mock_client),
+            patch_default_cli_config(),
+        ):
             result = runner.invoke(
                 app,
                 [
@@ -381,7 +394,10 @@ class TestDraftReplyCLI:
         client = MagicMock()
         client.fetch_email.return_value = None
 
-        with patch("mailroom.__main__._make_client", return_value=client):
+        with (
+            patch("mailroom.__main__._make_client", return_value=client),
+            patch_default_cli_config(),
+        ):
             result = runner.invoke(
                 app,
                 [
@@ -409,7 +425,10 @@ class TestDraftReplyCLI:
         f = tmp_path / "file.txt"
         f.write_text("x")
 
-        with patch("mailroom.__main__._make_client", return_value=mock_client):
+        with (
+            patch("mailroom.__main__._make_client", return_value=mock_client),
+            patch_default_cli_config(),
+        ):
             with patch("mailroom.smtp_client.create_mime") as mock_create:
                 mock_create.return_value = MagicMock()
                 result = runner.invoke(
@@ -444,7 +463,10 @@ class TestDraftReplyCLI:
         f = tmp_path / "doc.txt"
         f.write_text("hello")
 
-        with patch("mailroom.__main__._make_client", return_value=mock_client):
+        with (
+            patch("mailroom.__main__._make_client", return_value=mock_client),
+            patch_default_cli_config(),
+        ):
             result = runner.invoke(
                 app,
                 [

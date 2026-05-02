@@ -16,7 +16,13 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 import typer
 
 from mailroom import __version__
-from mailroom.config import MultiAccountConfig, load_config
+from mailroom.config import (
+    AccountConfig,
+    MultiAccountConfig,
+    SmtpConfig,
+    load_config,
+    load_config_with_warnings,
+)
 from mailroom.imap_client import ImapClient
 from mailroom.models import extract_links_batch
 
@@ -502,6 +508,133 @@ def _email_only(s: str) -> str:
     return s
 
 
+def _load_cfg_or_exit() -> MultiAccountConfig:
+    """Load config or exit 1 with the usual error formatting."""
+    try:
+        return load_config(_config_path)
+    except (ValueError, FileNotFoundError, Exception) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+
+
+def _perform_send(
+    client: ImapClient,
+    mime_message: Any,
+    account: AccountConfig,
+    account_name: str,
+    smtp_blocks: Dict[str, SmtpConfig],
+    identity: Any,
+    save_sent_override: Optional[bool],
+    sent_folder_override: Optional[str],
+) -> Dict[str, Any]:
+    """Resolve SMTP, transmit, and FCC. Used by compose/reply --send and send-draft.
+
+    Args:
+        client: Connected ImapClient (used for FCC and folder discovery).
+        mime_message: Built MIME message ready to serialise.
+        account: Selected account's config.
+        account_name: Name of the selected account (for error messages).
+        smtp_blocks: Top-level ``[smtp.*]`` map from the loaded config.
+        identity: Resolved ``Identity`` driving From, SMTP route, sent_folder.
+        save_sent_override: When set, overrides the SMTP block's
+            ``save_sent`` resolution. None means "use the configured default".
+        sent_folder_override: When set, overrides the identity's sent_folder
+            (and the auto-discovered Sent folder). None means default.
+
+    Returns:
+        The standard send-result JSON shape (status, identity, message_ids,
+        smtp_response, accepted_recipients, fcc_folder, fcc_uid).
+    """
+    from mailroom.identity import resolve_smtp_for_identity, SmtpUnresolved
+    from mailroom.smtp_transport import send as smtp_send
+
+    try:
+        smtp = resolve_smtp_for_identity(identity, account, account_name, smtp_blocks)
+    except SmtpUnresolved as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+
+    try:
+        fcc_bytes, send_result = smtp_send(mime_message, smtp)
+    except Exception as exc:
+        typer.echo(f"Error: SMTP send failed: {exc}", err=True)
+        raise typer.Exit(1)
+
+    do_fcc = (
+        save_sent_override
+        if save_sent_override is not None
+        else smtp.resolve_save_sent()
+    )
+    fcc_folder: Optional[str] = None
+    fcc_uid: Optional[int] = None
+    if do_fcc:
+        target = (
+            sent_folder_override or identity.sent_folder or client._get_sent_folder()
+        )
+        fcc_folder = target
+        try:
+            fcc_uid = client.append_raw(target, fcc_bytes, flags=(r"\Seen",))
+        except Exception as exc:
+            typer.echo(f"warning: FCC to {target} failed: {exc}", err=True)
+
+    return {
+        "status": "success",
+        "identity": identity.address,
+        "message_id_local": send_result.message_id_local,
+        "message_id_sent": send_result.message_id_sent,
+        "smtp_response": send_result.smtp_response,
+        "accepted_recipients": send_result.accepted_recipients,
+        "fcc_folder": fcc_folder,
+        "fcc_uid": fcc_uid,
+    }
+
+
+def _print_eager_warnings_if_relevant() -> None:
+    """Print config warnings to stderr when user is 'checking in' on mailroom.
+
+    Detects no-args, ``--help``, or ``-h`` in argv (after stripping known
+    global options like ``--config``/``--account``). Surfaces warnings before
+    typer takes over so the user sees them above the help text.
+
+    Safe-fails: any error in load (missing config, bad TOML) is swallowed
+    here; the user will see the actual error from typer's normal flow if
+    they then run a real command.
+    """
+    args = sys.argv[1:]
+    globals_with_value = {"--config", "-c", "--account", "-a"}
+
+    config_path: Optional[str] = None
+    first_real: Optional[str] = None
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok == "--":
+            break
+        if tok in globals_with_value and i + 1 < len(args):
+            if tok in ("--config", "-c"):
+                config_path = args[i + 1]
+            i += 2
+            continue
+        if "=" in tok and tok.split("=", 1)[0] in globals_with_value:
+            if tok.startswith("--config="):
+                config_path = tok.split("=", 1)[1]
+            i += 1
+            continue
+        first_real = tok
+        break
+
+    is_help_or_noargs = first_real is None or first_real in ("--help", "-h")
+    if not is_help_or_noargs:
+        return
+
+    try:
+        _, warnings = load_config_with_warnings(config_path)
+    except Exception:
+        return
+    for w in warnings:
+        print(f"warn: {w}", file=sys.stderr)
+
+
 def _empty_search_result() -> Dict[str, Any]:
     """Return the wrapped result shape for an account that returned nothing.
 
@@ -597,11 +730,7 @@ def _format_batch_oneline(batch: Dict[str, Dict[str, Any]]) -> str:
 @app.command("list-accounts")
 def list_accounts() -> None:
     """List configured email accounts."""
-    try:
-        cfg = load_config(_config_path)
-    except (ValueError, FileNotFoundError, Exception) as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(1)
+    cfg = _load_cfg_or_exit()
     accounts = []
     for name, acct in cfg.accounts.items():
         accounts.append(
@@ -613,6 +742,8 @@ def list_accounts() -> None:
             }
         )
     _out(accounts)
+    for w in cfg.warnings:
+        print(f"warn: {w}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -623,17 +754,14 @@ def list_accounts() -> None:
 @app.command("status")
 def status() -> None:
     """Show IMAP server status and configuration."""
-    try:
-        cfg = load_config(_config_path)
-    except (ValueError, FileNotFoundError, Exception) as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(1)
+    cfg = _load_cfg_or_exit()
     accounts_map: Dict[str, Any] = {}
     status_data: Dict[str, Any] = {
         "server": "Mailroom",
         "version": __version__,
         "default_account": cfg.default_account,
         "accounts": accounts_map,
+        "smtp_blocks": sorted(cfg.smtp_blocks),
     }
     for name, acct in cfg.accounts.items():
         status_data["accounts"][name] = {
@@ -641,11 +769,17 @@ def status() -> None:
             "imap_port": acct.imap.port,
             "imap_user": acct.imap.username,
             "imap_ssl": acct.imap.use_ssl,
+            "default_smtp": acct.default_smtp,
+            "identities": (
+                [i.address for i in acct.identities] if acct.identities else None
+            ),
             "allowed_folders": (
                 list(acct.allowed_folders) if acct.allowed_folders else "all"
             ),
         }
     _out(status_data)
+    for w in cfg.warnings:
+        print(f"warn: {w}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -1295,50 +1429,103 @@ def compose(
         "-o",
         help="Output path for raw RFC 822 message. Use '-' for stdout (suitable for piping).",
     ),
+    send_flag: bool = typer.Option(
+        False,
+        "--send",
+        help="Transmit via SMTP instead of saving as a draft. Mutually exclusive with --output.",
+    ),
+    from_email: Optional[str] = typer.Option(
+        None,
+        "--from",
+        help="Identity address to send as. Defaults to the account's first identity.",
+    ),
+    save_sent: Optional[bool] = typer.Option(
+        None,
+        "--save-sent/--no-save-sent",
+        help="Override the SMTP block's save_sent default for this send.",
+    ),
+    sent_folder: Optional[str] = typer.Option(
+        None,
+        "--sent-folder",
+        help="Override the identity's sent_folder for the FCC step.",
+    ),
 ) -> None:
     """Compose a new email.
 
-    By default, saves the draft to the IMAP drafts folder.
-    With -o, writes the raw RFC 822 message to a file or stdout instead.
+    Default: saves to the IMAP drafts folder.
+    --output: writes raw RFC 822 to a file or stdout.
+    --send: transmits via SMTP (resolved per identity), then optionally FCCs
+    to Sent.
     """
+    import email.utils
+
+    from mailroom.identity import IdentityNotFound, resolve_identity_for_send
     from mailroom.models import EmailAddress
-    from mailroom.smtp_client import compose_and_save_draft, create_mime
+    from mailroom.smtp_client import create_mime
+
+    if send_flag and output is not None:
+        typer.echo("Error: --send and --output are mutually exclusive", err=True)
+        raise typer.Exit(2)
+
+    cfg = _load_cfg_or_exit()
+    name = _resolve_single_account_name()
+    account = cfg.accounts[name]
+
+    try:
+        identity = resolve_identity_for_send(account, from_addr=from_email)
+    except IdentityNotFound as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
 
     client = _make_client()
     try:
-        if output is not None:
-            from_addr = EmailAddress(name="", address=client.config.username)
-            to_addrs = [EmailAddress.parse(a) for a in to]
-            cc_addrs = [EmailAddress.parse(a) for a in cc] if cc else None
-            bcc_addrs = [EmailAddress.parse(a) for a in bcc] if bcc else None
+        from_addr = EmailAddress(name=identity.name, address=identity.address)
+        to_addrs = [EmailAddress.parse(a) for a in to]
+        cc_addrs = [EmailAddress.parse(a) for a in cc] if cc else None
+        bcc_addrs = [EmailAddress.parse(a) for a in bcc] if bcc else None
 
-            mime_message = create_mime(
-                from_addr=from_addr,
-                body=body,
-                to=to_addrs,
-                subject=subject,
-                cc=cc_addrs,
-                bcc=bcc_addrs,
-                html_body=body_html,
-                attachments=attach,
+        mime_message = create_mime(
+            from_addr=from_addr,
+            body=body,
+            to=to_addrs,
+            subject=subject,
+            cc=cc_addrs,
+            bcc=bcc_addrs,
+            html_body=body_html,
+            attachments=attach,
+        )
+        if not mime_message.get("Message-ID"):
+            mime_message["Message-ID"] = email.utils.make_msgid()
+
+        if send_flag:
+            _out(
+                _perform_send(
+                    client,
+                    mime_message,
+                    account,
+                    name,
+                    cfg.smtp_blocks,
+                    identity,
+                    save_sent,
+                    sent_folder,
+                )
             )
+        elif output is not None:
             _write_raw_output(mime_message, output)
         else:
-            result = compose_and_save_draft(
-                client,
-                to,
-                subject,
-                body,
-                cc=cc,
-                bcc=bcc,
-                body_html=body_html,
-                attachments=attach,
-            )
-            if result["status"] == "success":
-                _out(result)
-            else:
-                typer.echo(result.get("message", "Failed to save draft"), err=True)
+            draft_uid = client.save_draft_mime(mime_message)
+            if draft_uid is None:
+                typer.echo("Failed to save draft", err=True)
                 raise typer.Exit(1)
+            _out(
+                {
+                    "status": "success",
+                    "message": "Draft saved",
+                    "identity": identity.address,
+                    "draft_uid": draft_uid,
+                    "draft_folder": client._get_drafts_folder(),
+                }
+            )
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1)
@@ -1381,59 +1568,261 @@ def reply(
         "-o",
         help="Output path for raw RFC 822 message. Use '-' for stdout (suitable for piping).",
     ),
+    send_flag: bool = typer.Option(
+        False,
+        "--send",
+        help="Transmit via SMTP instead of saving as a draft. Mutually exclusive with --output.",
+    ),
+    from_email: Optional[str] = typer.Option(
+        None,
+        "--from",
+        help="Identity address to reply as. Defaults to whichever identity matches the parent's recipients.",
+    ),
+    save_sent: Optional[bool] = typer.Option(
+        None,
+        "--save-sent/--no-save-sent",
+        help="Override the SMTP block's save_sent default for this send.",
+    ),
+    sent_folder: Optional[str] = typer.Option(
+        None,
+        "--sent-folder",
+        help="Override the identity's sent_folder for the FCC step.",
+    ),
 ) -> None:
-    """Draft a reply to an email.
+    """Draft or send a reply to an email.
 
-    By default, saves the draft to the IMAP drafts folder.
-    With -o, writes the raw RFC 822 message to a file or stdout.
+    Default: saves to drafts.
+    --output: writes raw RFC 822.
+    --send: transmits via SMTP and FCCs to Sent.
+    Reply identity defaults to whichever account identity matches the
+    parent's recipients (so a reply to alias X is sent as alias X).
     """
+    import email.utils
+
+    from mailroom.identity import (
+        IdentityNotFound,
+        resolve_identity_for_reply,
+        resolve_identity_for_send,
+    )
+    from mailroom.models import EmailAddress
+    from mailroom.smtp_client import create_mime
+
+    if send_flag and output is not None:
+        typer.echo("Error: --send and --output are mutually exclusive", err=True)
+        raise typer.Exit(2)
+
+    cfg = _load_cfg_or_exit()
+    name = _resolve_single_account_name()
+    account = cfg.accounts[name]
+
     client = _make_client()
     try:
-        if output is not None:
-            # --output path: build MIME locally and write raw bytes
-            from mailroom.models import EmailAddress
-            from mailroom.smtp_client import _find_reply_from_address, create_mime
+        email_obj = client.fetch_email(uid, folder)
+        if not email_obj:
+            typer.echo(f"Email UID {uid} not found in {folder}", err=True)
+            raise typer.Exit(1)
 
-            email_obj = client.fetch_email(uid, folder)
-            if not email_obj:
-                typer.echo(f"Email UID {uid} not found in {folder}", err=True)
-                raise typer.Exit(1)
+        try:
+            if from_email is not None:
+                identity = resolve_identity_for_send(account, from_addr=from_email)
+            else:
+                identity = resolve_identity_for_reply(email_obj, account)
+        except IdentityNotFound as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1)
 
-            reply_from = _find_reply_from_address(email_obj, client.config.username)
-            cc_addresses = [EmailAddress.parse(addr) for addr in cc] if cc else None
-            bcc_addresses = [EmailAddress.parse(addr) for addr in bcc] if bcc else None
+        from_addr = EmailAddress(name=identity.name, address=identity.address)
+        cc_addresses = [EmailAddress.parse(addr) for addr in cc] if cc else None
+        bcc_addresses = [EmailAddress.parse(addr) for addr in bcc] if bcc else None
 
-            mime_message = create_mime(
-                original_email=email_obj,
-                from_addr=reply_from,
-                body=body,
-                reply_all=reply_all,
-                cc=cc_addresses,
-                bcc=bcc_addresses,
-                html_body=body_html,
-                attachments=attach,
+        mime_message = create_mime(
+            original_email=email_obj,
+            from_addr=from_addr,
+            body=body,
+            reply_all=reply_all,
+            cc=cc_addresses,
+            bcc=bcc_addresses,
+            html_body=body_html,
+            attachments=attach,
+        )
+        if not mime_message.get("Message-ID"):
+            mime_message["Message-ID"] = email.utils.make_msgid()
+
+        if send_flag:
+            _out(
+                _perform_send(
+                    client,
+                    mime_message,
+                    account,
+                    name,
+                    cfg.smtp_blocks,
+                    identity,
+                    save_sent,
+                    sent_folder,
+                )
             )
+        elif output is not None:
             _write_raw_output(mime_message, output)
         else:
-            # Default path: save as draft via domain function
-            from mailroom.smtp_client import compose_and_save_reply_draft
-
-            result = compose_and_save_reply_draft(
-                client,
-                folder,
-                uid,
-                body,
-                reply_all=reply_all,
-                cc=cc,
-                bcc=bcc,
-                body_html=body_html,
-                attachments=attach,
-            )
-            if result["status"] == "success":
-                _out(result)
-            else:
-                typer.echo(result.get("message", "Failed to save draft"), err=True)
+            draft_uid = client.save_draft_mime(mime_message)
+            if draft_uid is None:
+                typer.echo("Failed to save reply draft", err=True)
                 raise typer.Exit(1)
+            _out(
+                {
+                    "status": "success",
+                    "message": "Draft reply saved",
+                    "identity": identity.address,
+                    "draft_uid": draft_uid,
+                    "draft_folder": client._get_drafts_folder(),
+                }
+            )
+    finally:
+        client.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# send-draft
+# ---------------------------------------------------------------------------
+
+
+@app.command("send-draft")
+def send_draft(
+    folder: str = typer.Option(
+        ..., "--folder", "-f", help="Folder containing the draft."
+    ),
+    uid: int = typer.Option(..., "--uid", "-u", help="Draft UID to send."),
+    keep_draft: bool = typer.Option(
+        False,
+        "--keep-draft",
+        help="Leave the draft in place after sending. Default deletes it.",
+    ),
+    save_sent: Optional[bool] = typer.Option(
+        None,
+        "--save-sent/--no-save-sent",
+        help="Override the SMTP block's save_sent default for this send.",
+    ),
+    sent_folder: Optional[str] = typer.Option(
+        None,
+        "--sent-folder",
+        help="Override the identity's sent_folder for the FCC step.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Connect to SMTP and authenticate, but stop before MAIL FROM. Useful for validating creds.",
+    ),
+    bcc: Optional[List[str]] = typer.Option(
+        None,
+        "--bcc",
+        help="Add envelope-time BCC recipients without rewriting the draft body.",
+    ),
+) -> None:
+    """Send an existing draft as-is.
+
+    The draft's From header is parsed and matched against the selected
+    account's identities. An unknown From is a hard error (no silent
+    fallback) so that an AI accidentally drafting from the wrong identity
+    cannot send through the wrong SMTP route.
+
+    On success the draft is deleted from the source folder unless
+    --keep-draft is set, and the message is FCC'd to Sent unless
+    --no-save-sent or the SMTP block's save_sent resolution says otherwise.
+    """
+    from email.parser import BytesParser
+
+    from mailroom.identity import (
+        IdentityNotFound,
+        SmtpUnresolved,
+        resolve_identity_for_send,
+        resolve_smtp_for_identity,
+    )
+    from mailroom.smtp_transport import _pick_default_transport
+
+    cfg = _load_cfg_or_exit()
+    name = _resolve_single_account_name()
+    account = cfg.accounts[name]
+
+    client = _make_client()
+    try:
+        fetched = client.fetch_raw(uid, folder)
+        if not fetched:
+            typer.echo(f"Error: draft UID {uid} not found in {folder}", err=True)
+            raise typer.Exit(1)
+
+        msg = BytesParser().parsebytes(fetched["raw"])
+
+        from_raw = str(msg.get("From", "") or "").strip()
+        from_addr_only = from_raw
+        if "<" in from_raw and ">" in from_raw:
+            from_addr_only = from_raw.split("<", 1)[1].rsplit(">", 1)[0].strip()
+        if not from_addr_only:
+            typer.echo("Error: draft has no From header", err=True)
+            raise typer.Exit(1)
+
+        try:
+            identity = resolve_identity_for_send(account, from_addr=from_addr_only)
+        except IdentityNotFound as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1)
+
+        try:
+            smtp = resolve_smtp_for_identity(identity, account, name, cfg.smtp_blocks)
+        except SmtpUnresolved as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1)
+
+        if bcc:
+            existing = str(msg.get("Bcc", "") or "").strip()
+            merged = ", ".join([existing] + list(bcc)) if existing else ", ".join(bcc)
+            if "Bcc" in msg:
+                del msg["Bcc"]
+            msg["Bcc"] = merged
+
+        if dry_run:
+            factory = _pick_default_transport(smtp.port)
+            try:
+                conn = factory(smtp.host, smtp.port)
+                conn.ehlo()
+                if smtp.port in (587, 2587):
+                    conn.starttls()
+                    conn.ehlo()
+                if smtp.username and smtp.password:
+                    conn.login(smtp.username, smtp.password)
+                conn.quit()
+            except Exception as exc:
+                typer.echo(f"Error: dry-run failed: {exc}", err=True)
+                raise typer.Exit(1)
+            _out(
+                {
+                    "dry_run": True,
+                    "identity": identity.address,
+                    "smtp": {"host": smtp.host, "port": smtp.port},
+                }
+            )
+            return
+
+        result = _perform_send(
+            client,
+            msg,
+            account,
+            name,
+            cfg.smtp_blocks,
+            identity,
+            save_sent,
+            sent_folder,
+        )
+
+        draft_removed = False
+        if not keep_draft:
+            try:
+                client.delete_email(uid, folder)
+                draft_removed = True
+            except Exception as exc:
+                typer.echo(f"warning: draft delete failed: {exc}", err=True)
+
+        result["draft_removed"] = draft_removed
+        _out(result)
     finally:
         client.disconnect()
 
@@ -1570,6 +1959,7 @@ def _rewrite_argv(argv: List[str]) -> List[str]:
 
 def main() -> None:
     sys.argv[1:] = _rewrite_argv(sys.argv[1:])
+    _print_eager_warnings_if_relevant()
     app()
 
 

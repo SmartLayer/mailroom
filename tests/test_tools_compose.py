@@ -12,6 +12,7 @@ from mailroom.smtp_client import (
     create_mime,
 )
 from mailroom.tools import register_tools
+from tests.conftest import patch_default_cli_config
 
 
 @pytest.fixture
@@ -215,7 +216,10 @@ class TestComposeCLI:
 
         runner = CliRunner()
 
-        with patch("mailroom.__main__._make_client", return_value=mock_client):
+        with (
+            patch("mailroom.__main__._make_client", return_value=mock_client),
+            patch_default_cli_config(),
+        ):
             result = runner.invoke(
                 app,
                 [
@@ -243,7 +247,10 @@ class TestComposeCLI:
 
         runner = CliRunner()
 
-        with patch("mailroom.__main__._make_client", return_value=mock_client):
+        with (
+            patch("mailroom.__main__._make_client", return_value=mock_client),
+            patch_default_cli_config(),
+        ):
             result = runner.invoke(
                 app,
                 [
@@ -275,7 +282,10 @@ class TestComposeCLI:
         attach_path = tmp_path / "doc.txt"
         attach_path.write_text("payload")
 
-        with patch("mailroom.__main__._make_client", return_value=mock_client):
+        with (
+            patch("mailroom.__main__._make_client", return_value=mock_client),
+            patch_default_cli_config(),
+        ):
             result = runner.invoke(
                 app,
                 [
@@ -307,7 +317,10 @@ class TestComposeCLI:
 
         runner = CliRunner()
 
-        with patch("mailroom.__main__._make_client", return_value=mock_client):
+        with (
+            patch("mailroom.__main__._make_client", return_value=mock_client),
+            patch_default_cli_config(),
+        ):
             result = runner.invoke(
                 app,
                 [
