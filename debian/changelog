@@ -1,3 +1,27 @@
+mailroom (1.1.2) unstable; urgency=medium
+
+  * compose/reply/send-draft --send now require an explicit route. Either
+    --identity NAME (mode A: resolves From, display name, IMAP block,
+    SMTP, sent_folder from a configured [identity.NAME]), or
+    --smtp NAME --from EMAIL (mode B: sends a free-form From through a
+    named SMTP block without consulting [identity.*]). Closes the
+    silent-default hazard from #25 where omitting the route would pick
+    the first identity on the resolved [imap.NAME] block.
+  * Mode B accepts optional --name (validated against the same rules as
+    [identity.*] name) and --fcc IMAP_NAME:FOLDER (appends a copy on
+    success; without --fcc no copy is saved). The SMTP block must carry
+    its own username/password in mode B, since no [imap.*] is in scope
+    for credential inheritance.
+  * reply --send: when neither flag is given, mailroom matches the
+    parent's recipients against identities; if no recipient matches, the
+    command errors rather than silently picking identities[0]. Drafting
+    keeps the previous fallback behaviour.
+  * Drafting (no --send) is unchanged: --imap selects the block, the
+    block's first identity is the From by default, --from selects a
+    different identity by address.
+
+ -- Weiwu Zhang <a@colourful.land>  Sun, 03 May 2026 00:00:00 +0000
+
 mailroom (1.1.1) unstable; urgency=medium
 
   * SMTP send capability: --send flag on compose and reply transmits via
