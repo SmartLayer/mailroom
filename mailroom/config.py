@@ -43,6 +43,47 @@ from dotenv import load_dotenv
 # | } ~``), spaces, and dots remain acceptable.
 _INVALID_DISPLAY_NAME_RE = re.compile(r"[\x00-\x08\x0a-\x1f\x7f,()<>\[\]:;@\\\"]")
 
+
+def validate_display_name(name: str, where: str) -> None:
+    """Reject display names containing characters mailroom won't carry.
+
+    The same check is applied at config-load time on ``[identity.NAME]``
+    blocks and at CLI-parse time on ``compose --send --smtp ... --name``.
+    Centralising it here keeps the rejection set and the error message
+    in one place; see the comment near ``_INVALID_DISPLAY_NAME_RE`` for
+    the rationale.
+
+    Args:
+        name: Candidate display name.
+        where: Caller-supplied prefix (e.g. ``[identity.alice]`` or
+            ``--name``) used to anchor the error message.
+
+    Raises:
+        ValueError: If the name contains a forbidden character.
+    """
+    bad = _INVALID_DISPLAY_NAME_RE.search(name)
+    if bad is not None:
+        raise ValueError(
+            f"{where}: 'name' contains a character that requires RFC "
+            f"5322 quoting or that breaks MIME composition: "
+            f"{bad.group(0)!r}. Use a quote-free display name (no "
+            f"commas, parens, angle brackets, square brackets, "
+            f"colons, semicolons, at-signs, backslashes, or double "
+            f"quotes), or omit the 'name' field to send From the "
+            f"bare address."
+        )
+
+
+def smtp_has_own_creds(smtp: "SmtpConfig") -> bool:
+    """Return True when the SMTP block carries its own username and password.
+
+    Used to gate operations that have no IMAP block in scope (the
+    ``--send --smtp NAME --from EMAIL`` form), where credential
+    inheritance has nothing to inherit from.
+    """
+    return bool(smtp.username) and bool(smtp.password)
+
+
 logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file if it exists
@@ -272,17 +313,7 @@ class Identity:
         name = data.get("name", "")
         if not isinstance(name, str):
             raise ValueError(f"{where}: 'name' must be a string when present")
-        bad = _INVALID_DISPLAY_NAME_RE.search(name)
-        if bad is not None:
-            raise ValueError(
-                f"{where}: 'name' contains a character that requires RFC "
-                f"5322 quoting or that breaks MIME composition: "
-                f"{bad.group(0)!r}. Use a quote-free display name (no "
-                f"commas, parens, angle brackets, square brackets, "
-                f"colons, semicolons, at-signs, backslashes, or double "
-                f"quotes), or omit the 'name' field to send From the "
-                f"bare address."
-            )
+        validate_display_name(name, where)
         smtp = data.get("smtp")
         if smtp is not None and not isinstance(smtp, str):
             raise ValueError(
@@ -587,8 +618,7 @@ def _collect_warnings(cfg: MailroomConfig) -> List[str]:
             refs[ident.smtp].add(ident.imap)
     for smtp_name, blocks in refs.items():
         smtp = cfg.smtp_blocks[smtp_name]
-        has_creds = bool(smtp.username) and bool(smtp.password)
-        if has_creds or len(blocks) <= 1:
+        if smtp_has_own_creds(smtp) or len(blocks) <= 1:
             continue
         if smtp.host in _INHERITANCE_SAFE_SMTP_HOSTS:
             continue

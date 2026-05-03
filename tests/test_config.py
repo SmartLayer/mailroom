@@ -487,6 +487,52 @@ class TestIdentity:
                 )
 
 
+class TestValidateDisplayName:
+    """Direct tests for the standalone display-name validator.
+
+    The same function is exercised end-to-end through ``Identity.from_dict``
+    in TestIdentity above; these cases pin the contract of the helper as
+    used by the CLI's ``--name`` flag in mode B.
+    """
+
+    def test_accepts_quote_free_name(self):
+        from mailroom.config import validate_display_name
+
+        for name in ["Smith Jane", "O'Brien", "Anne-Marie", "Dr. Smith", ""]:
+            validate_display_name(name, "--name")
+
+    def test_rejects_each_forbidden_class(self):
+        from mailroom.config import validate_display_name
+
+        for bad in ["a, b", "a (b)", "a@b", 'a "b"', "a\nb", "a\rb", "a\x00b"]:
+            with pytest.raises(
+                ValueError, match="requires RFC 5322 quoting|breaks MIME"
+            ):
+                validate_display_name(bad, "--name")
+
+    def test_error_message_carries_caller_prefix(self):
+        from mailroom.config import validate_display_name
+
+        with pytest.raises(ValueError, match=r"\[identity\.alice\]"):
+            validate_display_name("Bad, Name", "[identity.alice]")
+        with pytest.raises(ValueError, match=r"--name"):
+            validate_display_name("Bad, Name", "--name")
+
+
+class TestSmtpHasOwnCreds:
+    def test_true_when_both_set(self):
+        from mailroom.config import smtp_has_own_creds
+
+        assert smtp_has_own_creds(SmtpConfig(host="x", username="u", password="p"))
+
+    def test_false_when_either_missing(self):
+        from mailroom.config import smtp_has_own_creds
+
+        assert not smtp_has_own_creds(SmtpConfig(host="x"))
+        assert not smtp_has_own_creds(SmtpConfig(host="x", username="u"))
+        assert not smtp_has_own_creds(SmtpConfig(host="x", password="p"))
+
+
 class TestMailroomCrossRefs:
     """Cross-reference checks across [imap.*], [smtp.*], [identity.*]."""
 

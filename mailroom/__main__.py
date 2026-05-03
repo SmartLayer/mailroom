@@ -516,28 +516,35 @@ def _load_cfg_or_exit() -> MailroomConfig:
 
 
 def _perform_send(
-    client: ImapClient,
+    client: Optional[ImapClient],
     mime_message: Any,
-    imap_block: ImapBlock,
+    imap_block: Optional[ImapBlock],
     imap_name: str,
     smtp_blocks: Dict[str, SmtpConfig],
     identity: Any,
     save_sent_override: Optional[bool],
     sent_folder_override: Optional[str],
+    smtp_override: Optional[SmtpConfig] = None,
 ) -> Dict[str, Any]:
     """Resolve SMTP, transmit, and FCC. Used by compose/reply --send and send-draft.
 
     Args:
-        client: Connected ImapClient (used for FCC and folder discovery).
+        client: Connected ImapClient used for FCC. ``None`` skips FCC
+            entirely (mode B with no ``--fcc`` and no IMAP block in scope).
         mime_message: Built MIME message ready to serialise.
-        imap_block: Selected [imap.NAME] block.
-        imap_name: Name of the selected block (for error messages).
+        imap_block: Selected [imap.NAME] block, used for SMTP-credential
+            inheritance. ``None`` is allowed only when *smtp_override* is
+            set (mode B short-circuits the resolution chain).
+        imap_name: Name of the selected block, or empty string when there
+            is no block in scope. Surfaced in error messages.
         smtp_blocks: Top-level ``[smtp.*]`` map from the loaded config.
         identity: Resolved ``Identity`` driving From, SMTP route, sent_folder.
         save_sent_override: When set, overrides the SMTP block's
             ``save_sent`` resolution. None means "use the configured default".
         sent_folder_override: When set, overrides the identity's sent_folder
             (and the auto-discovered Sent folder). None means default.
+        smtp_override: When set, the SMTP block to use directly, skipping
+            the identity-driven resolution chain. Used by mode B.
 
     Returns:
         The standard send-result JSON shape (status, identity, message_ids,
@@ -546,11 +553,17 @@ def _perform_send(
     from mailroom.identity import SmtpUnresolved, resolve_smtp_for_identity
     from mailroom.smtp_transport import send as smtp_send
 
-    try:
-        smtp = resolve_smtp_for_identity(identity, imap_block, imap_name, smtp_blocks)
-    except SmtpUnresolved as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(1)
+    if smtp_override is not None:
+        smtp = smtp_override
+    else:
+        assert imap_block is not None  # caller contract: needed for inheritance
+        try:
+            smtp = resolve_smtp_for_identity(
+                identity, imap_block, imap_name, smtp_blocks
+            )
+        except SmtpUnresolved as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1)
 
     try:
         fcc_bytes, send_result = smtp_send(mime_message, smtp)
@@ -565,7 +578,7 @@ def _perform_send(
     )
     fcc_folder: Optional[str] = None
     fcc_uid: Optional[int] = None
-    if do_fcc:
+    if do_fcc and client is not None:
         target = (
             sent_folder_override or identity.sent_folder or client._get_sent_folder()
         )
@@ -582,6 +595,164 @@ def _perform_send(
         "fcc_folder": fcc_folder,
         "fcc_uid": fcc_uid,
     }
+
+
+def _resolve_send_route(
+    cfg: MailroomConfig,
+    identity_name: Optional[str],
+    smtp_name: Optional[str],
+    from_email: Optional[str],
+    display_name: Optional[str],
+    fcc: Optional[str],
+) -> Optional[Tuple[Any, Optional[SmtpConfig], Optional[str]]]:
+    """Resolve a ``--send`` route from the two-mode flag set.
+
+    Mode A (``--identity NAME``) returns the configured Identity. Mode B
+    (``--smtp NAME --from EMAIL [--name N] [--fcc IMAP:FOLDER]``) returns
+    a synthetic Identity plus the explicit SMTP block; no
+    ``[identity.NAME]`` is consulted.
+
+    Returns:
+        ``None`` when neither flag is present (caller decides what to do
+        with it). Otherwise a 3-tuple ``(identity, smtp_override, fcc_imap)``:
+        - identity: Identity to send as. ``identity.sent_folder`` is the
+          chosen FCC folder (mode A: from the block; mode B: the user's
+          ``--fcc`` folder or None).
+        - smtp_override: Set in mode B; ``None`` in mode A so
+          ``_perform_send`` runs the identity-driven resolution chain.
+        - fcc_imap: Name of the ``[imap.NAME]`` block to FCC into, or
+          ``None`` to skip FCC. Mode A uses ``identity.imap``; mode B
+          uses the imap part of ``--fcc IMAP:FOLDER`` when given.
+
+    Exits via ``typer.Exit(1)`` on a validation failure with a message
+    naming the offending input and how to correct it.
+    """
+    from mailroom.config import Identity as _Identity
+    from mailroom.config import smtp_has_own_creds, validate_display_name
+
+    if identity_name and smtp_name:
+        typer.echo(
+            "Error: --identity and --smtp are mutually exclusive. "
+            "--identity NAME selects a configured [identity.NAME]; "
+            "--smtp NAME --from EMAIL sends through a named SMTP block "
+            "without a declared identity.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if identity_name:
+        if identity_name not in cfg.identities:
+            typer.echo(
+                f"Error: --identity '{identity_name}' does not name any "
+                f"[identity.NAME] block. Configured identities: "
+                f"{sorted(cfg.identities)}",
+                err=True,
+            )
+            raise typer.Exit(1)
+        identity = cfg.identities[identity_name]
+        if from_email and from_email.strip().lower() != identity.address.lower():
+            typer.echo(
+                f"Error: --identity '{identity_name}' has address "
+                f"'{identity.address}', but --from is '{from_email}'. "
+                f"Drop --from, or pass the matching address.",
+                err=True,
+            )
+            raise typer.Exit(1)
+        if display_name is not None:
+            typer.echo(
+                "Error: --name is only valid with --smtp; --identity uses "
+                "the [identity.NAME] block's configured name.",
+                err=True,
+            )
+            raise typer.Exit(1)
+        if fcc is not None:
+            typer.echo(
+                "Error: --fcc is only valid with --smtp; --identity uses "
+                "the [identity.NAME] block's sent_folder.",
+                err=True,
+            )
+            raise typer.Exit(1)
+        return identity, None, identity.imap
+
+    if smtp_name:
+        if not from_email:
+            typer.echo(
+                f"Error: --smtp '{smtp_name}' requires --from EMAIL "
+                f"(no [identity.NAME] is in scope to supply the address).",
+                err=True,
+            )
+            raise typer.Exit(1)
+        if smtp_name not in cfg.smtp_blocks:
+            typer.echo(
+                f"Error: --smtp '{smtp_name}' does not name any [smtp.NAME] "
+                f"block. Configured SMTP blocks: {sorted(cfg.smtp_blocks)}",
+                err=True,
+            )
+            raise typer.Exit(1)
+        smtp = cfg.smtp_blocks[smtp_name]
+        if not smtp_has_own_creds(smtp):
+            typer.echo(
+                f"Error: [smtp.{smtp_name}] has no username/password; "
+                f"--smtp mode has no [imap.NAME] block in scope to inherit "
+                f"credentials from. Add username/password to the SMTP block.",
+                err=True,
+            )
+            raise typer.Exit(1)
+        if display_name:
+            try:
+                validate_display_name(display_name, "--name")
+            except ValueError as exc:
+                typer.echo(f"Error: {exc}", err=True)
+                raise typer.Exit(1)
+        fcc_imap: Optional[str] = None
+        fcc_folder: Optional[str] = None
+        if fcc:
+            if ":" not in fcc:
+                typer.echo(
+                    "Error: --fcc must be IMAP_NAME:FOLDER (e.g. " "--fcc work:Sent).",
+                    err=True,
+                )
+                raise typer.Exit(1)
+            fcc_imap, fcc_folder = fcc.split(":", 1)
+            if fcc_imap not in cfg.imap_blocks:
+                typer.echo(
+                    f"Error: --fcc references unknown [imap.{fcc_imap}]. "
+                    f"Available: {sorted(cfg.imap_blocks)}",
+                    err=True,
+                )
+                raise typer.Exit(1)
+            if not fcc_folder:
+                typer.echo(
+                    "Error: --fcc IMAP:FOLDER requires a folder after the "
+                    "colon (e.g. work:Sent).",
+                    err=True,
+                )
+                raise typer.Exit(1)
+        synth = _Identity(
+            imap=fcc_imap or "",
+            address=from_email,
+            name=display_name or "",
+            smtp=smtp_name,
+            sent_folder=fcc_folder,
+        )
+        return synth, smtp, fcc_imap
+
+    return None
+
+
+def _no_route_error(cfg: MailroomConfig) -> None:
+    """Emit the canonical 'no --identity / --smtp on --send' error and exit.
+
+    Centralised so compose, reply, and send-draft show the same wording.
+    """
+    typer.echo(
+        "Error: --send requires either --identity NAME, or "
+        "--smtp NAME --from EMAIL. Configured identities: "
+        f"{sorted(cfg.identities)}; configured SMTP blocks: "
+        f"{sorted(cfg.smtp_blocks)}.",
+        err=True,
+    )
+    raise typer.Exit(1)
 
 
 def _print_eager_warnings_if_relevant() -> None:
@@ -1470,12 +1641,48 @@ def compose(
         "--send",
         help="Transmit via SMTP instead of saving as a draft. Mutually exclusive with --output.",
     ),
+    identity_name: Optional[str] = typer.Option(
+        None,
+        "--identity",
+        help=(
+            "Send as the named [identity.NAME] block (resolves From, "
+            "display name, IMAP block, SMTP, sent_folder). Required on "
+            "--send unless --smtp/--from is given. (Note: --identity is "
+            "the long form; -i/--imap selects an [imap.NAME] block, "
+            "which is a different thing.)"
+        ),
+    ),
+    smtp_name: Optional[str] = typer.Option(
+        None,
+        "--smtp",
+        help=(
+            "Send through the named [smtp.NAME] block with a free-form "
+            "--from address. Requires --from. The SMTP block must carry "
+            "its own username/password (no inheritance). Use this for "
+            "relays like SES that are authorised to carry many addresses."
+        ),
+    ),
     from_email: Optional[str] = typer.Option(
         None,
         "--from",
         help=(
-            "Identity address to send as. Defaults to the first identity "
-            "pointing at the selected [imap.NAME] block."
+            "From address. With --identity, must match the identity's "
+            "address. With --smtp, the address to send as (mode B). "
+            "In drafting mode (no --send), selects an identity by address."
+        ),
+    ),
+    display_name: Optional[str] = typer.Option(
+        None,
+        "--name",
+        help="Display name for the From header. Mode B (--smtp) only.",
+    ),
+    fcc: Optional[str] = typer.Option(
+        None,
+        "--fcc",
+        help=(
+            "FCC the sent message into IMAP_NAME:FOLDER. Mode B only "
+            "(mode A uses the identity's sent_folder). Without --fcc "
+            "in mode B, no copy is saved."
         ),
     ),
     save_sent: Optional[bool] = typer.Option(
@@ -1486,15 +1693,15 @@ def compose(
     sent_folder: Optional[str] = typer.Option(
         None,
         "--sent-folder",
-        help="Override the identity's sent_folder for the FCC step.",
+        help="Override the identity's sent_folder for the FCC step (mode A).",
     ),
 ) -> None:
     """Compose a new email.
 
     Default: saves to the IMAP drafts folder.
     --output: writes raw RFC 822 to a file or stdout.
-    --send: transmits via SMTP (resolved per identity), then optionally FCCs
-    to Sent.
+    --send: transmits via SMTP. Requires --identity NAME, or
+    --smtp NAME --from EMAIL (mode B).
     """
     import email.utils
 
@@ -1511,9 +1718,61 @@ def compose(
         raise typer.Exit(2)
 
     cfg = _load_cfg_or_exit()
-    name = _resolve_single_imap_name()
-    block = cfg.imap_blocks[name]
 
+    if not send_flag and (identity_name or smtp_name or display_name or fcc):
+        typer.echo(
+            "Error: --identity / --smtp / --name / --fcc are only valid "
+            "with --send. Drafting picks the identity from --imap "
+            "(--from selects by address).",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if send_flag:
+        route = _resolve_send_route(
+            cfg, identity_name, smtp_name, from_email, display_name, fcc
+        )
+        if route is None:
+            _no_route_error(cfg)
+        identity, smtp_override, fcc_imap = route  # type: ignore[misc]
+        client = _make_client(imap_override=fcc_imap) if fcc_imap else None
+        block = cfg.imap_blocks[fcc_imap] if fcc_imap else None
+        try:
+            from_addr = EmailAddress(name=identity.name, address=identity.address)
+            to_addrs = [EmailAddress.parse(a) for a in to]
+            cc_addrs = [EmailAddress.parse(a) for a in cc] if cc else None
+            bcc_addrs = [EmailAddress.parse(a) for a in bcc] if bcc else None
+            mime_message = create_mime(
+                from_addr=from_addr,
+                body=body,
+                to=to_addrs,
+                subject=subject,
+                cc=cc_addrs,
+                bcc=bcc_addrs,
+                html_body=body_html,
+                attachments=attach,
+            )
+            if not mime_message.get("Message-ID"):
+                mime_message["Message-ID"] = email.utils.make_msgid()
+            _out(
+                _perform_send(
+                    client,
+                    mime_message,
+                    block,
+                    fcc_imap or "",
+                    cfg.smtp_blocks,
+                    identity,
+                    save_sent,
+                    sent_folder,
+                    smtp_override=smtp_override,
+                )
+            )
+        finally:
+            if client is not None:
+                client.disconnect()
+        return
+
+    name = _resolve_single_imap_name()
     try:
         identity = resolve_identity_for_send(cfg, name, from_addr=from_email)
     except (IdentityNotFound, SendDisabled) as exc:
@@ -1540,20 +1799,7 @@ def compose(
         if not mime_message.get("Message-ID"):
             mime_message["Message-ID"] = email.utils.make_msgid()
 
-        if send_flag:
-            _out(
-                _perform_send(
-                    client,
-                    mime_message,
-                    block,
-                    name,
-                    cfg.smtp_blocks,
-                    identity,
-                    save_sent,
-                    sent_folder,
-                )
-            )
-        elif output is not None:
+        if output is not None:
             _write_raw_output(mime_message, output)
         else:
             draft_uid = client.save_draft_mime(mime_message)
@@ -1616,10 +1862,40 @@ def reply(
         "--send",
         help="Transmit via SMTP instead of saving as a draft. Mutually exclusive with --output.",
     ),
+    identity_name: Optional[str] = typer.Option(
+        None,
+        "--identity",
+        help=(
+            "Send as the named [identity.NAME] block. On --send, either "
+            "this or --smtp/--from is required unless the parent's "
+            "recipients match a configured identity."
+        ),
+    ),
+    smtp_name: Optional[str] = typer.Option(
+        None,
+        "--smtp",
+        help=(
+            "Send through the named [smtp.NAME] block with --from EMAIL. "
+            "Mode B; see compose --help."
+        ),
+    ),
     from_email: Optional[str] = typer.Option(
         None,
         "--from",
-        help="Identity address to reply as. Defaults to whichever identity matches the parent's recipients.",
+        help=(
+            "Reply From address. Drafting: selects identity by address "
+            "(falls back to recipient match). --send: required with --smtp."
+        ),
+    ),
+    display_name: Optional[str] = typer.Option(
+        None,
+        "--name",
+        help="Display name for the From header. Mode B (--smtp) only.",
+    ),
+    fcc: Optional[str] = typer.Option(
+        None,
+        "--fcc",
+        help=("FCC the sent message into IMAP_NAME:FOLDER. Mode B only."),
     ),
     save_sent: Optional[bool] = typer.Option(
         None,
@@ -1629,22 +1905,23 @@ def reply(
     sent_folder: Optional[str] = typer.Option(
         None,
         "--sent-folder",
-        help="Override the identity's sent_folder for the FCC step.",
+        help="Override the identity's sent_folder for the FCC step (mode A).",
     ),
 ) -> None:
     """Draft or send a reply to an email.
 
     Default: saves to drafts.
     --output: writes raw RFC 822.
-    --send: transmits via SMTP and FCCs to Sent.
-    Reply identity defaults to whichever block identity matches the
-    parent's recipients (so a reply to alias X is sent as alias X).
+    --send: transmits via SMTP and FCCs to Sent. Requires --identity, or
+    --smtp NAME --from EMAIL (mode B), or a parent recipient that
+    matches a configured identity on the selected [imap.NAME] block.
     """
     import email.utils
 
     from mailroom.identity import (
         IdentityNotFound,
         SendDisabled,
+        identities_for_imap,
         resolve_identity_for_reply,
         resolve_identity_for_send,
     )
@@ -1656,6 +1933,15 @@ def reply(
         raise typer.Exit(2)
 
     cfg = _load_cfg_or_exit()
+
+    if not send_flag and (identity_name or smtp_name or display_name or fcc):
+        typer.echo(
+            "Error: --identity / --smtp / --name / --fcc are only valid "
+            "with --send.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
     name = _resolve_single_imap_name()
     block = cfg.imap_blocks[name]
 
@@ -1666,14 +1952,71 @@ def reply(
             typer.echo(f"Email UID {uid} not found in {folder}", err=True)
             raise typer.Exit(1)
 
-        try:
-            if from_email is not None:
-                identity = resolve_identity_for_send(cfg, name, from_addr=from_email)
+        identity: Any
+        smtp_override: Optional[SmtpConfig] = None
+        fcc_imap_for_send: Optional[str] = name
+        send_block: Optional[ImapBlock] = block
+        send_block_name: str = name
+        send_client: Optional[ImapClient] = client
+        owns_send_client = False
+
+        if send_flag:
+            route = _resolve_send_route(
+                cfg, identity_name, smtp_name, from_email, display_name, fcc
+            )
+            if route is None:
+                # No mode A/B given: try recipient match. The matched
+                # identity is by definition on the global -i block, so
+                # the fetch client doubles as the FCC client.
+                idents = identities_for_imap(cfg, name)
+                if not idents:
+                    typer.echo(
+                        f"Error: [imap.{name}] has no identities. "
+                        "Specify --identity NAME, or "
+                        "--smtp NAME --from EMAIL.",
+                        err=True,
+                    )
+                    raise typer.Exit(1)
+                addr_to_ident = {i.address.lower(): i for i in idents}
+                matched = None
+                for recipient in (email_obj.to or []) + (email_obj.cc or []):
+                    addr = (getattr(recipient, "address", "") or "").lower()
+                    if addr and addr in addr_to_ident:
+                        matched = addr_to_ident[addr]
+                        break
+                if matched is None:
+                    typer.echo(
+                        "Error: no recipient on the parent email matches "
+                        f"any identity on [imap.{name}]. Specify "
+                        "--identity NAME, or --smtp NAME --from EMAIL. "
+                        f"Configured identities on this block: "
+                        f"{[i.address for i in idents]}",
+                        err=True,
+                    )
+                    raise typer.Exit(1)
+                identity = matched
             else:
-                identity = resolve_identity_for_reply(cfg, name, email_obj)
-        except (IdentityNotFound, SendDisabled) as exc:
-            typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(1)
+                identity, smtp_override, fcc_imap_for_send = route
+                if fcc_imap_for_send and fcc_imap_for_send != name:
+                    send_client = _make_client(imap_override=fcc_imap_for_send)
+                    owns_send_client = True
+                    send_block = cfg.imap_blocks[fcc_imap_for_send]
+                    send_block_name = fcc_imap_for_send
+                elif fcc_imap_for_send is None:
+                    send_client = None
+                    send_block = None
+                    send_block_name = ""
+        else:
+            try:
+                if from_email is not None:
+                    identity = resolve_identity_for_send(
+                        cfg, name, from_addr=from_email
+                    )
+                else:
+                    identity = resolve_identity_for_reply(cfg, name, email_obj)
+            except (IdentityNotFound, SendDisabled) as exc:
+                typer.echo(f"Error: {exc}", err=True)
+                raise typer.Exit(1)
 
         from_addr = EmailAddress(name=identity.name, address=identity.address)
         cc_addresses = [EmailAddress.parse(addr) for addr in cc] if cc else None
@@ -1692,35 +2035,40 @@ def reply(
         if not mime_message.get("Message-ID"):
             mime_message["Message-ID"] = email.utils.make_msgid()
 
-        if send_flag:
-            _out(
-                _perform_send(
-                    client,
-                    mime_message,
-                    block,
-                    name,
-                    cfg.smtp_blocks,
-                    identity,
-                    save_sent,
-                    sent_folder,
+        try:
+            if send_flag:
+                _out(
+                    _perform_send(
+                        send_client,
+                        mime_message,
+                        send_block,
+                        send_block_name,
+                        cfg.smtp_blocks,
+                        identity,
+                        save_sent,
+                        sent_folder,
+                        smtp_override=smtp_override,
+                    )
                 )
-            )
-        elif output is not None:
-            _write_raw_output(mime_message, output)
-        else:
-            draft_uid = client.save_draft_mime(mime_message)
-            if draft_uid is None:
-                typer.echo("Failed to save reply draft", err=True)
-                raise typer.Exit(1)
-            _out(
-                {
-                    "status": "success",
-                    "message": "Draft reply saved",
-                    "identity": identity.address,
-                    "draft_uid": draft_uid,
-                    "draft_folder": client._get_drafts_folder(),
-                }
-            )
+            elif output is not None:
+                _write_raw_output(mime_message, output)
+            else:
+                draft_uid = client.save_draft_mime(mime_message)
+                if draft_uid is None:
+                    typer.echo("Failed to save reply draft", err=True)
+                    raise typer.Exit(1)
+                _out(
+                    {
+                        "status": "success",
+                        "message": "Draft reply saved",
+                        "identity": identity.address,
+                        "draft_uid": draft_uid,
+                        "draft_folder": client._get_drafts_folder(),
+                    }
+                )
+        finally:
+            if owns_send_client and send_client is not None:
+                send_client.disconnect()
     finally:
         client.disconnect()
 
@@ -1740,6 +2088,38 @@ def send_draft(
         False,
         "--keep-draft",
         help="Leave the draft in place after sending. Default deletes it.",
+    ),
+    identity_name: Optional[str] = typer.Option(
+        None,
+        "--identity",
+        help=(
+            "Override the draft's From with the named [identity.NAME] "
+            "block (which also picks the SMTP route)."
+        ),
+    ),
+    smtp_name: Optional[str] = typer.Option(
+        None,
+        "--smtp",
+        help=(
+            "Send through the named [smtp.NAME] block with --from EMAIL "
+            "(mode B). Overrides the draft's From and ignores any "
+            "[identity.*] resolution."
+        ),
+    ),
+    from_email: Optional[str] = typer.Option(
+        None,
+        "--from",
+        help="Mode B From address. Required with --smtp.",
+    ),
+    display_name: Optional[str] = typer.Option(
+        None,
+        "--name",
+        help="Display name for the From header. Mode B (--smtp) only.",
+    ),
+    fcc: Optional[str] = typer.Option(
+        None,
+        "--fcc",
+        help="FCC the sent message into IMAP_NAME:FOLDER. Mode B only.",
     ),
     save_sent: Optional[bool] = typer.Option(
         None,
@@ -1764,10 +2144,12 @@ def send_draft(
 ) -> None:
     """Send an existing draft as-is.
 
-    The draft's From header is parsed and matched against the selected
-    [imap.NAME] block's identities. An unknown From is a hard error (no
-    silent fallback) so that drafting from the wrong identity cannot
-    send through the wrong SMTP route.
+    Default route resolution: the draft's From header is parsed and
+    matched against the selected [imap.NAME] block's identities (an
+    unknown From is a hard error). --identity NAME overrides the draft's
+    From with a configured identity; --smtp NAME --from EMAIL (mode B)
+    sends through a named SMTP block without consulting any
+    [identity.*].
 
     On success the draft is deleted from the source folder unless
     --keep-draft is set, and the message is FCC'd to Sent unless
@@ -1789,6 +2171,12 @@ def send_draft(
     block = cfg.imap_blocks[name]
 
     client = _make_client()
+    owns_send_client = False
+    send_client: Optional[ImapClient] = client
+    send_block: Optional[ImapBlock] = block
+    send_block_name: str = name
+    smtp_override: Optional[SmtpConfig] = None
+
     try:
         fetched = client.fetch_raw(uid, folder)
         if not fetched:
@@ -1797,25 +2185,42 @@ def send_draft(
 
         msg = BytesParser().parsebytes(fetched["raw"])
 
-        from_raw = str(msg.get("From", "") or "").strip()
-        from_addr_only = from_raw
-        if "<" in from_raw and ">" in from_raw:
-            from_addr_only = from_raw.split("<", 1)[1].rsplit(">", 1)[0].strip()
-        if not from_addr_only:
-            typer.echo("Error: draft has no From header", err=True)
-            raise typer.Exit(1)
+        if identity_name or smtp_name:
+            route = _resolve_send_route(
+                cfg, identity_name, smtp_name, from_email, display_name, fcc
+            )
+            assert route is not None  # one of identity_name/smtp_name was set
+            identity, smtp_override, fcc_imap = route
+            if fcc_imap and fcc_imap != name:
+                send_client = _make_client(imap_override=fcc_imap)
+                owns_send_client = True
+                send_block = cfg.imap_blocks[fcc_imap]
+                send_block_name = fcc_imap
+            elif fcc_imap is None:
+                send_client = None
+                send_block = None
+                send_block_name = ""
+            # Replace the draft's From with the resolved identity's address.
+            if "From" in msg:
+                del msg["From"]
+            from email.utils import formataddr
 
-        try:
-            identity = resolve_identity_for_send(cfg, name, from_addr=from_addr_only)
-        except (IdentityNotFound, SendDisabled) as exc:
-            typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(1)
-
-        try:
-            smtp = resolve_smtp_for_identity(identity, block, name, cfg.smtp_blocks)
-        except SmtpUnresolved as exc:
-            typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(1)
+            msg["From"] = formataddr((identity.name, identity.address))
+        else:
+            from_raw = str(msg.get("From", "") or "").strip()
+            from_addr_only = from_raw
+            if "<" in from_raw and ">" in from_raw:
+                from_addr_only = from_raw.split("<", 1)[1].rsplit(">", 1)[0].strip()
+            if not from_addr_only:
+                typer.echo("Error: draft has no From header", err=True)
+                raise typer.Exit(1)
+            try:
+                identity = resolve_identity_for_send(
+                    cfg, name, from_addr=from_addr_only
+                )
+            except (IdentityNotFound, SendDisabled) as exc:
+                typer.echo(f"Error: {exc}", err=True)
+                raise typer.Exit(1)
 
         if bcc:
             existing = str(msg.get("Bcc", "") or "").strip()
@@ -1825,6 +2230,16 @@ def send_draft(
             msg["Bcc"] = merged
 
         if dry_run:
+            if smtp_override is not None:
+                smtp = smtp_override
+            else:
+                try:
+                    smtp = resolve_smtp_for_identity(
+                        identity, block, name, cfg.smtp_blocks
+                    )
+                except SmtpUnresolved as exc:
+                    typer.echo(f"Error: {exc}", err=True)
+                    raise typer.Exit(1)
             factory = _pick_default_transport(smtp.port)
             try:
                 conn = factory(smtp.host, smtp.port)
@@ -1847,27 +2262,32 @@ def send_draft(
             )
             return
 
-        result = _perform_send(
-            client,
-            msg,
-            block,
-            name,
-            cfg.smtp_blocks,
-            identity,
-            save_sent,
-            sent_folder,
-        )
+        try:
+            result = _perform_send(
+                send_client,
+                msg,
+                send_block,
+                send_block_name,
+                cfg.smtp_blocks,
+                identity,
+                save_sent,
+                sent_folder,
+                smtp_override=smtp_override,
+            )
 
-        draft_removed = False
-        if not keep_draft:
-            try:
-                client.delete_email(uid, folder)
-                draft_removed = True
-            except Exception as exc:
-                typer.echo(f"warning: draft delete failed: {exc}", err=True)
+            draft_removed = False
+            if not keep_draft:
+                try:
+                    client.delete_email(uid, folder)
+                    draft_removed = True
+                except Exception as exc:
+                    typer.echo(f"warning: draft delete failed: {exc}", err=True)
 
-        result["draft_removed"] = draft_removed
-        _out(result)
+            result["draft_removed"] = draft_removed
+            _out(result)
+        finally:
+            if owns_send_client and send_client is not None:
+                send_client.disconnect()
     finally:
         client.disconnect()
 

@@ -143,8 +143,10 @@ mailroom reply -f INBOX -u 4523 -b "Thanks, confirmed."
 mailroom reply -f INBOX -u 4523 -b "Invoice attached." --attach /tmp/invoice.pdf
 mailroom reply -f INBOX -u 4523 -b "Thanks, confirmed." --send
 
-# Compose a new message
-mailroom compose --to alice@example.com --subject "Meeting" -b "See attached." --send
+# Compose a new message (--send requires --identity NAME, or
+# --smtp NAME --from EMAIL; see "Multi-block and send-as" below)
+mailroom compose --to alice@example.com --subject "Meeting" \
+  -b "See attached." --send --identity work
 
 # Send a draft
 mailroom send-draft -f Drafts -u 4530
@@ -184,7 +186,8 @@ mailroom search "is:unread" --folder INBOX \
 # Auto-acknowledge incoming invoices
 mailroom search "is:unread subject:invoice" --folder INBOX \
   | jq -r '.[].uid' \
-  | xargs -I{} mailroom reply -f INBOX -u {} -b "Received, processing." --send
+  | xargs -I{} mailroom reply -f INBOX -u {} -b "Received, processing." \
+      --send --identity work
 ```
 
 AI agents with skill/hook systems call Mailroom the same way: define a skill that runs a shell command and parses the JSON output.
@@ -253,13 +256,31 @@ imap = "director"
 address = "alias-host@gmail.com"
 ```
 
-Pick the From identity at send time with `--from`:
+### Picking a send identity (`--send` mode)
+
+`compose --send`, `reply --send`, and `send-draft` require the route to be named explicitly. There are two forms.
+
+**Mode A: `--identity NAME`.** Names a configured `[identity.NAME]` block; resolves From, display name, the `[imap.*]` block, the SMTP route, and the Sent folder.
 
 ```bash
-mailroom -i director compose --to client@example.com --from director@example.org -b "..." --send
+mailroom compose --send --identity director \
+  --to client@example.com -b "..."
 ```
 
-`mailroom reply` defaults to the identity that received the parent email, so a reply to alias X is sent as X. `mailroom send-draft` reads the From header on the draft and refuses to send if it does not match a configured identity, which prevents a script or AI from accidentally sending through the wrong route.
+**Mode B: `--smtp NAME --from EMAIL [--name N] [--fcc IMAP:FOLDER]`.** Sends a free-form `--from` through a named SMTP block, without consulting any `[identity.*]`. The SMTP block must carry its own username and password (no inheritance from an `[imap.*]` block, since none is in scope). Useful for relays like SES that are authorised to carry many addresses. With no `--fcc`, no copy is saved; with `--fcc work:Sent`, mailroom appends the message to the named folder on `[imap.work]` after a successful send.
+
+```bash
+mailroom compose --send --smtp ses-syd \
+  --from "noreply@example.org" --name "Example Org" \
+  --fcc director:Sent \
+  --to client@example.com -b "..."
+```
+
+**Reply** has one extra path: when neither flag is given, mailroom matches the parent's recipients against identities on the selected `[imap.*]` block and uses the match. If no recipient matches, `reply --send` errors rather than silently picking an arbitrary identity. The drafting path (no `--send`) keeps the older fallback behaviour.
+
+**`send-draft`** by default uses the draft's own From header and refuses to send if it does not match a configured identity. `--identity` or `--smtp/--from` override the draft's From for that send.
+
+Drafting (no `--send`) keeps the previous convenience defaults: the first identity on the selected `[imap.*]` block is the From, and `--from EMAIL` selects a different identity by address.
 
 ## Local cache (mu)
 
