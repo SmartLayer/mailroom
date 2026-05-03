@@ -80,7 +80,9 @@ def _build_send_result() -> dict:
 def _client_with_draft(from_addr: str = "alice@x.com") -> MagicMock:
     client = MagicMock()
     client.fetch_raw.return_value = {"raw": _draft_bytes(from_addr), "subject": "draft"}
-    client._get_sent_folder.return_value = "Sent"
+    client.resolve_sent_folder.side_effect = lambda configured=None: (
+        configured if configured is not None else "Sent"
+    )
     client.append_raw.return_value = 999
     client.delete_email.return_value = True
     return client

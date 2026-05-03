@@ -83,9 +83,11 @@ def _result() -> dict:
     }
 
 
-def _client() -> MagicMock:
+def _client(default_sent: str = "Sent") -> MagicMock:
     c = MagicMock()
-    c._get_sent_folder.return_value = "Sent"
+    c.resolve_sent_folder.side_effect = lambda configured=None: (
+        configured if configured is not None else default_sent
+    )
     c._get_drafts_folder.return_value = "Drafts"
     c.append_raw.return_value = 999
     c.save_draft_mime.return_value = 42
@@ -678,3 +680,156 @@ class TestReplySend:
         assert result.exit_code == 0, result.output
         out = json.loads(result.output)
         assert out["identity"] == "primary@x.com"
+
+
+class TestComposeSendFccVerification:
+    """Pre-send Sent-folder verification (#22).
+
+    Sends must verify the FCC target before opening SMTP and refuse to
+    transmit when the target is missing, so the user is not silently left
+    without a local copy of a message that has already gone out.
+    """
+
+    def test_picks_inbox_sent_without_configuration(self):
+        """Dovecot-style server reporting only ``INBOX.Sent``: FCC lands there."""
+        cfg = _cfg()
+        client = _client(default_sent="INBOX.Sent")
+        with (
+            patch("mailroom.__main__.load_config", return_value=cfg),
+            patch("mailroom.__main__._make_client", return_value=client),
+            patch(
+                "mailroom.smtp_transport.send",
+                return_value=(b"raw", _result()),
+            ),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "compose",
+                    "--to",
+                    "alice@y.com",
+                    "--body",
+                    "hi",
+                    "--send",
+                    "--identity",
+                    "primary",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        out = json.loads(result.output)
+        assert out["fcc_folder"] == "INBOX.Sent"
+        client.append_raw.assert_called_once()
+        # Auto-discover path: configured arg is None.
+        client.resolve_sent_folder.assert_called_once_with(configured=None)
+
+    def test_no_sent_folder_exits_before_smtp(self):
+        """No Sent-shaped folder anywhere: refuse to send, name the candidates."""
+        cfg = _cfg()
+        client = _client()
+        client.resolve_sent_folder.side_effect = lambda configured=None: None
+        with (
+            patch("mailroom.__main__.load_config", return_value=cfg),
+            patch("mailroom.__main__._make_client", return_value=client),
+            patch("mailroom.smtp_transport.send") as send_mock,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "compose",
+                    "--to",
+                    "alice@y.com",
+                    "--body",
+                    "hi",
+                    "--send",
+                    "--identity",
+                    "primary",
+                ],
+            )
+        assert result.exit_code == 1
+        # SMTP must not have been opened.
+        send_mock.assert_not_called()
+        client.append_raw.assert_not_called()
+        # Error names the candidate tree so the user can configure.
+        err = result.output + (result.stderr or "")
+        assert "INBOX.Sent" in err
+        assert "Sent Items" in err
+
+    def test_configured_sent_folder_must_exist(self):
+        """A configured ``sent_folder`` that doesn't exist hard-fails by name.
+
+        The auto-discover fallback must not silently rewrite away from a
+        user-pinned value. The error message has to surface the
+        configured value so the user knows what to fix.
+        """
+        cfg = _cfg()
+        # Identity pins "Sent", but the server only has "INBOX.Sent" so
+        # resolve_sent_folder(configured="Sent") returns None.
+        cfg.identities["primary"] = Identity(
+            imap="acct",
+            address="primary@x.com",
+            name="Primary",
+            sent_folder="Sent",
+        )
+        client = _client()
+        client.resolve_sent_folder.side_effect = lambda configured=None: (
+            None if configured == "Sent" else "INBOX.Sent"
+        )
+        with (
+            patch("mailroom.__main__.load_config", return_value=cfg),
+            patch("mailroom.__main__._make_client", return_value=client),
+            patch("mailroom.smtp_transport.send") as send_mock,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "compose",
+                    "--to",
+                    "alice@y.com",
+                    "--body",
+                    "hi",
+                    "--send",
+                    "--identity",
+                    "primary",
+                ],
+            )
+        assert result.exit_code == 1
+        send_mock.assert_not_called()
+        client.append_raw.assert_not_called()
+        err = result.output + (result.stderr or "")
+        assert "'Sent'" in err  # quoted configured value
+
+
+class TestComposeSendBccSkipsFcc:
+    """``--bcc`` is the user's self-copy mechanism: skip FCC and IMAP."""
+
+    def test_bcc_skips_fcc_and_does_not_open_imap(self):
+        cfg = _cfg()
+        with (
+            patch("mailroom.__main__.load_config", return_value=cfg),
+            patch("mailroom.__main__._make_client") as make_client_mock,
+            patch(
+                "mailroom.smtp_transport.send",
+                return_value=(b"raw", _result()),
+            ),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "compose",
+                    "--to",
+                    "alice@y.com",
+                    "--bcc",
+                    "self-copy@x.com",
+                    "--body",
+                    "hi",
+                    "--send",
+                    "--identity",
+                    "primary",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        out = json.loads(result.output)
+        assert out["fcc_folder"] is None
+        assert out["fcc_uid"] is None
+        # The point: --bcc skips the FCC IMAP connection entirely.
+        make_client_mock.assert_not_called()

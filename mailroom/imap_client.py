@@ -20,6 +20,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Fallback tree for the Sent folder when neither the identity nor the
+# command line pins one. Dovecot-style INBOX-prefixed names come before
+# the bare names because Dovecot servers reject the bare form with
+# "Mailbox name should probably be prefixed with: INBOX.". SPECIAL-USE
+# (\Sent) is consulted first by ``resolve_sent_folder`` and is not in
+# this list.
+SENT_FOLDER_CANDIDATES = (
+    "INBOX.Sent",
+    "INBOX.Sent Items",
+    "INBOX.Sent Messages",
+    "Sent",
+    "Sent Items",
+    "Sent Messages",
+    "[Gmail]/Sent Mail",
+)
+
+
 class ImapClient:
     """IMAP client for interacting with email servers."""
 
@@ -768,41 +785,47 @@ class ImapClient:
                 "Valid: move, read, unread, flag, unflag, delete"
             )
 
-    def _get_sent_folder(self) -> str:
-        """Get the Sent-mail folder name for the current server.
+    def resolve_sent_folder(self, configured: Optional[str] = None) -> Optional[str]:
+        """Resolve the FCC target folder, verifying it exists on the server.
 
-        Mirrors ``_get_drafts_folder``: prefers Gmail's special
-        ``[Gmail]/Sent Mail`` style when on Gmail, then walks a list of
-        commonly-used Sent folder names. Falls back to ``"Sent"`` so the
-        APPEND can still be attempted (and surface a clean IMAP error if
-        the server has no such folder), rather than silently dropping the
-        FCC.
+        Used pre-send so the caller can refuse to open SMTP when the FCC
+        target is bogus, instead of sending and then losing the local
+        copy.
+
+        When ``configured`` is given (from ``identity.sent_folder`` or
+        ``--sent-folder``), require that exact folder to exist; do not
+        fall back. Otherwise prefer SPECIAL-USE ``\\Sent`` (RFC 6154);
+        failing that, walk ``SENT_FOLDER_CANDIDATES`` (Dovecot-prefixed
+        names first because bare ``Sent`` is rejected by Dovecot's default
+        namespace).
+
+        Args:
+            configured: A user-pinned folder name. ``None`` means
+                auto-discover.
+
+        Returns:
+            The folder name to APPEND to (with the case the server
+            reports, so a configured "sent" matches a server "Sent"), or
+            ``None`` when no candidate matches. The caller distinguishes
+            the two failure modes via whether ``configured`` was set.
         """
         self.ensure_connected()
         folders = self.list_folders(refresh=True)
+        folders_by_lower = {f.lower(): f for f in folders}
 
-        if self.block.host and "gmail" in self.block.host.lower():
-            gmail_sent = [f for f in folders if f.lower().endswith("/sent mail")]
-            if gmail_sent:
-                logger.debug(f"Using Gmail sent folder: {gmail_sent[0]}")
-                return gmail_sent[0]
+        if configured is not None:
+            return folders_by_lower.get(configured.lower())
 
-        sent_folder_names = [
-            "Sent",
-            "Sent Mail",
-            "Sent Items",
-            "Sent Messages",
-            "Envoyés",
-            "Enviados",
-            "Gesendet",
-        ]
-        for folder in folders:
-            if folder.lower() in [name.lower() for name in sent_folder_names]:
-                logger.debug(f"Using sent folder: {folder}")
-                return folder
+        special = self.find_special_use_folder(b"\\Sent")
+        if special is not None:
+            return special
 
-        logger.warning("No sent folder found, using 'Sent' as fallback")
-        return "Sent"
+        for candidate in SENT_FOLDER_CANDIDATES:
+            match = folders_by_lower.get(candidate.lower())
+            if match is not None:
+                return match
+
+        return None
 
     def _get_drafts_folder(self) -> str:
         """Get the drafts folder name for the current server.

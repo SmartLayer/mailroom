@@ -515,54 +515,106 @@ def _load_cfg_or_exit() -> MailroomConfig:
         raise typer.Exit(1)
 
 
-def _perform_send(
-    client: Optional[ImapClient],
-    mime_message: Any,
+def _resolve_smtp_or_exit(
+    identity: Any,
     imap_block: Optional[ImapBlock],
     imap_name: str,
     smtp_blocks: Dict[str, SmtpConfig],
-    identity: Any,
+    smtp_override: Optional[SmtpConfig],
+) -> SmtpConfig:
+    """Pick the SmtpConfig for this send, exiting non-zero on failure.
+
+    Hoisted out of ``_perform_send`` so callers can resolve SMTP early
+    enough to decide whether an IMAP connection is needed at all (a
+    Gmail-host SMTP with ``save_sent='auto'`` resolves to ``False``, so
+    no FCC and no IMAP).
+    """
+    if smtp_override is not None:
+        return smtp_override
+    from mailroom.identity import SmtpUnresolved, resolve_smtp_for_identity
+
+    assert imap_block is not None  # caller contract: needed for inheritance
+    try:
+        return resolve_smtp_for_identity(identity, imap_block, imap_name, smtp_blocks)
+    except SmtpUnresolved as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+
+
+def _will_fcc(
+    smtp: SmtpConfig,
     save_sent_override: Optional[bool],
+    bcc_provided: bool,
+) -> bool:
+    """Decide whether the FCC step should run at all.
+
+    The user provided a BCC -> they have arranged their own self-copy
+    (the canonical alternative to FCC); skip FCC and the IMAP connection
+    it would require. ``--save-sent``/``--no-save-sent`` always wins over
+    the BCC heuristic and the SMTP-block default.
+    """
+    if save_sent_override is not None:
+        return save_sent_override
+    if bcc_provided:
+        return False
+    return smtp.resolve_save_sent()
+
+
+def _perform_send(
+    client: Optional[ImapClient],
+    smtp: SmtpConfig,
+    mime_message: Any,
+    identity: Any,
     sent_folder_override: Optional[str],
-    smtp_override: Optional[SmtpConfig] = None,
 ) -> Dict[str, Any]:
-    """Resolve SMTP, transmit, and FCC. Used by compose/reply --send and send-draft.
+    """Verify FCC folder, transmit via SMTP, and APPEND. Used by send paths.
+
+    Whether FCC runs is decided by the caller, which signals the choice
+    via ``client``: a non-None ``client`` means FCC is required and must
+    be verified before SMTP opens; ``None`` skips FCC entirely. The same
+    connection used for verification is reused for the post-SMTP APPEND,
+    closing the small race that an earlier two-connection design left
+    open.
 
     Args:
-        client: Connected ImapClient used for FCC. ``None`` skips FCC
-            entirely (mode B with no ``--fcc`` and no IMAP block in scope).
+        client: Connected ImapClient used for verification + APPEND, or
+            ``None`` to skip FCC.
+        smtp: Pre-resolved SmtpConfig (see ``_resolve_smtp_or_exit``).
         mime_message: Built MIME message ready to serialise.
-        imap_block: Selected [imap.NAME] block, used for SMTP-credential
-            inheritance. ``None`` is allowed only when *smtp_override* is
-            set (mode B short-circuits the resolution chain).
-        imap_name: Name of the selected block, or empty string when there
-            is no block in scope. Surfaced in error messages.
-        smtp_blocks: Top-level ``[smtp.*]`` map from the loaded config.
-        identity: Resolved ``Identity`` driving From, SMTP route, sent_folder.
-        save_sent_override: When set, overrides the SMTP block's
-            ``save_sent`` resolution. None means "use the configured default".
-        sent_folder_override: When set, overrides the identity's sent_folder
-            (and the auto-discovered Sent folder). None means default.
-        smtp_override: When set, the SMTP block to use directly, skipping
-            the identity-driven resolution chain. Used by mode B.
+        identity: Resolved ``Identity`` carrying address (for the result
+            envelope) and ``sent_folder`` (for FCC resolution).
+        sent_folder_override: When set, overrides ``identity.sent_folder``
+            for the FCC step. ``None`` means use the identity's value or
+            auto-discover.
 
     Returns:
         The standard send-result JSON shape (status, identity, message_ids,
         smtp_response, accepted_recipients, fcc_folder, fcc_uid).
     """
-    from mailroom.identity import SmtpUnresolved, resolve_smtp_for_identity
+    from mailroom.imap_client import SENT_FOLDER_CANDIDATES
     from mailroom.smtp_transport import send as smtp_send
 
-    if smtp_override is not None:
-        smtp = smtp_override
-    else:
-        assert imap_block is not None  # caller contract: needed for inheritance
-        try:
-            smtp = resolve_smtp_for_identity(
-                identity, imap_block, imap_name, smtp_blocks
-            )
-        except SmtpUnresolved as exc:
-            typer.echo(f"Error: {exc}", err=True)
+    fcc_target: Optional[str] = None
+    if client is not None:
+        configured = sent_folder_override or identity.sent_folder
+        fcc_target = client.resolve_sent_folder(configured=configured)
+        if fcc_target is None:
+            if configured is not None:
+                typer.echo(
+                    f"Error: configured sent folder '{configured}' does not "
+                    f"exist on the IMAP server. Set it to a folder that "
+                    f"exists, drop the override to auto-discover, or pass "
+                    f"--no-save-sent.",
+                    err=True,
+                )
+            else:
+                typer.echo(
+                    "Error: no Sent folder found on the IMAP server. Tried, "
+                    "in order: " + ", ".join(SENT_FOLDER_CANDIDATES) + ". "
+                    "Configure [identity.NAME].sent_folder, pass "
+                    "--sent-folder, or pass --no-save-sent.",
+                    err=True,
+                )
             raise typer.Exit(1)
 
     try:
@@ -571,28 +623,18 @@ def _perform_send(
         typer.echo(f"Error: SMTP send failed: {exc}", err=True)
         raise typer.Exit(1)
 
-    do_fcc = (
-        save_sent_override
-        if save_sent_override is not None
-        else smtp.resolve_save_sent()
-    )
-    fcc_folder: Optional[str] = None
     fcc_uid: Optional[int] = None
-    if do_fcc and client is not None:
-        target = (
-            sent_folder_override or identity.sent_folder or client._get_sent_folder()
-        )
-        fcc_folder = target
+    if client is not None and fcc_target is not None:
         try:
-            fcc_uid = client.append_raw(target, fcc_bytes, flags=(r"\Seen",))
+            fcc_uid = client.append_raw(fcc_target, fcc_bytes, flags=(r"\Seen",))
         except Exception as exc:
-            typer.echo(f"warning: FCC to {target} failed: {exc}", err=True)
+            typer.echo(f"warning: FCC to {fcc_target} failed: {exc}", err=True)
 
     return {
         "status": "success",
         "identity": identity.address,
         **send_result,
-        "fcc_folder": fcc_folder,
+        "fcc_folder": fcc_target,
         "fcc_uid": fcc_uid,
     }
 
@@ -1735,8 +1777,14 @@ def compose(
         if route is None:
             _no_route_error(cfg)
         identity, smtp_override, fcc_imap = route  # type: ignore[misc]
-        client = _make_client(imap_override=fcc_imap) if fcc_imap else None
         block = cfg.imap_blocks[fcc_imap] if fcc_imap else None
+        smtp_resolved = _resolve_smtp_or_exit(
+            identity, block, fcc_imap or "", cfg.smtp_blocks, smtp_override
+        )
+        will_fcc = _will_fcc(smtp_resolved, save_sent, bcc_provided=bool(bcc))
+        client = (
+            _make_client(imap_override=fcc_imap) if (will_fcc and fcc_imap) else None
+        )
         try:
             from_addr = EmailAddress(name=identity.name, address=identity.address)
             to_addrs = [EmailAddress.parse(a) for a in to]
@@ -1757,14 +1805,10 @@ def compose(
             _out(
                 _perform_send(
                     client,
+                    smtp_resolved,
                     mime_message,
-                    block,
-                    fcc_imap or "",
-                    cfg.smtp_blocks,
                     identity,
-                    save_sent,
                     sent_folder,
-                    smtp_override=smtp_override,
                 )
             )
         finally:
@@ -1998,14 +2042,30 @@ def reply(
             else:
                 identity, smtp_override, fcc_imap_for_send = route
                 if fcc_imap_for_send and fcc_imap_for_send != name:
-                    send_client = _make_client(imap_override=fcc_imap_for_send)
-                    owns_send_client = True
                     send_block = cfg.imap_blocks[fcc_imap_for_send]
                     send_block_name = fcc_imap_for_send
                 elif fcc_imap_for_send is None:
-                    send_client = None
                     send_block = None
                     send_block_name = ""
+            # Resolve SMTP and decide on FCC before opening any extra
+            # connection: a Gmail-host SMTP, --no-save-sent, or a
+            # user-supplied --bcc all skip FCC, so the second IMAP
+            # connection can be skipped too.
+            smtp_resolved = _resolve_smtp_or_exit(
+                identity,
+                send_block,
+                send_block_name,
+                cfg.smtp_blocks,
+                smtp_override,
+            )
+            will_fcc = _will_fcc(smtp_resolved, save_sent, bcc_provided=bool(bcc))
+            if not will_fcc:
+                send_client = None
+            elif fcc_imap_for_send and fcc_imap_for_send != name:
+                send_client = _make_client(imap_override=fcc_imap_for_send)
+                owns_send_client = True
+            elif fcc_imap_for_send is None:
+                send_client = None
         else:
             try:
                 if from_email is not None:
@@ -2040,14 +2100,10 @@ def reply(
                 _out(
                     _perform_send(
                         send_client,
+                        smtp_resolved,
                         mime_message,
-                        send_block,
-                        send_block_name,
-                        cfg.smtp_blocks,
                         identity,
-                        save_sent,
                         sent_folder,
-                        smtp_override=smtp_override,
                     )
                 )
             elif output is not None:
@@ -2160,9 +2216,7 @@ def send_draft(
     from mailroom.identity import (
         IdentityNotFound,
         SendDisabled,
-        SmtpUnresolved,
         resolve_identity_for_send,
-        resolve_smtp_for_identity,
     )
     from mailroom.smtp_transport import _pick_default_transport
 
@@ -2176,6 +2230,7 @@ def send_draft(
     send_block: Optional[ImapBlock] = block
     send_block_name: str = name
     smtp_override: Optional[SmtpConfig] = None
+    fcc_imap_for_send: Optional[str] = name
 
     try:
         fetched = client.fetch_raw(uid, folder)
@@ -2190,14 +2245,11 @@ def send_draft(
                 cfg, identity_name, smtp_name, from_email, display_name, fcc
             )
             assert route is not None  # one of identity_name/smtp_name was set
-            identity, smtp_override, fcc_imap = route
-            if fcc_imap and fcc_imap != name:
-                send_client = _make_client(imap_override=fcc_imap)
-                owns_send_client = True
-                send_block = cfg.imap_blocks[fcc_imap]
-                send_block_name = fcc_imap
-            elif fcc_imap is None:
-                send_client = None
+            identity, smtp_override, fcc_imap_for_send = route
+            if fcc_imap_for_send and fcc_imap_for_send != name:
+                send_block = cfg.imap_blocks[fcc_imap_for_send]
+                send_block_name = fcc_imap_for_send
+            elif fcc_imap_for_send is None:
                 send_block = None
                 send_block_name = ""
             # Replace the draft's From with the resolved identity's address.
@@ -2229,26 +2281,20 @@ def send_draft(
                 del msg["Bcc"]
             msg["Bcc"] = merged
 
+        smtp_resolved = _resolve_smtp_or_exit(
+            identity, send_block, send_block_name, cfg.smtp_blocks, smtp_override
+        )
+
         if dry_run:
-            if smtp_override is not None:
-                smtp = smtp_override
-            else:
-                try:
-                    smtp = resolve_smtp_for_identity(
-                        identity, block, name, cfg.smtp_blocks
-                    )
-                except SmtpUnresolved as exc:
-                    typer.echo(f"Error: {exc}", err=True)
-                    raise typer.Exit(1)
-            factory = _pick_default_transport(smtp.port)
+            factory = _pick_default_transport(smtp_resolved.port)
             try:
-                conn = factory(smtp.host, smtp.port)
+                conn = factory(smtp_resolved.host, smtp_resolved.port)
                 conn.ehlo()
-                if smtp.port in (587, 2587):
+                if smtp_resolved.port in (587, 2587):
                     conn.starttls()
                     conn.ehlo()
-                if smtp.username and smtp.password:
-                    conn.login(smtp.username, smtp.password)
+                if smtp_resolved.username and smtp_resolved.password:
+                    conn.login(smtp_resolved.username, smtp_resolved.password)
                 conn.quit()
             except Exception as exc:
                 typer.echo(f"Error: dry-run failed: {exc}", err=True)
@@ -2257,22 +2303,27 @@ def send_draft(
                 {
                     "dry_run": True,
                     "identity": identity.address,
-                    "smtp": {"host": smtp.host, "port": smtp.port},
+                    "smtp": {"host": smtp_resolved.host, "port": smtp_resolved.port},
                 }
             )
             return
 
+        will_fcc = _will_fcc(smtp_resolved, save_sent, bcc_provided=bool(bcc))
+        if not will_fcc:
+            send_client = None
+        elif fcc_imap_for_send and fcc_imap_for_send != name:
+            send_client = _make_client(imap_override=fcc_imap_for_send)
+            owns_send_client = True
+        elif fcc_imap_for_send is None:
+            send_client = None
+
         try:
             result = _perform_send(
                 send_client,
+                smtp_resolved,
                 msg,
-                send_block,
-                send_block_name,
-                cfg.smtp_blocks,
                 identity,
-                save_sent,
                 sent_folder,
-                smtp_override=smtp_override,
             )
 
             draft_removed = False

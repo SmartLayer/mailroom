@@ -1404,3 +1404,102 @@ class TestSearchEmailsImapResultShape:
             "has_attachments",
         ):
             assert key in results[0]
+
+
+class TestResolveSentFolder:
+    """``resolve_sent_folder`` is the pre-send verification entry point.
+
+    It backs the FCC-folder check that the issue (#22) requires before
+    SMTP opens, so the failure modes (missing folder, wrong configured
+    name) must be deterministic and not silently fall back away from a
+    user-pinned value.
+    """
+
+    def _make_client(self, host: str = "mail.example.com") -> ImapClient:
+        client = ImapClient(
+            ImapBlock(
+                host=host,
+                port=993,
+                username="test@example.com",
+                password="password",
+                use_ssl=True,
+            )
+        )
+        client.connected = True
+        return client
+
+    def test_special_use_wins_over_name_fallback(self):
+        """RFC 6154 SPECIAL-USE \\Sent is the authoritative answer."""
+        client = self._make_client()
+        with (
+            patch.object(client, "ensure_connected"),
+            patch.object(
+                client,
+                "list_folders",
+                return_value=["INBOX", "INBOX.Sent", "Saved"],
+            ),
+            patch.object(client, "find_special_use_folder", return_value="Saved"),
+        ):
+            assert client.resolve_sent_folder() == "Saved"
+
+    def test_dovecot_inbox_sent_picked_when_no_special_use(self):
+        """Bare ``Sent`` would be rejected by Dovecot's namespace; INBOX.Sent wins."""
+        client = self._make_client()
+        with (
+            patch.object(client, "ensure_connected"),
+            patch.object(
+                client,
+                "list_folders",
+                return_value=["INBOX", "INBOX.Sent", "INBOX.Drafts"],
+            ),
+            patch.object(client, "find_special_use_folder", return_value=None),
+        ):
+            assert client.resolve_sent_folder() == "INBOX.Sent"
+
+    def test_plain_sent_picked_when_no_inbox_prefix(self):
+        client = self._make_client()
+        with (
+            patch.object(client, "ensure_connected"),
+            patch.object(
+                client, "list_folders", return_value=["INBOX", "Sent", "Drafts"]
+            ),
+            patch.object(client, "find_special_use_folder", return_value=None),
+        ):
+            assert client.resolve_sent_folder() == "Sent"
+
+    def test_returns_none_when_nothing_matches(self):
+        """Caller distinguishes 'no folder' from 'configured name not found'
+        by whether ``configured`` was passed."""
+        client = self._make_client()
+        with (
+            patch.object(client, "ensure_connected"),
+            patch.object(
+                client, "list_folders", return_value=["INBOX", "Drafts", "Trash"]
+            ),
+            patch.object(client, "find_special_use_folder", return_value=None),
+        ):
+            assert client.resolve_sent_folder() is None
+
+    def test_configured_name_verified_no_silent_fallback(self):
+        """Configured ``Sent`` must not silently rewrite to the existing INBOX.Sent.
+
+        The whole point of the pre-send check is to surface the user's
+        misconfiguration before SMTP runs; an auto-rewrite would mask it.
+        """
+        client = self._make_client()
+        with (
+            patch.object(client, "ensure_connected"),
+            patch.object(client, "list_folders", return_value=["INBOX", "INBOX.Sent"]),
+            patch.object(client, "find_special_use_folder", return_value=None),
+        ):
+            assert client.resolve_sent_folder(configured="Sent") is None
+
+    def test_configured_name_returns_server_case(self):
+        """A configured ``sent`` matches a server ``Sent`` and returns ``Sent``."""
+        client = self._make_client()
+        with (
+            patch.object(client, "ensure_connected"),
+            patch.object(client, "list_folders", return_value=["INBOX", "Sent"]),
+            patch.object(client, "find_special_use_folder", return_value=None),
+        ):
+            assert client.resolve_sent_folder(configured="sent") == "Sent"
