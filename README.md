@@ -35,6 +35,7 @@ Commandline users, script authors, and AI assistants can search, read, download,
 - Move, flag, or archive messages
 - Search across all folders at once
 - Handle a meeting invite (check availability, draft a response)
+- Answer questions instantly across a large archive when paired with offlineimap and mu for a local indexed cache
 
 ## Installation
 
@@ -48,7 +49,7 @@ Copy the sample and fill in your credentials:
 cp examples/config.sample.toml ~/.config/mailroom/config.toml
 ```
 
-A minimal config has three top-level named-entity tables: an `[imap.NAME]` mailbox, an `[smtp.NAME]` outgoing endpoint, and an `[identity.NAME]` describing one sendable address pointing at the IMAP block:
+A small config has three top-level named-entity tables: an `[imap.NAME]` mailbox, an `[smtp.NAME]` outgoing endpoint, and an `[identity.NAME]` describing one sendable address pointing at the IMAP block:
 
 ```toml
 [smtp.gmail]
@@ -59,6 +60,7 @@ port = 587
 host = "imap.gmail.com"
 port = 993
 username = "you@gmail.com"
+# For Gmail, generate this at https://myaccount.google.com/apppasswords
 password = "abcdefghijklmnop"
 default_smtp = "gmail"
 
@@ -67,7 +69,9 @@ imap = "personal"
 address = "you@gmail.com"
 ```
 
-Gmail OAuth2 uses dedicated keys on the same `[imap.NAME]` block:
+(Smaller is also valid: `[imap.*]` alone reads but cannot send; `[identity.*]` with `bcc` plus `[smtp.*]` sends but cannot read.)
+
+For Gmail, the simpler path is the app-password example above. The alternative is OAuth2, which needs a Google Cloud project set up through Google's developer console (a much messier path); if you have already done that, the same `[imap.NAME]` block carries the OAuth2 keys instead of `password`:
 
 ```toml
 [imap.personal]
@@ -102,7 +106,7 @@ No installation step; `uvx` runs it directly. To install permanently:
 uv tool install mailroom
 ```
 
-On Ubuntu 25.04 or later, the CLI dependencies are in the standard repositories. Install them, then run directly from a clone:
+On Debian and Ubuntu, the default install path is the `.deb` package from the GitHub release (see [INSTALLATION.md](docs/INSTALLATION.md)). As an alternative for running from a clone without installing, on Ubuntu 25.04 or later the CLI dependencies are all in the standard repositories:
 
 ```bash
 sudo apt-get install python3-typer python3-dotenv python3-imapclient python3-requests
