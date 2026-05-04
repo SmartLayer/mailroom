@@ -782,6 +782,97 @@ address = "b@x.com"
 """)
         assert any("no creds and shared by [imap.*] blocks" in w for w in cfg.warnings)
 
+    def test_bcc_only_identity_loads_cleanly_with_lone_smtp(self):
+        """Regression: a bcc-only identity (no [imap.*] reference) must
+        not crash _collect_warnings. With exactly one SMTP block, the
+        identity resolves smtp via the lone-fallback rule and emits no
+        warning."""
+        cfg = self._toml_with("""\
+[smtp.relay]
+host = "relay.example.com"
+username = "u"
+password = "p"
+
+[imap.a]
+host = "imap.example.com"
+username = "u@example.com"
+password = "p"
+
+[identity.alice]
+imap = "a"
+address = "alice@example.com"
+
+[identity.bccself]
+address = "bccself@example.com"
+bcc = "bccself@example.com"
+""")
+        assert "bccself" in cfg.identities
+        assert cfg.identities["bccself"].imap is None
+        assert not any("bccself" in w for w in cfg.warnings)
+
+    def test_bcc_only_identity_with_explicit_smtp_loads_cleanly(self):
+        """A bcc-only identity that names its own smtp resolves cleanly
+        even when multiple SMTP blocks exist."""
+        cfg = self._toml_with("""\
+[smtp.relay1]
+host = "r1.example.com"
+username = "u1"
+password = "p1"
+
+[smtp.relay2]
+host = "r2.example.com"
+username = "u2"
+password = "p2"
+
+[imap.a]
+host = "imap.example.com"
+username = "u@example.com"
+password = "p"
+
+[identity.alice]
+imap = "a"
+address = "alice@example.com"
+
+[identity.bccself]
+address = "bccself@example.com"
+smtp = "relay1"
+bcc = "bccself@example.com"
+""")
+        assert not any("bccself" in w for w in cfg.warnings)
+
+    def test_bcc_only_identity_without_smtp_path_warns(self):
+        """A bcc-only identity with multiple SMTP blocks and no explicit
+        smtp can't resolve a route. _collect_warnings must surface this
+        rather than crash."""
+        cfg = self._toml_with("""\
+[smtp.relay1]
+host = "r1.example.com"
+username = "u1"
+password = "p1"
+
+[smtp.relay2]
+host = "r2.example.com"
+username = "u2"
+password = "p2"
+
+[imap.a]
+host = "imap.example.com"
+username = "u@example.com"
+password = "p"
+
+[identity.alice]
+imap = "a"
+address = "alice@example.com"
+smtp = "relay1"
+
+[identity.bccself]
+address = "bccself@example.com"
+bcc = "bccself@example.com"
+""")
+        assert any(
+            "bccself" in w and "no [imap.*] block to inherit" in w for w in cfg.warnings
+        )
+
     def test_shared_credless_gmail_does_not_warn(self):
         cfg = self._toml_with("""\
 [smtp.gmail]

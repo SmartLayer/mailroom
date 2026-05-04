@@ -630,10 +630,22 @@ def _collect_warnings(cfg: MailroomConfig) -> List[str]:
 
     by_imap: Dict[str, List[str]] = {}
     for ident_name, ident in cfg.identities.items():
-        by_imap.setdefault(ident.imap, []).append(ident_name)
+        if ident.imap is not None:
+            by_imap.setdefault(ident.imap, []).append(ident_name)
 
     for ident_name, ident in cfg.identities.items():
         if ident.smtp is not None:
+            continue
+        if ident.imap is None:
+            # bcc-only identity: no [imap.*] block to inherit default_smtp
+            # from. Sending requires identity.smtp or exactly one SMTP block.
+            if not has_lone_smtp:
+                warnings.append(
+                    f"[identity.{ident_name}]: no 'smtp' set and no "
+                    f"[imap.*] block to inherit default_smtp from; "
+                    f"sending requires either 'smtp = ...' on this "
+                    f"identity or exactly one [smtp.*] block."
+                )
             continue
         block = cfg.imap_blocks[ident.imap]
         has_block_default = (
@@ -659,7 +671,7 @@ def _collect_warnings(cfg: MailroomConfig) -> List[str]:
         if block.default_smtp and block.default_smtp in refs:
             refs[block.default_smtp].add(imap_name)
     for ident in cfg.identities.values():
-        if ident.smtp and ident.smtp in refs:
+        if ident.smtp and ident.smtp in refs and ident.imap is not None:
             refs[ident.smtp].add(ident.imap)
     for smtp_name, blocks in refs.items():
         smtp = cfg.smtp_blocks[smtp_name]
