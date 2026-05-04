@@ -181,6 +181,7 @@ class TestComposeSendModeA:
                     "--identity",
                     "primary",
                     "--no-save-sent",
+                    "--allow-no-copy",
                 ],
             )
         assert result.exit_code == 0, result.output
@@ -200,7 +201,7 @@ class TestComposeSendModeB:
             captured.append((msg, smtp_cfg))
             return (msg.as_bytes(), _result())
 
-        # No --fcc => no client should be opened.
+        # No --fcc, no BCC self-copy => --allow-no-copy required.
         with (
             patch("mailroom.__main__.load_config", return_value=cfg),
             patch("mailroom.__main__._make_client") as make_client_mock,
@@ -219,6 +220,7 @@ class TestComposeSendModeB:
                     "ses",
                     "--from",
                     "one-off@example.com",
+                    "--allow-no-copy",
                 ],
             )
         assert result.exit_code == 0, result.output
@@ -800,9 +802,10 @@ class TestComposeSendFccVerification:
 
 
 class TestComposeSendBccSkipsFcc:
-    """``--bcc`` is the user's self-copy mechanism: skip FCC and IMAP."""
+    """A ``--bcc`` to the sender's own address is the user's self-copy
+    mechanism: skip FCC and the IMAP connection."""
 
-    def test_bcc_skips_fcc_and_does_not_open_imap(self):
+    def test_bcc_to_self_skips_fcc_and_does_not_open_imap(self):
         cfg = _cfg()
         with (
             patch("mailroom.__main__.load_config", return_value=cfg),
@@ -819,7 +822,7 @@ class TestComposeSendBccSkipsFcc:
                     "--to",
                     "alice@y.com",
                     "--bcc",
-                    "self-copy@x.com",
+                    "primary@x.com",  # the sender's own address
                     "--body",
                     "hi",
                     "--send",
@@ -831,5 +834,87 @@ class TestComposeSendBccSkipsFcc:
         out = json.loads(result.output)
         assert out["fcc_folder"] is None
         assert out["fcc_uid"] is None
-        # The point: --bcc skips the FCC IMAP connection entirely.
+        # The point: a self-BCC skips the FCC IMAP connection entirely.
         make_client_mock.assert_not_called()
+
+    def test_bcc_to_third_party_only_refuses_without_override(self):
+        """BCC to an auditor is not a self-copy: refuse."""
+        cfg = _cfg()
+        with (
+            patch("mailroom.__main__.load_config", return_value=cfg),
+            patch("mailroom.smtp_transport.send") as send_mock,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "compose",
+                    "--to",
+                    "alice@y.com",
+                    "--bcc",
+                    "audit@y.com",
+                    "--body",
+                    "hi",
+                    "--send",
+                    "--identity",
+                    "primary",
+                ],
+            )
+        assert result.exit_code == 1
+        send_mock.assert_not_called()
+        err = result.output + (result.stderr or "")
+        assert "--allow-no-copy" in err
+
+    def test_bcc_to_third_party_with_allow_no_copy_sends(self):
+        cfg = _cfg()
+        with (
+            patch("mailroom.__main__.load_config", return_value=cfg),
+            patch("mailroom.__main__._make_client") as make_client_mock,
+            patch(
+                "mailroom.smtp_transport.send",
+                return_value=(b"raw", _result()),
+            ) as send_mock,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "compose",
+                    "--to",
+                    "alice@y.com",
+                    "--bcc",
+                    "audit@y.com",
+                    "--body",
+                    "hi",
+                    "--send",
+                    "--identity",
+                    "primary",
+                    "--allow-no-copy",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert send_mock.called
+        make_client_mock.assert_not_called()
+
+    def test_no_save_sent_without_bcc_or_override_refuses(self):
+        cfg = _cfg()
+        with (
+            patch("mailroom.__main__.load_config", return_value=cfg),
+            patch("mailroom.smtp_transport.send") as send_mock,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "compose",
+                    "--to",
+                    "alice@y.com",
+                    "--body",
+                    "hi",
+                    "--send",
+                    "--identity",
+                    "primary",
+                    "--no-save-sent",
+                ],
+            )
+        assert result.exit_code == 1
+        send_mock.assert_not_called()
+        err = result.output + (result.stderr or "")
+        assert "--allow-no-copy" in err

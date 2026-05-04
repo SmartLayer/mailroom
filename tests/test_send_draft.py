@@ -222,6 +222,7 @@ class TestSendDraftBcc:
                     "42",
                     "--bcc",
                     "audit@x.com",
+                    "--allow-no-copy",
                 ],
             )
         assert result.exit_code == 0, result.output

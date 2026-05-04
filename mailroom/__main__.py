@@ -560,6 +560,41 @@ def _will_fcc(
     return smtp.resolve_save_sent()
 
 
+def _refuse_if_no_copy(
+    will_fcc: bool,
+    bcc: Optional[List[str]],
+    sender_addr: str,
+    allow_no_copy: bool,
+) -> None:
+    """Refuse the send if no copy of the message will be retained.
+
+    A copy is retained iff the FCC step will run, or the BCC list
+    includes the sender's own address. A BCC addressed only to third
+    parties (e.g. an auditor) does not count as a self-copy: the user
+    still has no record. Pass ``--allow-no-copy`` to override (e.g.
+    throwaway sends through a relay that archives independently).
+    """
+    if will_fcc or allow_no_copy:
+        return
+    if bcc:
+        from mailroom.models import EmailAddress
+
+        sender_lower = sender_addr.lower()
+        for entry in bcc:
+            try:
+                if EmailAddress.parse(entry).address.lower() == sender_lower:
+                    return
+            except Exception:
+                continue
+    typer.echo(
+        "Error: refusing to send: no FCC, and BCC does not include the "
+        "sender's own address, so no copy of this message will be "
+        "retained. Pass --allow-no-copy to override.",
+        err=True,
+    )
+    raise typer.Exit(1)
+
+
 def _perform_send(
     client: Optional[ImapClient],
     smtp: SmtpConfig,
@@ -1737,6 +1772,14 @@ def compose(
         "--sent-folder",
         help="Override the identity's sent_folder for the FCC step (mode A).",
     ),
+    allow_no_copy: bool = typer.Option(
+        False,
+        "--allow-no-copy",
+        help=(
+            "Permit sending when neither FCC nor BCC will retain a copy. "
+            "Default is to refuse, since the user would have no record."
+        ),
+    ),
 ) -> None:
     """Compose a new email.
 
@@ -1782,6 +1825,12 @@ def compose(
             identity, block, fcc_imap or "", cfg.smtp_blocks, smtp_override
         )
         will_fcc = _will_fcc(smtp_resolved, save_sent, bcc_provided=bool(bcc))
+        _refuse_if_no_copy(
+            will_fcc,
+            bcc=bcc,
+            sender_addr=identity.address,
+            allow_no_copy=allow_no_copy,
+        )
         client = (
             _make_client(imap_override=fcc_imap) if (will_fcc and fcc_imap) else None
         )
@@ -1951,6 +2000,14 @@ def reply(
         "--sent-folder",
         help="Override the identity's sent_folder for the FCC step (mode A).",
     ),
+    allow_no_copy: bool = typer.Option(
+        False,
+        "--allow-no-copy",
+        help=(
+            "Permit sending when neither FCC nor BCC will retain a copy. "
+            "Default is to refuse, since the user would have no record."
+        ),
+    ),
 ) -> None:
     """Draft or send a reply to an email.
 
@@ -2059,6 +2116,12 @@ def reply(
                 smtp_override,
             )
             will_fcc = _will_fcc(smtp_resolved, save_sent, bcc_provided=bool(bcc))
+            _refuse_if_no_copy(
+                will_fcc,
+                bcc=bcc,
+                sender_addr=identity.address,
+                allow_no_copy=allow_no_copy,
+            )
             if not will_fcc:
                 send_client = None
             elif fcc_imap_for_send and fcc_imap_for_send != name:
@@ -2197,6 +2260,15 @@ def send_draft(
         "--bcc",
         help="Add envelope-time BCC recipients without rewriting the draft body.",
     ),
+    allow_no_copy: bool = typer.Option(
+        False,
+        "--allow-no-copy",
+        help=(
+            "Permit sending when neither FCC nor a sender-self BCC will "
+            "retain a copy. Default is to refuse, since the user would "
+            "have no record."
+        ),
+    ),
 ) -> None:
     """Send an existing draft as-is.
 
@@ -2309,6 +2381,12 @@ def send_draft(
             return
 
         will_fcc = _will_fcc(smtp_resolved, save_sent, bcc_provided=bool(bcc))
+        _refuse_if_no_copy(
+            will_fcc,
+            bcc=bcc,
+            sender_addr=identity.address,
+            allow_no_copy=allow_no_copy,
+        )
         if not will_fcc:
             send_client = None
         elif fcc_imap_for_send and fcc_imap_for_send != name:
