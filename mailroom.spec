@@ -65,6 +65,17 @@ install -Dpm 644 debian/mailroom.1 %{buildroot}%{_mandir}/man1/mailroom.1
 %{_mandir}/man1/mailroom.1*
 
 %changelog
+* Mon May 04 2026 Weiwu Zhang <a@colourful.land> - 1.1.3-1
+- Refuse to send when no copy of the message will be retained: send
+  succeeds only if FCC will run or the BCC list includes the sender's
+  own address. Pass --allow-no-copy to override.
+- New `bcc` field on [identity.NAME] (string or list); auto-applied on
+  every send from this identity. With `bcc` set, the `imap` field
+  becomes optional, enabling send-only identities that self-archive
+  via BCC.
+- Homebrew formula on macOS Tahoe now depends on `expat` and sets
+  DYLD_LIBRARY_PATH on the wrapper so pyexpat resolves correctly (#26).
+
 * Sat May 02 2026 Weiwu Zhang <a@colourful.land> - 1.1.1-1
 - SMTP send capability: --send flag on compose and reply transmits via SMTP
   instead of saving to drafts; new send-draft subcommand reads a draft from
