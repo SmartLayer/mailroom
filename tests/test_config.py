@@ -486,6 +486,53 @@ class TestIdentity:
                     {"imap": "work", "address": "x@y.com", "name": bad},
                 )
 
+    def test_bcc_string_normalised_to_list(self):
+        ident = Identity.from_dict(
+            "alice",
+            {"imap": "work", "address": "x@y.com", "bcc": "x@y.com"},
+        )
+        assert ident.bcc == ["x@y.com"]
+
+    def test_bcc_list_kept(self):
+        ident = Identity.from_dict(
+            "alice",
+            {"imap": "work", "address": "x@y.com", "bcc": ["x@y.com", "audit@y.com"]},
+        )
+        assert ident.bcc == ["x@y.com", "audit@y.com"]
+
+    def test_bcc_without_imap_allowed(self):
+        ident = Identity.from_dict(
+            "alice",
+            {"address": "x@y.com", "bcc": "x@y.com"},
+        )
+        assert ident.imap is None
+        assert ident.bcc == ["x@y.com"]
+
+    def test_neither_bcc_nor_imap_rejected(self):
+        with pytest.raises(ValueError, match="missing required string field 'imap'"):
+            Identity.from_dict("alice", {"address": "x@y.com"})
+
+    def test_bcc_invalid_type_rejected(self):
+        with pytest.raises(ValueError, match="'bcc' must be a string or a list"):
+            Identity.from_dict(
+                "alice",
+                {"imap": "work", "address": "x@y.com", "bcc": 42},
+            )
+
+    def test_bcc_empty_list_rejected(self):
+        with pytest.raises(ValueError, match="'bcc' must not be empty"):
+            Identity.from_dict(
+                "alice",
+                {"imap": "work", "address": "x@y.com", "bcc": []},
+            )
+
+    def test_bcc_non_email_rejected(self):
+        with pytest.raises(ValueError, match="not an email address"):
+            Identity.from_dict(
+                "alice",
+                {"imap": "work", "address": "x@y.com", "bcc": "no-at-sign"},
+            )
+
 
 class TestValidateDisplayName:
     """Direct tests for the standalone display-name validator.

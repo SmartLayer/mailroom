@@ -802,8 +802,9 @@ class TestComposeSendFccVerification:
 
 
 class TestComposeSendBccSkipsFcc:
-    """A ``--bcc`` to the sender's own address is the user's self-copy
-    mechanism: skip FCC and the IMAP connection."""
+    """Self-BCC as the self-copy mechanism: skip FCC and IMAP. Covers
+    both the command-line ``--bcc`` form and the identity-level ``bcc``
+    field on ``[identity.NAME]``."""
 
     def test_bcc_to_self_skips_fcc_and_does_not_open_imap(self):
         cfg = _cfg()
@@ -918,3 +919,83 @@ class TestComposeSendBccSkipsFcc:
         send_mock.assert_not_called()
         err = result.output + (result.stderr or "")
         assert "--allow-no-copy" in err
+
+    def test_identity_bcc_added_to_outgoing(self):
+        cfg = _cfg()
+        cfg.identities["bccself"] = Identity(
+            imap="acct",
+            address="bccself@x.com",
+            bcc=["bccself@x.com"],
+        )
+        captured: list = []
+
+        def fake_send(msg, smtp_cfg, transport=None):
+            captured.append(msg)
+            return (msg.as_bytes(), _result())
+
+        with (
+            patch("mailroom.__main__.load_config", return_value=cfg),
+            patch("mailroom.__main__._make_client") as make_client_mock,
+            patch("mailroom.smtp_transport.send", side_effect=fake_send),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "compose",
+                    "--to",
+                    "alice@y.com",
+                    "--body",
+                    "hi",
+                    "--send",
+                    "--identity",
+                    "bccself",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        bcc_hdr = str(captured[0].get("Bcc", "") or "")
+        assert "bccself@x.com" in bcc_hdr
+        # The self-BCC counts: no FCC needed, so no IMAP open.
+        make_client_mock.assert_not_called()
+
+    def test_identity_without_imap_can_still_send(self):
+        """An identity with bcc but no imap is send-only and works without
+        any IMAP block in scope."""
+        cfg = _cfg_with_relay()
+        cfg.identities["sendonly"] = Identity(
+            imap=None,
+            address="sendonly@example.com",
+            smtp="ses",
+            bcc=["sendonly@example.com"],
+        )
+        captured: list = []
+
+        def fake_send(msg, smtp_cfg, transport=None):
+            captured.append((msg, smtp_cfg))
+            return (msg.as_bytes(), _result())
+
+        with (
+            patch("mailroom.__main__.load_config", return_value=cfg),
+            patch("mailroom.__main__._make_client") as make_client_mock,
+            patch("mailroom.smtp_transport.send", side_effect=fake_send),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "compose",
+                    "--to",
+                    "alice@y.com",
+                    "--body",
+                    "hi",
+                    "--send",
+                    "--identity",
+                    "sendonly",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        # SMTP went through the SES block.
+        assert captured[0][1].host == "email-smtp.eu-west-1.amazonaws.com"
+        # Self-BCC made it onto the wire.
+        bcc_hdr = str(captured[0][0].get("Bcc", "") or "")
+        assert "sendonly@example.com" in bcc_hdr
+        # No IMAP connection ever opened (the identity has no imap).
+        make_client_mock.assert_not_called()

@@ -533,7 +533,6 @@ def _resolve_smtp_or_exit(
         return smtp_override
     from mailroom.identity import SmtpUnresolved, resolve_smtp_for_identity
 
-    assert imap_block is not None  # caller contract: needed for inheritance
     try:
         return resolve_smtp_for_identity(identity, imap_block, imap_name, smtp_blocks)
     except SmtpUnresolved as exc:
@@ -1824,10 +1823,13 @@ def compose(
         smtp_resolved = _resolve_smtp_or_exit(
             identity, block, fcc_imap or "", cfg.smtp_blocks, smtp_override
         )
-        will_fcc = _will_fcc(smtp_resolved, save_sent, bcc_provided=bool(bcc))
+        effective_bcc: List[str] = list(bcc or [])
+        if getattr(identity, "bcc", None):
+            effective_bcc.extend(identity.bcc)
+        will_fcc = _will_fcc(smtp_resolved, save_sent, bcc_provided=bool(effective_bcc))
         _refuse_if_no_copy(
             will_fcc,
-            bcc=bcc,
+            bcc=effective_bcc,
             sender_addr=identity.address,
             allow_no_copy=allow_no_copy,
         )
@@ -1838,7 +1840,11 @@ def compose(
             from_addr = EmailAddress(name=identity.name, address=identity.address)
             to_addrs = [EmailAddress.parse(a) for a in to]
             cc_addrs = [EmailAddress.parse(a) for a in cc] if cc else None
-            bcc_addrs = [EmailAddress.parse(a) for a in bcc] if bcc else None
+            bcc_addrs = (
+                [EmailAddress.parse(a) for a in effective_bcc]
+                if effective_bcc
+                else None
+            )
             mime_message = create_mime(
                 from_addr=from_addr,
                 body=body,
@@ -2115,10 +2121,15 @@ def reply(
                 cfg.smtp_blocks,
                 smtp_override,
             )
-            will_fcc = _will_fcc(smtp_resolved, save_sent, bcc_provided=bool(bcc))
+            effective_bcc = list(bcc or [])
+            if getattr(identity, "bcc", None):
+                effective_bcc.extend(identity.bcc)
+            will_fcc = _will_fcc(
+                smtp_resolved, save_sent, bcc_provided=bool(effective_bcc)
+            )
             _refuse_if_no_copy(
                 will_fcc,
-                bcc=bcc,
+                bcc=effective_bcc,
                 sender_addr=identity.address,
                 allow_no_copy=allow_no_copy,
             )
@@ -2143,7 +2154,16 @@ def reply(
 
         from_addr = EmailAddress(name=identity.name, address=identity.address)
         cc_addresses = [EmailAddress.parse(addr) for addr in cc] if cc else None
-        bcc_addresses = [EmailAddress.parse(addr) for addr in bcc] if bcc else None
+        # On --send, fold identity.bcc into the outgoing BCC. In drafting,
+        # leave the draft's BCC alone (user may set it manually).
+        outgoing_bcc = list(bcc or [])
+        if send_flag and getattr(identity, "bcc", None):
+            outgoing_bcc.extend(identity.bcc)
+        bcc_addresses = (
+            [EmailAddress.parse(addr) for addr in outgoing_bcc]
+            if outgoing_bcc
+            else None
+        )
 
         mime_message = create_mime(
             original_email=email_obj,
@@ -2346,9 +2366,16 @@ def send_draft(
                 typer.echo(f"Error: {exc}", err=True)
                 raise typer.Exit(1)
 
-        if bcc:
+        envelope_bcc = list(bcc or [])
+        if getattr(identity, "bcc", None):
+            envelope_bcc.extend(identity.bcc)
+        if envelope_bcc:
             existing = str(msg.get("Bcc", "") or "").strip()
-            merged = ", ".join([existing] + list(bcc)) if existing else ", ".join(bcc)
+            merged = (
+                ", ".join([existing] + envelope_bcc)
+                if existing
+                else ", ".join(envelope_bcc)
+            )
             if "Bcc" in msg:
                 del msg["Bcc"]
             msg["Bcc"] = merged
@@ -2380,10 +2407,10 @@ def send_draft(
             )
             return
 
-        will_fcc = _will_fcc(smtp_resolved, save_sent, bcc_provided=bool(bcc))
+        will_fcc = _will_fcc(smtp_resolved, save_sent, bcc_provided=bool(envelope_bcc))
         _refuse_if_no_copy(
             will_fcc,
-            bcc=bcc,
+            bcc=envelope_bcc,
             sender_addr=identity.address,
             allow_no_copy=allow_no_copy,
         )

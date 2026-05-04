@@ -265,13 +265,19 @@ class SmtpConfig:
 class Identity:
     """A send identity: one From address served by one [imap.NAME] block.
 
-    Each [identity.NAME] block names the [imap.NAME] block it routes
-    through via its ``imap`` field. The address is the From header used
-    on transmit. A block with no identities pointing at it is read-only;
-    sending is rejected at send time with ``SendDisabled``.
+    Each [identity.NAME] block normally names the [imap.NAME] block it
+    routes through via its ``imap`` field. The address is the From
+    header used on transmit. A block with no identities pointing at it
+    is read-only; sending is rejected at send time with ``SendDisabled``.
+
+    An identity with ``bcc`` set may omit ``imap``: the BCC list (which
+    typically points at the sender's own mailbox) is the self-copy
+    mechanism, and no IMAP block is needed for FCC. Such an identity is
+    send-only: it cannot fetch, save drafts, or reply to a parent.
 
     Attributes:
         imap: Name of the [imap.NAME] block this identity belongs to.
+            Optional iff ``bcc`` is set.
         address: The bare email address used in the ``From`` header.
         name: Display name. Empty string for bare-address From.
         smtp: Name of an ``[smtp.NAME]`` block. When None, falls back to
@@ -279,13 +285,17 @@ class Identity:
             exactly one is defined.
         sent_folder: IMAP folder to FCC the sent message into. When None,
             uses the [imap.NAME] block's resolved Sent folder.
+        bcc: Addresses automatically added as BCC on every send from
+            this identity. Use this to BCC a copy to yourself when no
+            IMAP/FCC is configured.
     """
 
-    imap: str
     address: str
+    imap: Optional[str] = None
     name: str = ""
     smtp: Optional[str] = None
     sent_folder: Optional[str] = None
+    bcc: Optional[List[str]] = None
 
     @classmethod
     def from_dict(cls, ident_name: str, data: Dict[str, Any]) -> "Identity":
@@ -301,12 +311,41 @@ class Identity:
         where = f"[identity.{ident_name}]"
         if not isinstance(data, dict):
             raise ValueError(f"{where}: must be a table")
-        imap = data.get("imap")
-        if not isinstance(imap, str) or not imap:
-            raise ValueError(
-                f"{where}: missing required string field 'imap' "
-                f"(name of an [imap.NAME] block)"
-            )
+        bcc_raw = data.get("bcc")
+        bcc: Optional[List[str]] = None
+        if bcc_raw is not None:
+            if isinstance(bcc_raw, str):
+                bcc_list = [bcc_raw]
+            elif isinstance(bcc_raw, list) and all(isinstance(x, str) for x in bcc_raw):
+                bcc_list = list(bcc_raw)
+            else:
+                raise ValueError(
+                    f"{where}: 'bcc' must be a string or a list of strings"
+                )
+            for entry in bcc_list:
+                if "@" not in entry:
+                    raise ValueError(
+                        f"{where}: 'bcc' entry {entry!r} is not an email address"
+                    )
+            if not bcc_list:
+                raise ValueError(f"{where}: 'bcc' must not be empty if set")
+            bcc = bcc_list
+        imap_raw = data.get("imap")
+        if imap_raw is None:
+            if bcc is None:
+                raise ValueError(
+                    f"{where}: missing required string field 'imap' "
+                    f"(name of an [imap.NAME] block); 'bcc' may be set "
+                    f"instead for a send-only identity"
+                )
+            imap = None
+        else:
+            if not isinstance(imap_raw, str) or not imap_raw:
+                raise ValueError(
+                    f"{where}: 'imap' must be a non-empty string referencing "
+                    f"an [imap.NAME] block"
+                )
+            imap = imap_raw
         address = data.get("address")
         if not isinstance(address, str) or "@" not in address:
             raise ValueError(f"{where}: missing or invalid 'address'")
@@ -323,7 +362,12 @@ class Identity:
         if sent_folder is not None and not isinstance(sent_folder, str):
             raise ValueError(f"{where}: 'sent_folder' must be a string when present")
         return cls(
-            imap=imap, address=address, name=name, smtp=smtp, sent_folder=sent_folder
+            imap=imap,
+            address=address,
+            name=name,
+            smtp=smtp,
+            sent_folder=sent_folder,
+            bcc=bcc,
         )
 
 
@@ -516,7 +560,7 @@ class MailroomConfig:
         per_imap_addresses: Dict[str, set] = {}
         for ident_name, ident_data in identity_data.items():
             ident = Identity.from_dict(ident_name, ident_data)
-            if ident.imap not in imap_blocks:
+            if ident.imap is not None and ident.imap not in imap_blocks:
                 raise ValueError(
                     f"[identity.{ident_name}]: 'imap' references undefined "
                     f"[imap.{ident.imap}]; defined: {sorted(imap_blocks)}"
@@ -527,14 +571,15 @@ class MailroomConfig:
                     f"[smtp.{ident.smtp}]; defined: {smtp_names}"
                 )
             addr_lc = ident.address.lower()
-            seen = per_imap_addresses.setdefault(ident.imap, set())
-            if addr_lc in seen:
-                raise ValueError(
-                    f"[identity.{ident_name}]: address '{addr_lc}' "
-                    f"already declared by another identity pointing at "
-                    f"[imap.{ident.imap}]"
-                )
-            seen.add(addr_lc)
+            if ident.imap is not None:
+                seen = per_imap_addresses.setdefault(ident.imap, set())
+                if addr_lc in seen:
+                    raise ValueError(
+                        f"[identity.{ident_name}]: address '{addr_lc}' "
+                        f"already declared by another identity pointing at "
+                        f"[imap.{ident.imap}]"
+                    )
+                seen.add(addr_lc)
             identities[ident_name] = ident
 
         default_imap = data.get("default_imap")

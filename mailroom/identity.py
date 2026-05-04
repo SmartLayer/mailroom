@@ -159,7 +159,7 @@ def resolve_identity_for_reply(
 
 def resolve_smtp_for_identity(
     identity: Identity,
-    imap_block: ImapBlock,
+    imap_block: Optional[ImapBlock],
     imap_name: str,
     smtp_blocks: Dict[str, SmtpConfig],
 ) -> SmtpConfig:
@@ -167,21 +167,24 @@ def resolve_smtp_for_identity(
 
     Resolution order:
         1. ``identity.smtp`` if set.
-        2. ``imap_block.default_smtp`` if set.
+        2. ``imap_block.default_smtp`` if set (skipped if no imap block).
         3. The lone ``[smtp.*]`` block when exactly one is defined.
 
-    When the resolved SMTP block is a template (no username/password), this
-    function returns a copy with credentials filled from the [imap.NAME]
-    block's IMAP login. Concrete SMTP blocks (with their own creds) pass
-    through unchanged.
+    When the resolved SMTP block is a template (no username/password) and
+    an imap block is available, this function returns a copy with
+    credentials filled from the [imap.NAME] block's IMAP login. Without
+    an imap block (a bcc-only identity), a credential-less SMTP block
+    raises ``SmtpUnresolved``.
 
     Raises:
-        SmtpUnresolved: When none of the rules match.
+        SmtpUnresolved: When none of the rules match, or when the
+            resolved SMTP needs credentials and no IMAP block is
+            available to inherit from.
     """
     name: Optional[str]
     if identity.smtp:
         name = identity.smtp
-    elif imap_block.default_smtp:
+    elif imap_block is not None and imap_block.default_smtp:
         name = imap_block.default_smtp
     elif len(smtp_blocks) == 1:
         name = next(iter(smtp_blocks))
@@ -194,6 +197,12 @@ def resolve_smtp_for_identity(
     smtp = smtp_blocks[name]
     if smtp.username and smtp.password:
         return smtp
+    if imap_block is None:
+        raise SmtpUnresolved(
+            imap_name=imap_name,
+            identity_addr=identity.address,
+            available=sorted(smtp_blocks),
+        )
     return replace(
         smtp,
         username=smtp.username or imap_block.username,
