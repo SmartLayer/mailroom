@@ -11,7 +11,7 @@ When the user asks to "do the release", "release X.Y.Z", or "release now", they 
 1. **Commit** any uncommitted source/test/packaging changes from this session, in logically grouped commits (feature → version bump → packaging metadata sync → Homebrew URL placeholder). Match the commit-message style of the prior release commits (see `git log -- debian/changelog mailroom.spec formula/mailroom.rb`).
 2. **Push** to `origin/main`.
 3. **Tag** `vX.Y.Z` and **push the tag**.
-4. **Create the GitHub release**: `gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."` — release notes summarise the user-visible changes.
+4. **Create the GitHub release**: `gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."`. Release notes summarise the user-visible changes. Include a one-line install instruction for each supported platform: at minimum, `brew install SmartLayer/mailroom/mailroom` for macOS. Skip the brew line for any release where macOS install is known broken (e.g. issue #26 was open against v1.1.2); only add it back once a Tahoe install has been verified end-to-end. Do not invent platforms (no apt one-liner unless we host an APT repo).
 5. **Build BOTH `.deb` AND `.rpm`** — never just one. The host has both `dpkg-buildpackage` and `rpmbuild` available; check with `which` if unsure, do not assume.
    - `.deb`: from project root, `dpkg-buildpackage -us -uc -b` → artifact lands at `../mailroom_X.Y.Z_all.deb`.
    - `.rpm`: download the GitHub tarball to `~/rpmbuild/SOURCES/mailroom-X.Y.Z.tar.gz`, then `rpmbuild -bb mailroom.spec` → artifact lands at `~/rpmbuild/RPMS/noarch/mailroom-X.Y.Z-1.noarch.rpm`.
