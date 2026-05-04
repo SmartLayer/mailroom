@@ -1,5 +1,5 @@
 Name:           mailroom
-Version:        1.1.2
+Version:        1.1.3
 Release:        1%{?dist}
 Summary:        Email toolkit for AI assistants and command-line scripting
 License:        MIT

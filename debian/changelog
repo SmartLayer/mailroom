@@ -1,3 +1,21 @@
+mailroom (1.1.3) unstable; urgency=medium
+
+  * Refuse to send when no copy of the message will be retained. A send
+    is allowed only if FCC will run, or the BCC list includes the
+    sender's own address. A BCC addressed only to a third party is no
+    longer treated as a self-copy. Pass --allow-no-copy on
+    compose/reply/send-draft to override.
+  * New `bcc` field on `[identity.NAME]` (string or list of strings):
+    addresses appended to BCC on every send from this identity, useful
+    for self-archiving via mail rules. With `bcc` set, the `imap` field
+    becomes optional; a send-only identity that BCCs itself needs no
+    IMAP block in scope.
+  * Homebrew formula on macOS Tahoe now depends on `expat` and wraps
+    the entry point with DYLD_LIBRARY_PATH so pyexpat resolves against
+    Homebrew's expat instead of the older system library (#26).
+
+ -- Weiwu Zhang <a@colourful.land>  Mon, 04 May 2026 00:00:00 +0000
+
 mailroom (1.1.2) unstable; urgency=medium
 
   * compose/reply/send-draft --send now require an explicit route. Either
