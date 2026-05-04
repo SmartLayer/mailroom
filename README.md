@@ -15,8 +15,7 @@ Give your script or AI assistant access to your email.
 - [CLI usage](#cli-usage)
 - [MCP server](#mcp-server)
 - [Scripting and automation](#scripting-and-automation)
-- [Multi-block and send-as](#multi-block-and-send-as)
-- [Local cache (mu)](#local-cache-mu)
+- [Faster searches](#faster-searches)
 - [Connection handling](#connection-handling)
 - [Security](#security)
 - [License](#license)
@@ -35,7 +34,7 @@ Commandline users, script authors, and AI assistants can search, read, download,
 - Move, flag, or archive messages
 - Search across all folders at once
 - Handle a meeting invite (check availability, draft a response)
-- Answer questions instantly across a large archive when paired with offlineimap and mu for a local indexed cache
+- Answer questions instantly across a large archive when paired with offlineimap and mu for a local indexed cache (see [docs/LOCAL_CACHE.md](docs/LOCAL_CACHE.md))
 
 ## Installation
 
@@ -91,6 +90,8 @@ Sending requires at least one `[identity.NAME]` block pointing at the `[imap.NAM
 `mailroom config-check` validates the config (cross-references, identity addresses, send-route resolution) without performing any IMAP or SMTP traffic. The same warnings surface on `mailroom`, `mailroom --help`, `mailroom status`, and `mailroom list`.
 
 Gmail OAuth2 setup requires a Google Cloud project with the Gmail API enabled. See [GMAIL_SETUP.md](docs/GMAIL_SETUP.md) for the full walkthrough.
+
+For multi-account configs (multiple `[imap.*]` blocks, send-as through several identities, SES smarthost routing), see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ## Quick test
 
@@ -148,7 +149,7 @@ mailroom reply -f INBOX -u 4523 -b "Invoice attached." --attach /tmp/invoice.pdf
 mailroom reply -f INBOX -u 4523 -b "Thanks, confirmed." --send
 
 # Compose a new message (--send requires --identity NAME, or
-# --smtp NAME --from EMAIL; see "Multi-block and send-as" below)
+# --smtp NAME --from EMAIL; see docs/CONFIGURATION.md)
 mailroom compose --to alice@example.com --subject "Meeting" \
   -b "See attached." --send --identity work
 
@@ -196,117 +197,9 @@ mailroom search "is:unread subject:invoice" --folder INBOX \
 
 AI agents with skill/hook systems call Mailroom the same way: define a skill that runs a shell command and parses the JSON output.
 
-## Multi-block and send-as
+## Faster searches
 
-A single config holds multiple `[imap.*]` blocks, `[smtp.*]` endpoints, and `[identity.*]` blocks. Each identity declares which `[imap.NAME]` block it routes through:
-
-```toml
-default_imap = "personal"
-
-[smtp.gmail]
-host = "smtp.gmail.com"
-port = 587
-
-[smtp.ses-syd]
-host = "email-smtp.ap-southeast-2.amazonaws.com"
-port = 587
-username = "AKIA..."
-password = "BPa+..."
-
-[imap.personal]
-host = "imap.gmail.com"
-username = "you@gmail.com"
-password = "personal-app-password"
-default_smtp = "gmail"
-
-[identity.personal]
-imap = "personal"
-address = "you@gmail.com"
-
-[imap.work]
-host = "outlook.office365.com"
-username = "you@company.com"
-password = "work-app-password"
-
-[identity.work]
-imap = "work"
-address = "you@company.com"
-```
-
-Select an `[imap.NAME]` block with `-i`:
-
-```bash
-mailroom -i work search "is:unread"
-```
-
-A single `[imap.NAME]` block can have several identities, useful when one Gmail mailbox handles personal mail and an organisational alias routed through SES:
-
-```toml
-[imap.director]
-host = "imap.gmail.com"
-username = "alias-host@gmail.com"
-password = "gmail-app-password"
-default_smtp = "gmail"
-
-[identity.director]
-imap = "director"
-address = "director@example.org"
-name = "Director Name"
-smtp = "ses-syd"
-sent_folder = "[Gmail]/Sent Mail"
-
-[identity.director-alias]
-imap = "director"
-address = "alias-host@gmail.com"
-```
-
-### Picking a send identity (`--send` mode)
-
-`compose --send`, `reply --send`, and `send-draft` require the route to be named explicitly. There are two forms.
-
-**Mode A: `--identity NAME`.** Names a configured `[identity.NAME]` block; resolves From, display name, the `[imap.*]` block, the SMTP route, and the Sent folder.
-
-```bash
-mailroom compose --send --identity director \
-  --to client@example.com -b "..."
-```
-
-**Mode B: `--smtp NAME --from EMAIL [--name N] [--fcc IMAP:FOLDER]`.** Sends a free-form `--from` through a named SMTP block, without consulting any `[identity.*]`. The SMTP block must carry its own username and password (no inheritance from an `[imap.*]` block, since none is in scope). Useful for relays like SES that are authorised to carry many addresses. With no `--fcc`, no copy is saved; with `--fcc work:Sent`, mailroom appends the message to the named folder on `[imap.work]` after a successful send.
-
-```bash
-mailroom compose --send --smtp ses-syd \
-  --from "noreply@example.org" --name "Example Org" \
-  --fcc director:Sent \
-  --to client@example.com -b "..."
-```
-
-**Reply** has one extra path: when neither flag is given, mailroom matches the parent's recipients against identities on the selected `[imap.*]` block and uses the match. If no recipient matches, `reply --send` errors rather than silently picking an arbitrary identity. The drafting path (no `--send`) keeps the older fallback behaviour.
-
-**`send-draft`** by default uses the draft's own From header and refuses to send if it does not match a configured identity. `--identity` or `--smtp/--from` override the draft's From for that send.
-
-Drafting (no `--send`) keeps the previous convenience defaults: the first identity on the selected `[imap.*]` block is the From, and `--from EMAIL` selects a different identity by address.
-
-## Local cache (mu)
-
-If you already have your maildir indexed by [mu](https://www.djcbsoftware.nl/code/mu/), `search` can be served from the local Xapian index instead of IMAP, orders of magnitude faster. Opt in by adding a `[local_cache]` block plus a per-block `maildir`:
-
-```toml
-[local_cache]
-indexer = "mu"
-max_staleness_seconds = 4000
-
-[imap.gmail]
-host = "imap.gmail.com"
-username = "you@gmail.com"
-password = "..."
-maildir = "/var/local/mail/you-gmail-com"
-
-[identity.gmail]
-imap = "gmail"
-address = "you@gmail.com"
-```
-
-The contract is "a maildir exists and mu indexes it"; mailroom does not run `mbsync`, `offlineimap`, or `mu index`. When the index is stale, the query is untranslatable, the call is folder-scoped, mu is missing, or any error occurs, the search falls back to IMAP transparently. Every `search` response carries a `provenance` field reporting `source` (`"local"` or `"remote"`), the index `indexed_at` timestamp, and a `fell_back_reason` tag when applicable.
+Mailroom can answer `search` from a local Xapian index instead of IMAP, orders of magnitude faster, with transparent fallback to IMAP when the index can't serve the query. See [docs/LOCAL_CACHE.md](docs/LOCAL_CACHE.md) for the offlineimap+mu setup.
 
 ## Connection handling
 
