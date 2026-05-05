@@ -6,8 +6,8 @@ class Mailroom < Formula
 
   desc "Email toolkit for AI assistants and command-line scripting"
   homepage "https://github.com/SmartLayer/mailroom"
-  url "https://github.com/SmartLayer/mailroom/archive/refs/tags/v1.1.3.tar.gz"
-  sha256 "d9cc634c40cd347d0e896ad99c2bf334dd1bf75f7c444f7fe88159351b79c172"
+  url "https://github.com/SmartLayer/mailroom/archive/refs/tags/v1.1.4.tar.gz"
+  sha256 "24953d669197a05b8bf81b773476e489ad45b11ffb87137922ba01aaf061427c"
   license "MIT"
 
   depends_on "python@3.13"
@@ -77,6 +77,11 @@ class Mailroom < Formula
   resource "rich" do
     url "https://files.pythonhosted.org/packages/b3/c6/f3b320c27991c46f43ee9d856302c70dc2d0fb2dba4842ff739d5f46b393/rich-14.3.3.tar.gz"
     sha256 "b8daa0b9e4eef54dd8cf7c86c03713f53241884e814f4e2f5fb342fe520f639b"
+  end
+
+  resource "sievelib" do
+    url "https://files.pythonhosted.org/packages/25/9e/6b2d4ed35f06452fcd05226d381c07bf142215f58960020027ecf4347ba2/sievelib-1.5.0.tar.gz"
+    sha256 "2afbaaf2503afe912de0881e4c577383e6f90f8762931fb4d32f2b54123ce450"
   end
 
   resource "shellingham" do
