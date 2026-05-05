@@ -68,6 +68,15 @@ port = 993
 username = "you@company.com"
 password = "another-app-password"
 default_smtp = "gmail"
+# Optional per-block redact policy. The referenced Sieve file lists
+# rules; messages matching any rule are replaced with a placeholder
+# Email (date and UID preserved, every other field blanked) before
+# reaching the agent or the model provider. The agent sees the
+# redacted entry in search results so it knows the message exists;
+# it cannot read the parties or the content. Relative paths resolve
+# against the directory containing this config.toml. See
+# examples/work-only.sieve for the syntax.
+# redact = "work-only.sieve"
 
 [identity.work]
 imap = "work"
