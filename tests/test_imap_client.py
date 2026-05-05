@@ -1503,3 +1503,105 @@ class TestResolveSentFolder:
             patch.object(client, "find_special_use_folder", return_value=None),
         ):
             assert client.resolve_sent_folder(configured="sent") == "Sent"
+
+
+class TestRedactOnFetch:
+    """Per-block redact policy replaces matched fetches with placeholders.
+
+    The policy is a callable on ``ImapBlock.redact_policy`` that takes
+    an ``Email`` and returns ``True`` to mean "replace with placeholder".
+    Tests stub the callable directly, since the sievelib parsing path
+    is exercised separately in ``tests/test_sieve_filter.py``.
+    """
+
+    def _make_block_with_policy(self, predicate) -> ImapBlock:
+        return ImapBlock(
+            host="imap.example.com",
+            port=993,
+            username="test@example.com",
+            password="password",
+            use_ssl=True,
+            redact_policy=predicate,
+        )
+
+    def test_fetch_email_redacts_match(
+        self, mock_imap_client, test_email_response_data
+    ):
+        """``fetch_email`` returns a placeholder Email when policy matches."""
+        block = self._make_block_with_policy(lambda e: True)
+        client = ImapClient(block)
+        with patch("imapclient.IMAPClient") as mock_cls:
+            mock_cls.return_value = mock_imap_client
+            mock_imap_client.select_folder.return_value = {b"EXISTS": 10}
+            mock_imap_client.fetch.return_value = {12345: test_email_response_data}
+            client.connect()
+            result = client.fetch_email(12345, folder="INBOX")
+        assert result is not None
+        assert result.redacted_by == "redacted"
+        assert result.from_.address == "[redacted]"
+        assert result.uid == 12345
+
+    def test_fetch_email_passthrough_when_predicate_false(
+        self, mock_imap_client, test_email_response_data
+    ):
+        """A predicate that returns False yields the original email."""
+        block = self._make_block_with_policy(lambda e: False)
+        client = ImapClient(block)
+        with patch("imapclient.IMAPClient") as mock_cls:
+            mock_cls.return_value = mock_imap_client
+            mock_imap_client.select_folder.return_value = {b"EXISTS": 10}
+            mock_imap_client.fetch.return_value = {12345: test_email_response_data}
+            client.connect()
+            result = client.fetch_email(12345, folder="INBOX")
+        assert result is not None
+        assert result.redacted_by is None
+        assert result.from_.address != "[redacted]"
+
+    def test_fetch_emails_redacts_only_matching(
+        self, mock_imap_client, make_test_email_response_data
+    ):
+        """Per-message predicate evaluation; some matched, some not."""
+        block = self._make_block_with_policy(lambda e: e.uid == 2)
+        client = ImapClient(block)
+        with patch("imapclient.IMAPClient") as mock_cls:
+            mock_cls.return_value = mock_imap_client
+            mock_imap_client.select_folder.return_value = {b"EXISTS": 10}
+            mock_imap_client.fetch.return_value = {
+                1: make_test_email_response_data(uid=1),
+                2: make_test_email_response_data(uid=2),
+                3: make_test_email_response_data(uid=3),
+            }
+            client.connect()
+            emails = client.fetch_emails([1, 2, 3], folder="INBOX")
+        assert emails[1].redacted_by is None
+        assert emails[2].redacted_by == "redacted"
+        assert emails[2].from_.address == "[redacted]"
+        assert emails[3].redacted_by is None
+
+    def test_fetch_raw_returns_blank_bytes_for_redacted(self, mock_imap_client):
+        """``fetch_raw`` blanks the bytes and tags the dict for redacted UIDs."""
+        block = self._make_block_with_policy(lambda e: True)
+        client = ImapClient(block)
+        raw_bytes = (
+            b"From: alice@example.com\r\n"
+            b"To: bob@example.com\r\n"
+            b"Subject: confidential\r\n"
+            b"\r\n"
+            b"body text\r\n"
+        )
+        with patch("imapclient.IMAPClient") as mock_cls:
+            mock_cls.return_value = mock_imap_client
+            mock_imap_client.select_folder.return_value = {b"EXISTS": 10}
+            mock_imap_client.fetch.return_value = {
+                7: {
+                    b"BODY[]": raw_bytes,
+                    b"FLAGS": (),
+                    b"INTERNALDATE": None,
+                }
+            }
+            client.connect()
+            result = client.fetch_raw(7, folder="INBOX")
+        assert result is not None
+        assert result["raw"] == b""
+        assert result["redacted_by"] == "redacted"
+        assert result["subject"].startswith("[redacted")

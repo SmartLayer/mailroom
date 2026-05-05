@@ -416,7 +416,12 @@ class ImapClient:
             folder: Folder to fetch from
 
         Returns:
-            Email object or None if not found
+            Email object or None if not found. When this block has a
+            ``redact_policy`` and the policy matches, returns a
+            placeholder ``Email`` (``redacted_by`` set, sensitive fields
+            blanked) rather than ``None``: the agent must know the
+            message exists in order for the privacy posture to be
+            honest.
 
         Raises:
             ConnectionError: If not connected and connection fails
@@ -446,6 +451,13 @@ class ImapClient:
         email_obj.flags = str_flags
 
         self._update_activity()
+        return self._apply_redact(email_obj)
+
+    def _apply_redact(self, email_obj: Email) -> Email:
+        """Run the per-block redact policy and replace if matched."""
+        policy = self.block.redact_policy
+        if policy is not None and policy(email_obj):
+            return email_obj.redact("redacted")
         return email_obj
 
     def fetch_emails(
@@ -497,7 +509,7 @@ class ImapClient:
             email_obj = Email.from_message(message, uid=uid, folder=folder)
             email_obj.flags = str_flags
 
-            emails[uid] = email_obj
+            emails[uid] = self._apply_redact(email_obj)
 
         self._update_activity()
         return emails
@@ -950,6 +962,19 @@ class ImapClient:
         subject = msg.get("Subject", "(no subject)")
 
         self._update_activity()
+
+        policy = self.block.redact_policy
+        if policy is not None:
+            email_obj = Email.from_message(msg, uid=uid, folder=folder)
+            if policy(email_obj):
+                redacted = email_obj.redact("redacted")
+                return {
+                    "raw": b"",
+                    "flags": flags,
+                    "date": internal_date,
+                    "subject": redacted.subject,
+                    "redacted_by": redacted.redacted_by,
+                }
         return {
             "raw": raw_message,
             "flags": flags,
@@ -1242,21 +1267,22 @@ class ImapClient:
             try:
                 emails = self.fetch_emails(uid_list, folder=current_folder)
                 for uid, email_obj in emails.items():
-                    results.append(
-                        {
-                            "uid": uid,
-                            "folder": current_folder,
-                            "from": str(email_obj.from_),
-                            "to": [str(t) for t in email_obj.to],
-                            "subject": email_obj.subject,
-                            "date": (
-                                email_obj.date.isoformat() if email_obj.date else None
-                            ),
-                            "flags": email_obj.flags,
-                            "has_attachments": len(email_obj.attachments) > 0,
-                            "message_id": email_obj.message_id,
-                        }
-                    )
+                    record: Dict[str, Any] = {
+                        "uid": uid,
+                        "folder": current_folder,
+                        "from": str(email_obj.from_),
+                        "to": [str(t) for t in email_obj.to],
+                        "subject": email_obj.subject,
+                        "date": (
+                            email_obj.date.isoformat() if email_obj.date else None
+                        ),
+                        "flags": email_obj.flags,
+                        "has_attachments": len(email_obj.attachments) > 0,
+                        "message_id": email_obj.message_id,
+                    }
+                    if email_obj.redacted_by is not None:
+                        record["redacted_by"] = email_obj.redacted_by
+                    results.append(record)
             except Exception as e:
                 logger.warning(f"Error fetching from folder {current_folder}: {e}")
 

@@ -391,6 +391,10 @@ class ImapBlock:
             local-cache search when [local_cache] is configured.
         default_smtp: Optional name of an [smtp.NAME] block; identities
             in this block inherit it when their own ``smtp`` is unset.
+        redact_policy: Compiled callable from a ``redact = "rules.sieve"``
+            field, taking an ``Email`` and returning ``True`` when that
+            message should be replaced with a placeholder before reaching
+            the agent. ``None`` when no policy is configured.
     """
 
     host: str
@@ -404,6 +408,7 @@ class ImapBlock:
     allowed_folders: Optional[List[str]] = None
     maildir: Optional[str] = None
     default_smtp: Optional[str] = None
+    redact_policy: Optional[Any] = None
 
     @property
     def is_gmail(self) -> bool:
@@ -421,21 +426,25 @@ class ImapBlock:
         data: Dict[str, Any],
         defaults: Dict[str, Any] | None = None,
         name: str = "",
+        config_dir: Optional[Path] = None,
     ) -> "ImapBlock":
         """Create [imap.NAME] block configuration from a flat dictionary.
 
         Args:
             data: Flat block dictionary (host, username, password or
                 client_id/client_secret/refresh_token, plus
-                allowed_folders, maildir, default_smtp).
+                allowed_folders, maildir, default_smtp, redact).
             defaults: Global defaults inherited from top level.
             name: Block name for error-message context. Optional; when
                 empty the error prefix uses ``[imap]`` rather than the
                 named form.
+            config_dir: Directory containing the loaded ``config.toml``,
+                used to resolve a relative ``redact`` path. Absolute
+                ``redact`` paths are taken as written and ignore this.
 
         Raises:
             ValueError: On structural problems (bad types, missing required
-                fields).
+                fields, invalid or missing redact script).
         """
         prefix = f"[imap.{name}]" if name else "[imap]"
         defaults = defaults or {}
@@ -460,6 +469,25 @@ class ImapBlock:
         if default_smtp is not None and not isinstance(default_smtp, str):
             raise ValueError(f"{prefix}: 'default_smtp' must be a string")
 
+        redact_policy: Optional[Any] = None
+        redact_raw = data.get("redact")
+        if redact_raw is not None:
+            if not isinstance(redact_raw, str) or not redact_raw.strip():
+                raise ValueError(f"{prefix}: 'redact' must be a non-empty string path")
+            resolved = Path(redact_raw).expanduser()
+            if not resolved.is_absolute():
+                base = config_dir or Path.cwd()
+                resolved = (base / resolved).resolve()
+            # Import locally to keep the public config import surface small
+            # and to avoid a hard dependency on sievelib for callers that
+            # never touch the redact field.
+            from mailroom.sieve_filter import compile_policy
+
+            try:
+                redact_policy = compile_policy(str(resolved))
+            except ValueError as e:
+                raise ValueError(f"{prefix}: 'redact' invalid: {e}") from e
+
         use_ssl = data.get("use_ssl", True)
 
         return cls(
@@ -476,6 +504,7 @@ class ImapBlock:
             allowed_folders=data.get("allowed_folders"),
             maildir=data.get("maildir"),
             default_smtp=default_smtp,
+            redact_policy=redact_policy,
         )
 
 
@@ -506,7 +535,11 @@ class MailroomConfig:
         return next(iter(self.imap_blocks))
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MailroomConfig":
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        config_dir: Optional[Path] = None,
+    ) -> "MailroomConfig":
         """Create top-level configuration from a parsed-TOML dictionary.
 
         Parses ``[smtp.*]``, ``[imap.*]`` and ``[identity.*]`` blocks,
@@ -514,6 +547,12 @@ class MailroomConfig:
         a defined SMTP block; identity.imap must name a defined IMAP
         block), and collects non-fatal warnings on
         ``MailroomConfig.warnings``.
+
+        Args:
+            data: Parsed top-level TOML dictionary.
+            config_dir: Directory the config file was loaded from, passed
+                through to ``ImapBlock.from_dict`` so per-block ``redact``
+                paths can resolve against it.
 
         Raises:
             ValueError: On structural errors that prevent loading.
@@ -539,7 +578,9 @@ class MailroomConfig:
         for name, block_data in imap_data.items():
             if not isinstance(block_data, dict):
                 raise ValueError(f"[imap.{name}]: must be a table")
-            block = ImapBlock.from_dict(block_data, defaults, name=name)
+            block = ImapBlock.from_dict(
+                block_data, defaults, name=name, config_dir=config_dir
+            )
             if block.default_smtp is not None and block.default_smtp not in smtp_blocks:
                 raise ValueError(
                     f"[imap.{name}]: 'default_smtp' references undefined "
@@ -691,14 +732,20 @@ def _collect_warnings(cfg: MailroomConfig) -> List[str]:
     return warnings
 
 
-def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
+def _load_config_data(
+    config_path: Optional[str] = None,
+) -> Tuple[Dict[str, Any], Optional[Path]]:
     """Load raw configuration data from file or environment variables.
 
     Args:
         config_path: Path to configuration file
 
     Returns:
-        Raw configuration dictionary
+        Tuple of (raw configuration dictionary, directory the file was
+        loaded from). The directory is ``None`` when configuration came
+        from environment variables rather than a file; callers needing
+        to resolve relative paths fall back to the current working
+        directory in that case.
 
     Raises:
         ValueError: If no configuration source is available
@@ -708,10 +755,12 @@ def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
     ]
 
     config_data: Dict[str, Any] = {}
+    config_dir: Optional[Path] = None
     if config_path:
         try:
             with open(config_path, "rb") as f:
                 config_data = tomllib.load(f)
+            config_dir = Path(config_path).resolve().parent
             logger.info(f"Loaded configuration from {config_path}")
         except FileNotFoundError:
             logger.warning(f"Configuration file not found: {config_path}")
@@ -726,6 +775,7 @@ def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
                         config_data = tomllib.load(f)
                 except tomllib.TOMLDecodeError as e:
                     raise ValueError(f"Invalid TOML in {expanded_path}: {e}") from e
+                config_dir = expanded_path.resolve().parent
                 logger.info(f"Loaded configuration from {expanded_path}")
                 break
 
@@ -759,7 +809,7 @@ def _load_config_data(config_path: Optional[str] = None) -> Dict[str, Any]:
                 allowed_folders_env.split(",")
             )
 
-    return config_data
+    return config_data, config_dir
 
 
 def load_config(config_path: Optional[str] = None) -> MailroomConfig:
@@ -774,10 +824,10 @@ def load_config(config_path: Optional[str] = None) -> MailroomConfig:
     Raises:
         ValueError: If configuration is invalid
     """
-    config_data = _load_config_data(config_path)
+    config_data, config_dir = _load_config_data(config_path)
 
     try:
-        return MailroomConfig.from_dict(config_data)
+        return MailroomConfig.from_dict(config_data, config_dir=config_dir)
     except KeyError as e:
         raise ValueError(f"Missing required configuration: {e}")
 

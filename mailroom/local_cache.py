@@ -139,6 +139,15 @@ class MuBackend:
             ``EligibilityResult(eligible=False, reason="…")`` with a
             tag from the ``provenance.fell_back_reason`` vocabulary.
         """
+        # When the block carries a redact policy, every search must
+        # round-trip through IMAP fetch so the policy can evaluate
+        # against full header data; the mu record only carries
+        # from/to/subject and would silently miss a match on cc/bcc or
+        # any other header. Disabling the cache here keeps the
+        # redaction guarantee single-sourced through the IMAP fetch
+        # pipeline.
+        if imap_block.redact_policy is not None:
+            return EligibilityResult(False, "redact_policy_active")
         if shutil.which("mu") is None:
             return EligibilityResult(False, "mu_missing")
         xapian = self._xapian_dir()

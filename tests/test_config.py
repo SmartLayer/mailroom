@@ -176,6 +176,70 @@ class TestImapBlock:
         block = ImapBlock.from_dict(d)
         assert block.allowed_folders == ["INBOX", "Sent"]
 
+    def test_redact_compiles_policy(self, tmp_path):
+        """A valid sieve file is parsed at config-load and stashed as a callable."""
+        sieve_path = tmp_path / "rules.sieve"
+        sieve_path.write_text(
+            'require ["mailroom-policy"];\n' 'if address :is "from" "x@y" { redact; }\n'
+        )
+        d = {
+            "host": "imap.example.com",
+            "username": "u@example.com",
+            "password": "p",
+            "redact": str(sieve_path),
+        }
+        block = ImapBlock.from_dict(d)
+        assert callable(block.redact_policy)
+
+    def test_redact_relative_resolves_against_config_dir(self, tmp_path):
+        """Relative redact paths resolve against the config directory."""
+        (tmp_path / "rules.sieve").write_text(
+            'require ["mailroom-policy"];\n' 'if address :is "from" "x@y" { redact; }\n'
+        )
+        d = {
+            "host": "imap.example.com",
+            "username": "u@example.com",
+            "password": "p",
+            "redact": "rules.sieve",
+        }
+        block = ImapBlock.from_dict(d, config_dir=tmp_path)
+        assert callable(block.redact_policy)
+
+    def test_redact_must_be_string(self):
+        d = {
+            "host": "imap.example.com",
+            "username": "u@example.com",
+            "password": "p",
+            "redact": 42,
+        }
+        with pytest.raises(ValueError, match="'redact' must be a non-empty string"):
+            ImapBlock.from_dict(d, name="acc")
+
+    def test_redact_empty_fails_closed(self):
+        d = {
+            "host": "imap.example.com",
+            "username": "u@example.com",
+            "password": "p",
+            "redact": "  ",
+        }
+        with pytest.raises(ValueError, match="'redact' must be a non-empty string"):
+            ImapBlock.from_dict(d, name="acc")
+
+    def test_redact_invalid_script_fails_closed(self, tmp_path):
+        """A sieve file outside the supported subset fails the block at load."""
+        sieve_path = tmp_path / "bad.sieve"
+        sieve_path.write_text(
+            'require ["body"];\n' 'if body :contains "secret" { redact; }\n'
+        )
+        d = {
+            "host": "imap.example.com",
+            "username": "u@example.com",
+            "password": "p",
+            "redact": str(sieve_path),
+        }
+        with pytest.raises(ValueError, match=r"\[imap\.acc\]: 'redact' invalid"):
+            ImapBlock.from_dict(d, name="acc")
+
 
 class TestMailroomConfig:
     """Test cases for MailroomConfig."""

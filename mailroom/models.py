@@ -181,6 +181,9 @@ class EmailContent:
         return ""
 
 
+_REDACTED_PLACEHOLDER = "[redacted]"
+
+
 @dataclass
 class Email:
     """Email message representation."""
@@ -200,6 +203,52 @@ class Email:
     uid: Optional[int] = None
     in_reply_to: Optional[str] = None
     references: List[str] = field(default_factory=list)
+    # When set, this Email has had its content fields replaced with
+    # placeholders by a per-block redaction policy. The value is a short
+    # rule label suitable for showing the agent which rule fired. Sensitive
+    # fields (subject/from_/to/cc/bcc/headers/content/attachments) carry
+    # placeholders rather than the original content; uid/folder/date/flags
+    # remain authentic so the agent retains a referent for the message.
+    redacted_by: Optional[str] = None
+
+    def redact(self, rule: str) -> "Email":
+        """Return a redacted copy of this email.
+
+        Replaces every content-bearing field with a placeholder and tags
+        the copy with the rule label that fired. Preserves uid, folder,
+        date, flags, message_id, and threading headers so the agent can
+        still reason about timing and referenced threads, but cannot read
+        any party or any content.
+
+        Args:
+            rule: Short label for the rule that fired (e.g. ``"redacted"``
+                or a future per-rule name). Surfaced via ``redacted_by``
+                and embedded in the placeholder body so a casual reader
+                of the body sees why it was hidden.
+
+        Returns:
+            A new Email instance carrying only the non-sensitive
+            referent fields plus placeholders elsewhere.
+        """
+        placeholder_label = f"[redacted by rule {rule}]"
+        return Email(
+            message_id=self.message_id,
+            subject=placeholder_label,
+            from_=EmailAddress(name="", address=_REDACTED_PLACEHOLDER),
+            to=[],
+            cc=[],
+            bcc=[],
+            date=self.date,
+            content=EmailContent(text=placeholder_label, html=""),
+            attachments=[],
+            flags=list(self.flags),
+            headers={},
+            folder=self.folder,
+            uid=self.uid,
+            in_reply_to=self.in_reply_to,
+            references=list(self.references),
+            redacted_by=rule,
+        )
 
     @classmethod
     def from_message(
