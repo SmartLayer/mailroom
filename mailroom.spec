@@ -66,6 +66,23 @@ install -Dpm 644 debian/mailroom.1 %{buildroot}%{_mandir}/man1/mailroom.1
 %{_mandir}/man1/mailroom.1*
 
 %changelog
+* Tue May 06 2026 Weiwu Zhang <a@colourful.land> - 1.1.4-1
+- New per-account redact policy. An optional `redact = "rules.sieve"`
+  field on [imap.NAME] points at a Sieve script; messages matching any
+  rule are replaced with a placeholder Email before reaching the agent
+  or the third-party model provider. UID, date, folder, and threading
+  headers survive so the agent knows the message exists; subject, from,
+  to, cc, and body are blanked.
+- Two motivating cases: (1) keep privileged correspondence (legal
+  counsel, HR, medical) out of the agent's view and out of model-
+  provider logs while the containing mailbox stays connected; (2)
+  restrict the agent to a defined scope inside a shared mailbox, e.g.
+  hide personal mail from a work-context agent.
+- Sieve subset: address/header tests with :is/:contains/:matches;
+  anyof/allof/not; one custom action `redact;`. Out-of-subset
+  constructs fail closed at config-load time.
+- New runtime dependency on python3-sievelib.
+
 * Mon May 04 2026 Weiwu Zhang <a@colourful.land> - 1.1.3-1
 - Refuse to send when no copy of the message will be retained: send
   succeeds only if FCC will run or the BCC list includes the sender's
