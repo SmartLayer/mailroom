@@ -22,6 +22,7 @@ Depends:
  python3-typer,
  python3-requests,
  python3-dotenv,
+ python3-sievelib,
 Suggests:
  python3-flask,
 Description: Email toolkit for AI assistants and command-line scripting

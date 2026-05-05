@@ -1,3 +1,32 @@
+mailroom (1.1.4) unstable; urgency=medium
+
+  * New per-account redact policy. An optional `redact = "rules.sieve"`
+    field on `[imap.NAME]` points at a Sieve script; messages matching
+    any rule are replaced with a placeholder Email before reaching the
+    agent or the third-party model provider. The placeholder preserves
+    UID, date, folder and threading headers so the agent knows the
+    message exists and can reason about timing, but cannot read the
+    parties, the subject, or the body. Two motivating cases:
+
+    1. Keep privileged correspondence (legal counsel, HR, medical) out
+       of the agent's view and out of model-provider logs while the
+       containing mailbox stays connected for everything else.
+
+    2. Restrict the agent to a defined scope inside a shared mailbox,
+       e.g. an account that mixes work and personal mail can hide the
+       personal correspondence from a work-context agent.
+
+    Supported Sieve subset: `address` and `header` tests with `:is`,
+    `:contains`, and `:matches` (leading/trailing glob); `anyof`,
+    `allof`, `not` combinators; one custom action `redact;` declared
+    by `require ["mailroom-policy"];`. Out-of-subset constructs fail
+    closed at config-load time. Sample script in
+    /usr/share/doc/mailroom/examples/work-only.sieve.
+  * New runtime dependency on python3-sievelib for the redact policy
+    parser. Accounts that do not configure `redact` are unaffected.
+
+ -- Weiwu Zhang <a@colourful.land>  Tue, 06 May 2026 00:00:00 +0000
+
 mailroom (1.1.3) unstable; urgency=medium
 
   * Refuse to send when no copy of the message will be retained. A send

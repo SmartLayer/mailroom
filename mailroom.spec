@@ -1,5 +1,5 @@
 Name:           mailroom
-Version:        1.1.3
+Version:        1.1.4
 Release:        1%{?dist}
 Summary:        Email toolkit for AI assistants and command-line scripting
 License:        MIT
@@ -17,6 +17,7 @@ Requires:       python3-imapclient >= 3.0.0
 Requires:       python3-typer >= 0.15.0
 Requires:       python3-requests >= 2.32.0
 Requires:       python3-dotenv >= 1.0.0
+Requires:       python3-sievelib >= 1.5
 
 %description
 Mailroom provides CLI commands for searching, reading, moving, flagging,
