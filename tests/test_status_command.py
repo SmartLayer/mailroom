@@ -1,8 +1,9 @@
 """Tests for the `mailroom status` connection-probe table.
 
 The CLI ``status`` command runs an IMAP login per [imap.NAME] and an
-EHLO + optional auth per [smtp.NAME], then prints a short table.
-Probes are mocked here so the tests do not require live servers.
+EHLO + optional auth per [smtp.NAME] sequentially, then prints a
+short table. Probes are mocked here so the tests do not require live
+servers.
 """
 
 from unittest.mock import MagicMock, patch
@@ -99,7 +100,7 @@ class TestProbeSmtp:
 
 
 class TestProbeAll:
-    """`_probe_all` orders rows IMAP-then-SMTP and runs probes in parallel."""
+    """`_probe_all` runs probes sequentially in config order, IMAP then SMTP."""
 
     def test_orders_imap_then_smtp(self):
         cfg = MailroomConfig(
@@ -115,6 +116,29 @@ class TestProbeAll:
         assert kinds == ["imap", "imap", "smtp"]
         names = [r[0] for r in rows]
         assert names == ["a", "b", "out"]
+
+    def test_calls_probes_in_sequence(self):
+        """Each probe runs to completion before the next one starts.
+
+        Verifies serial dispatch: if probe 1 sets a flag at exit and
+        probe 2 reads that flag at entry, probe 2 must see it set.
+        Under parallel dispatch this property is not guaranteed.
+        """
+        cfg = MailroomConfig(
+            imap_blocks={"a": _imap_block("a"), "b": _imap_block("b")},
+            smtp_blocks={},
+        )
+        order: list = []
+
+        def probe(block):
+            order.append(block.host)
+            return "ok"
+
+        with patch("mailroom.__main__._probe_imap", side_effect=probe):
+            _probe_all(cfg)
+
+        # Both probes ran; the sequence is the config order.
+        assert order == ["imap.a.example.com", "imap.b.example.com"]
 
 
 class TestPrintStatusTable:

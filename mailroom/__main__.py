@@ -1057,8 +1057,13 @@ def status() -> None:
     Each [imap.NAME] block gets a full IMAP login attempt; each
     [smtp.NAME] block gets an EHLO + STARTTLS handshake plus an
     authenticated login when the block carries credentials. Probes
-    run concurrently across blocks so the command is bounded by the
-    slowest server, not the sum.
+    run sequentially in config order: a self-hosted server behind a
+    fail2ban-style lockout would see N near-simultaneous auth events
+    from one IP under parallel probing, which can trip per-IP rate
+    limits and lock the operator out of the very server they are
+    diagnosing. The wall-time cost is real (sum of per-server timeouts
+    rather than the slowest), but a status check is interactive and
+    paid once.
 
     Use ``list`` for the JSON inventory; ``status`` is a short
     operational view answering "which servers are reachable right
@@ -1072,32 +1077,21 @@ def status() -> None:
 
 
 def _probe_all(cfg: MailroomConfig) -> List[Tuple[str, str, str, str]]:
-    """Probe every configured IMAP and SMTP block in parallel.
+    """Probe every configured IMAP and SMTP block sequentially.
 
     Returns rows as (name, kind, endpoint, status). Order: IMAP blocks
     in config order, then SMTP blocks in config order. Connection
     failures surface in the status column; the function never raises.
+    Probes are serial so a self-hosted server behind a per-IP
+    rate-limit (fail2ban etc.) does not see a burst of concurrent
+    auth attempts from this command.
     """
-    from concurrent.futures import ThreadPoolExecutor
-
-    targets: List[Tuple[str, str, Any]] = []
+    rows: List[Tuple[str, str, str, str]] = []
     for name, block in cfg.imap_blocks.items():
-        targets.append((name, "imap", block))
+        rows.append((name, "imap", f"{block.host}:{block.port}", _probe_imap(block)))
     for name, smtp in cfg.smtp_blocks.items():
-        targets.append((name, "smtp", smtp))
-
-    if not targets:
-        return []
-
-    def _run(item: Tuple[str, str, Any]) -> Tuple[str, str, str, str]:
-        name, kind, block = item
-        if kind == "imap":
-            return (name, kind, f"{block.host}:{block.port}", _probe_imap(block))
-        return (name, kind, f"{block.host}:{block.port}", _probe_smtp(block))
-
-    with ThreadPoolExecutor(max_workers=min(8, len(targets))) as ex:
-        results = list(ex.map(_run, targets))
-    return results
+        rows.append((name, "smtp", f"{smtp.host}:{smtp.port}", _probe_smtp(smtp)))
+    return rows
 
 
 def _probe_imap(block: ImapBlock) -> str:
