@@ -1,5 +1,5 @@
 Name:           mailroom
-Version:        1.1.5
+Version:        1.1.6
 Release:        1%{?dist}
 Summary:        Email toolkit for AI assistants and command-line scripting
 License:        MIT
@@ -67,6 +67,19 @@ install -Dpm 644 debian/mailroom.1 %{buildroot}%{_mandir}/man1/mailroom.1
 %{_mandir}/man1/mailroom.1*
 
 %changelog
+* Wed May 06 2026 Weiwu Zhang <a@colourful.land> - 1.1.6-1
+- New `install-claude-command` subcommand: copies the bundled Claude
+  Code command file into ~/.claude/commands/mailroom.md so Claude Code
+  recognises mailroom and routes email-related prompts through the CLI.
+  The file ships inside the Python package, so the same one-liner works
+  regardless of install method. `mailroom status` notes when ~/.claude
+  exists but mailroom is not yet registered.
+- Plain-text bodies containing markdown tables or headings now auto-
+  render an HTML alternative on send. The wire form goes as
+  multipart/alternative with the original plain text first and rendered
+  HTML second, so recipients see structure while plain-text-only clients
+  still get the intended source. Closes #28.
+
 * Wed May 06 2026 Weiwu Zhang <a@colourful.land> - 1.1.5-1
 - `mailroom status` is now a connection-probe table rather than a
   JSON inventory. Each [imap.NAME] runs a full IMAP login; each
