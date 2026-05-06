@@ -324,3 +324,101 @@ class TestCreateReplyMime:
 
         raw = mime_message.as_string()
         assert "filename*=utf-8''" in raw
+
+    def test_auto_html_when_body_contains_table(self):
+        """Markdown table in body with body_html=None → multipart/alternative."""
+        from_addr = EmailAddress(name="Sender", address="sender@example.com")
+        to = [EmailAddress(name="Recipient", address="recipient@example.com")]
+        body = "Summary:\n\n| col | val |\n|-----|-----|\n| a   | 1   |\n"
+
+        mime_message = create_mime(
+            from_addr=from_addr, to=to, subject="report", body=body
+        )
+
+        assert mime_message.is_multipart()
+        alternative = mime_message.get_payload(0)
+        assert alternative.get_content_type() == "multipart/alternative"
+        plain_part = alternative.get_payload(0)
+        html_part = alternative.get_payload(1)
+        assert plain_part.get_content_type() == "text/plain"
+        assert html_part.get_content_type() == "text/html"
+        html_text = html_part.get_payload(decode=True).decode()
+        assert '<table border="1">' in html_text
+        assert "<th>col</th>" in html_text
+        assert "<td>a</td>" in html_text
+        # Plain text part is the original body verbatim.
+        plain_text = plain_part.get_payload(decode=True).decode()
+        assert "| col | val |" in plain_text
+
+    def test_auto_html_when_body_contains_heading(self):
+        """ATX heading in body with body_html=None → multipart/alternative."""
+        from_addr = EmailAddress(name="Sender", address="sender@example.com")
+        to = [EmailAddress(name="Recipient", address="recipient@example.com")]
+        body = "# Status\n\nAll systems nominal.\n"
+
+        mime_message = create_mime(
+            from_addr=from_addr, to=to, subject="status", body=body
+        )
+
+        assert mime_message.is_multipart()
+        alternative = mime_message.get_payload(0)
+        assert alternative.get_content_type() == "multipart/alternative"
+        html_part = alternative.get_payload(1)
+        html_text = html_part.get_payload(decode=True).decode()
+        assert "<h1>Status</h1>" in html_text
+
+    def test_empty_body_html_suppresses_auto_render(self):
+        """body_html='' forces text/plain only even with table/heading present."""
+        from_addr = EmailAddress(name="Sender", address="sender@example.com")
+        to = [EmailAddress(name="Recipient", address="recipient@example.com")]
+        body = "# Heading\n\n| a | b |\n|---|---|\n| 1 | 2 |\n"
+
+        mime_message = create_mime(
+            from_addr=from_addr,
+            to=to,
+            subject="x",
+            body=body,
+            html_body="",
+        )
+
+        # No multipart wrapping when no html and no attachments.
+        assert not mime_message.is_multipart()
+        assert mime_message.get_content_type() == "text/plain"
+
+    def test_no_auto_render_for_plain_prose_with_bullets(self):
+        """Bullets and links alone do not trigger auto-render."""
+        from_addr = EmailAddress(name="Sender", address="sender@example.com")
+        to = [EmailAddress(name="Recipient", address="recipient@example.com")]
+        body = (
+            "Hi there,\n\n"
+            "- item one\n"
+            "- item two\n\n"
+            "See https://example.com for details.\n"
+        )
+
+        mime_message = create_mime(from_addr=from_addr, to=to, subject="x", body=body)
+
+        assert not mime_message.is_multipart()
+        assert mime_message.get_content_type() == "text/plain"
+
+    def test_caller_supplied_html_used_verbatim_even_with_triggers(self):
+        """A caller-supplied body_html is used as-is; auto-render does not run."""
+        from_addr = EmailAddress(name="Sender", address="sender@example.com")
+        to = [EmailAddress(name="Recipient", address="recipient@example.com")]
+        body = "# Heading in plain\n\n| a | b |\n|---|---|\n| 1 | 2 |\n"
+        caller_html = "<p>hand-written</p>"
+
+        mime_message = create_mime(
+            from_addr=from_addr,
+            to=to,
+            subject="x",
+            body=body,
+            html_body=caller_html,
+        )
+
+        alternative = mime_message.get_payload(0)
+        html_part = alternative.get_payload(1)
+        html_text = html_part.get_payload(decode=True).decode()
+        assert html_text.strip() == caller_html
+        assert "<table>" not in html_text
+        assert "<h1>" not in html_text

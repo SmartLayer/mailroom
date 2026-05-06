@@ -24,6 +24,7 @@ classifiers = [
 ]
 dependencies = [
     "imapclient>=3.0.0",
+    "markdown-it-py>=3.0.0",
     "python-dotenv>=1.0.0",
     "requests>=2.32.0",
     "sievelib>=1.5",

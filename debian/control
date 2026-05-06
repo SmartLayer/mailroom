@@ -19,6 +19,7 @@ Depends:
  ${misc:Depends},
  python3 (>= 3.11),
  python3-imapclient,
+ python3-markdown-it,
  python3-typer,
  python3-requests,
  python3-dotenv,

@@ -12,6 +12,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional, Union
 
+from mailroom.markdown_render import needs_html, render_html
 from mailroom.models import Email, EmailAddress
 
 logger = logging.getLogger(__name__)
@@ -124,7 +125,13 @@ def create_mime(
         bcc: BCC recipients. Written to the ``Bcc`` header; most sending agents
             strip it before transmission.
         html_body: Optional HTML body. Triggers a ``multipart/alternative``
-            child inside ``multipart/mixed``.
+            child inside ``multipart/mixed``. Three values are
+            distinguished: ``None`` (default) auto-renders an HTML
+            alternative if *body* contains a markdown table or heading,
+            else sends text/plain only; ``""`` forces text/plain only
+            even when triggers are present (caller has considered HTML
+            and chose none); any other string is used verbatim and the
+            auto-render path is not invoked.
         attachments: Optional list of filesystem paths to attach. Duplicate
             basenames are accepted but may confuse some clients on save.
         original_email: If given, produce a reply to this message.
@@ -141,6 +148,9 @@ def create_mime(
     is_reply = original_email is not None
     if not is_reply and not to:
         raise ValueError("to is required when original_email is not provided")
+
+    if html_body is None and needs_html(body):
+        html_body = render_html(body)
 
     multipart_mode = bool(html_body) or bool(attachments)
     msg: Union[EmailMessage, MIMEMultipart]

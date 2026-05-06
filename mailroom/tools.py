@@ -58,7 +58,10 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             subject: Subject line (default: empty)
             cc: Optional CC recipients
             bcc: Optional BCC recipients
-            body_html: Optional HTML version of the body
+            body_html: Optional HTML version of the body. ``None``
+                (default) auto-renders an HTML alternative when *body*
+                contains a markdown table or heading; ``""`` forces
+                text/plain only; any other string is used verbatim.
             attachments: Optional list of filesystem paths to attach. Paths
                 are read by the MCP server process.
             imap: [imap.NAME] block name (None for default)
@@ -103,7 +106,11 @@ def register_tools(mcp: FastMCP, imap_client: ImapClient) -> None:
             reply_all: Whether to reply to all recipients
             cc: Optional CC recipients
             bcc: Optional BCC recipients
-            body_html: Optional HTML version of the reply
+            body_html: Optional HTML version of the reply. ``None``
+                (default) auto-renders an HTML alternative when
+                *reply_body* contains a markdown table or heading;
+                ``""`` forces text/plain only; any other string is
+                used verbatim.
             attachments: Optional list of filesystem paths to attach to the
                 draft. Paths are read by the MCP server process.
             imap: [imap.NAME] block name (None for default)

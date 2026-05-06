@@ -14,6 +14,7 @@ BuildRequires:  python3-wheel
 
 Requires:       python3 >= 3.11
 Requires:       python3-imapclient >= 3.0.0
+Requires:       python3-markdown-it-py >= 3.0.0
 Requires:       python3-typer >= 0.15.0
 Requires:       python3-requests >= 2.32.0
 Requires:       python3-dotenv >= 1.0.0

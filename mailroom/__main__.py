@@ -1793,7 +1793,14 @@ def compose(
         help="BCC recipients (added to raw message; stripped by sending agents).",
     ),
     body_html: Optional[str] = typer.Option(
-        None, "--body-html", help="HTML version of body."
+        None,
+        "--body-html",
+        help=(
+            "HTML version of body. Omit (default) to auto-render an HTML "
+            "alternative when --body contains a markdown table or heading. "
+            "Pass an empty string to force text/plain only. Any other value "
+            "is used verbatim."
+        ),
     ),
     attach: Optional[List[str]] = typer.Option(
         None, "--attach", help="Path to a file to attach. Repeatable."
@@ -2035,7 +2042,14 @@ def reply(
         help="BCC recipients (added to raw message; stripped by sending agents).",
     ),
     body_html: Optional[str] = typer.Option(
-        None, "--body-html", help="HTML version of reply body."
+        None,
+        "--body-html",
+        help=(
+            "HTML version of reply body. Omit (default) to auto-render an "
+            "HTML alternative when --body contains a markdown table or "
+            "heading. Pass an empty string to force text/plain only. Any "
+            "other value is used verbatim."
+        ),
     ),
     attach: Optional[List[str]] = typer.Option(
         None,
