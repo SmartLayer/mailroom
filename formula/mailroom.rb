@@ -6,8 +6,8 @@ class Mailroom < Formula
 
   desc "Email toolkit for AI assistants and command-line scripting"
   homepage "https://github.com/SmartLayer/mailroom"
-  url "https://github.com/SmartLayer/mailroom/archive/refs/tags/v1.1.5.tar.gz"
-  sha256 "61145fe678b100a9f3c1fca09b93e9941b324208ef011e60fb33628f65948c4d"
+  url "https://github.com/SmartLayer/mailroom/archive/refs/tags/v1.1.6.tar.gz"
+  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "MIT"
 
   depends_on "python@3.13"
