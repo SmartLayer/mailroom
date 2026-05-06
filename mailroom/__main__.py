@@ -1052,18 +1052,116 @@ def list_cmd() -> None:
 
 @app.command("status")
 def status() -> None:
-    """Show server status: inventory plus version metadata.
+    """Show one row per configured server with the result of a connection probe.
 
-    Same shape as `list` with ``server`` and ``version`` keys prepended.
-    Use ``list`` for a tighter inventory; use ``status`` when scripts
-    want the version stamp alongside the configuration.
+    Each [imap.NAME] block gets a full IMAP login attempt; each
+    [smtp.NAME] block gets an EHLO + STARTTLS handshake plus an
+    authenticated login when the block carries credentials. Probes
+    run concurrently across blocks so the command is bounded by the
+    slowest server, not the sum.
+
+    Use ``list`` for the JSON inventory; ``status`` is a short
+    operational view answering "which servers are reachable right
+    now".
     """
     cfg = _load_cfg_or_exit()
-    out: Dict[str, Any] = {"server": "Mailroom", "version": __version__}
-    out.update(_build_inventory(cfg))
-    _out(out)
+    rows = _probe_all(cfg)
+    _print_status_table(rows)
     for w in cfg.warnings:
         print(f"warn: {w}", file=sys.stderr)
+
+
+def _probe_all(cfg: MailroomConfig) -> List[Tuple[str, str, str, str]]:
+    """Probe every configured IMAP and SMTP block in parallel.
+
+    Returns rows as (name, kind, endpoint, status). Order: IMAP blocks
+    in config order, then SMTP blocks in config order. Connection
+    failures surface in the status column; the function never raises.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    targets: List[Tuple[str, str, Any]] = []
+    for name, block in cfg.imap_blocks.items():
+        targets.append((name, "imap", block))
+    for name, smtp in cfg.smtp_blocks.items():
+        targets.append((name, "smtp", smtp))
+
+    if not targets:
+        return []
+
+    def _run(item: Tuple[str, str, Any]) -> Tuple[str, str, str, str]:
+        name, kind, block = item
+        if kind == "imap":
+            return (name, kind, f"{block.host}:{block.port}", _probe_imap(block))
+        return (name, kind, f"{block.host}:{block.port}", _probe_smtp(block))
+
+    with ThreadPoolExecutor(max_workers=min(8, len(targets))) as ex:
+        results = list(ex.map(_run, targets))
+    return results
+
+
+def _probe_imap(block: ImapBlock) -> str:
+    """Connect + login to an IMAP block; return ``ok`` or ``FAIL: <reason>``."""
+    client = ImapClient(block)
+    try:
+        client.connect()
+    except Exception as exc:
+        return f"FAIL: {exc}"
+    finally:
+        try:
+            client.disconnect()
+        except Exception:
+            pass
+    return "ok"
+
+
+def _probe_smtp(smtp: SmtpConfig) -> str:
+    """EHLO + STARTTLS + optional login on an SMTP block.
+
+    A template SMTP block (no own creds) is probed only as far as
+    EHLO+STARTTLS, since authentication only happens at send time
+    against an inheriting [imap.NAME] block. The status row notes
+    that case as ``ok (template, no auth)`` so the operator knows
+    auth was not exercised.
+    """
+    import smtplib
+    import socket
+
+    factory = smtplib.SMTP_SSL if smtp.port == 465 else smtplib.SMTP
+    try:
+        conn = factory(smtp.host, smtp.port, timeout=10)
+    except (smtplib.SMTPException, socket.error, OSError) as exc:
+        return f"FAIL: {exc}"
+    try:
+        conn.ehlo()
+        if smtp.port in (587, 2587):
+            conn.starttls()
+            conn.ehlo()
+        if smtp.username and smtp.password:
+            conn.login(smtp.username, smtp.password)
+            return "ok"
+        return "ok (template, no auth)"
+    except (smtplib.SMTPException, socket.error, OSError) as exc:
+        return f"FAIL: {exc}"
+    finally:
+        try:
+            conn.quit()
+        except Exception:
+            pass
+
+
+def _print_status_table(rows: List[Tuple[str, str, str, str]]) -> None:
+    """Print the status rows as an aligned plain-text table to stdout."""
+    print(f"mailroom {__version__}")
+    if not rows:
+        print("(no [imap.*] or [smtp.*] blocks configured)")
+        return
+    headers = ("NAME", "KIND", "HOST:PORT", "STATUS")
+    widths = [max(len(headers[i]), max(len(r[i]) for r in rows)) for i in range(4)]
+    fmt = "  ".join(f"{{:<{w}}}" for w in widths)
+    print(fmt.format(*headers))
+    for row in rows:
+        print(fmt.format(*row))
 
 
 # ---------------------------------------------------------------------------
