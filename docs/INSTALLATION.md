@@ -69,6 +69,40 @@ fpm -s python -t rpm --python-bin python3 --python-pip pip3 \
     .
 ```
 
+## Upgrading
+
+### Homebrew (macOS / Linux)
+
+```bash
+brew update
+brew upgrade mailroom
+```
+
+`brew upgrade mailroom` alone reports "already installed and up-to-date" because Homebrew's auto-update does not pull third-party taps. Run `brew update` first so the `SmartLayer/mailroom` tap fetches the new formula.
+
+### Debian / Ubuntu
+
+Download the new `.deb` from the [Releases](https://github.com/SmartLayer/mailroom/releases) page and re-run the install command. apt handles the upgrade transparently when the version is higher:
+
+```bash
+sudo apt install ./mailroom_<version>_all.deb
+```
+
+### RPM / Fedora
+
+Same shape as install: dnf upgrades when the file's version is higher than the installed one:
+
+```bash
+sudo dnf install ./mailroom-<version>-1.noarch.rpm
+```
+
+### pipx / uv
+
+```bash
+pipx upgrade mailroom        # if installed via pipx
+uv tool upgrade mailroom     # if installed via uv tool install
+```
+
 ## Configuration
 
 Copy the sample configuration and edit with your credentials:
