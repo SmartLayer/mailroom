@@ -1,3 +1,20 @@
+mailroom (1.1.7) unstable; urgency=medium
+
+  * `search` and `read` repeat at the top level to run several
+    operations in one invocation:
+        mailroom -A search "sergio" search "panedas" read -f INBOX -u 42
+    Each operation gets its own outer key in the result, so per-keyword
+    hit attribution is preserved. Output is JSON of shape
+    `{op_key: {imap_name: result}}`, the same shape single-op `search`
+    and `read` already produced.
+  * The `batch` subcommand is removed. Anyone driving mailroom from a
+    script that ran `mailroom batch "search foo" "search bar"` should
+    switch to `mailroom search foo search bar`. The output shape is
+    unchanged. Issue #34 tracks promoting `--limit` and `--folder` to
+    chain-level so they apply to every chained verb.
+
+ -- Weiwu Zhang <a@colourful.land>  Wed, 06 May 2026 12:00:00 +0000
+
 mailroom (1.1.6) unstable; urgency=medium
 
   * New `install-claude-command` subcommand: copies the bundled

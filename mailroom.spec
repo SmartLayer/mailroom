@@ -1,5 +1,5 @@
 Name:           mailroom
-Version:        1.1.6
+Version:        1.1.7
 Release:        1%{?dist}
 Summary:        Email toolkit for AI assistants and command-line scripting
 License:        MIT
@@ -67,6 +67,20 @@ install -Dpm 644 debian/mailroom.1 %{buildroot}%{_mandir}/man1/mailroom.1
 %{_mandir}/man1/mailroom.1*
 
 %changelog
+* Wed May 06 2026 Weiwu Zhang <a@colourful.land> - 1.1.7-1
+- `search` and `read` repeat at the top level to run several operations
+  in one invocation:
+      mailroom -A search "sergio" search "panedas" read -f INBOX -u 42
+  Each operation gets its own outer key in the result, so per-keyword
+  hit attribution is preserved. Output is JSON of shape
+  `{op_key: {imap_name: result}}`, the same shape single-op `search`
+  and `read` already produced.
+- The `batch` subcommand is removed. Anyone driving mailroom from a
+  script that ran `mailroom batch "search foo" "search bar"` should
+  switch to `mailroom search foo search bar`. The output shape is
+  unchanged. Issue #34 tracks promoting `--limit` and `--folder` to
+  chain-level so they apply to every chained verb.
+
 * Wed May 06 2026 Weiwu Zhang <a@colourful.land> - 1.1.6-1
 - New `install-claude-command` subcommand: copies the bundled Claude
   Code command file into ~/.claude/commands/mailroom.md so Claude Code
