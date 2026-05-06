@@ -1050,6 +1050,25 @@ def list_cmd() -> None:
         print(f"warn: {w}", file=sys.stderr)
 
 
+def _claude_registration_status() -> Optional[str]:
+    """Return a nudge string if ~/.claude exists but mailroom is not registered.
+
+    Returns None when ~/.claude is absent (user has no Claude Code install)
+    or when mailroom is already registered (nothing to say).
+    """
+    claude_dir = Path.home() / ".claude"
+    if not claude_dir.exists():
+        return None
+    command_file = claude_dir / "commands" / "mailroom.md"
+    skill_dir = claude_dir / "skills" / "mailroom"
+    if command_file.exists() or skill_dir.exists():
+        return None
+    return (
+        "note: Claude Code config found but mailroom is not registered. "
+        "Run `mailroom install-claude-command` to add it."
+    )
+
+
 @app.command("status")
 def status() -> None:
     """Show one row per configured server with the result of a connection probe.
@@ -1074,6 +1093,26 @@ def status() -> None:
     _print_status_table(rows)
     for w in cfg.warnings:
         print(f"warn: {w}", file=sys.stderr)
+    nudge = _claude_registration_status()
+    if nudge:
+        print(nudge, file=sys.stderr)
+
+
+@app.command("install-claude-command")
+def install_claude_command() -> None:
+    """Copy the Claude Code command file into ~/.claude/commands/mailroom.md.
+
+    After running this command, Claude Code will recognise the ``mailroom``
+    skill and route email-related requests through the mailroom CLI.
+    """
+    from importlib.resources import files
+
+    dest_dir = Path.home() / ".claude" / "commands"
+    dest = dest_dir / "mailroom.md"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    content = files("mailroom.data").joinpath("claude-command.md").read_text()
+    dest.write_text(content)
+    print(f"Installed: {dest}")
 
 
 def _probe_all(cfg: MailroomConfig) -> List[Tuple[str, str, str, str]]:

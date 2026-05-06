@@ -95,3 +95,17 @@ mailroom compose --send --smtp ses-syd \
 **`send-draft`** by default uses the draft's own From header and refuses to send if it does not match a configured identity. `--identity` or `--smtp/--from` override the draft's From for that send.
 
 Drafting (no `--send`) keeps the previous convenience defaults: the first identity on the selected `[imap.*]` block is the From, and `--from EMAIL` selects a different identity by address.
+
+## Claude Code integration
+
+Mailroom ships a Claude Code command definition that tells Claude how to invoke the CLI for email tasks. Once registered, Claude routes requests like "find the invoice from last week" or "reply to Alice's message" through mailroom automatically.
+
+To register it, run:
+
+```bash
+mailroom install-claude-command
+```
+
+This writes `~/.claude/commands/mailroom.md`. The file is bundled inside the mailroom package, so the same command works regardless of how mailroom was installed (Homebrew, `.deb`, `.rpm`, `pip`, or `uv`).
+
+`mailroom status` will note if `~/.claude` is present but mailroom is not yet registered.

@@ -13,6 +13,7 @@ Give your script or AI assistant access to your email.
 - [Configuration](#configuration)
 - [Quick test](#quick-test)
 - [CLI usage](#cli-usage)
+- [Claude Code (terminal-based Claude)](#claude-code-terminal-based-claude)
 - [MCP server](#mcp-server)
 - [Scripting and automation](#scripting-and-automation)
 - [Faster searches](#faster-searches)
@@ -163,6 +164,10 @@ mailroom flag -f INBOX -u 4525
 ```
 
 Run `mailroom --help` for the full command list.
+
+## Claude Code (terminal-based Claude)
+
+Run `mailroom install-claude-command` once after installation. This writes `~/.claude/commands/mailroom.md`, which tells Claude Code how to use the mailroom CLI for email tasks. After that, prompts like "find the booking confirmation from last week" or "reply to Alice's message" route through mailroom automatically.
 
 ## MCP server
 
