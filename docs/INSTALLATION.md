@@ -140,6 +140,7 @@ export IMAP_PASSWORD="your_secure_password"
 ### CLI commands
 
 ```bash
+mailroom search "from:alice" search 'subject:"hotel booking"' search "is:unread"
 mailroom search "from:alice subject:invoice"
 mailroom list
 mailroom move -f INBOX -u 123 -t Archive

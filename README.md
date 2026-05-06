@@ -124,11 +124,12 @@ The MCP server (`mailroom mcp`) requires the `mcp` Python package, which is not 
 Every command outputs JSON to stdout. Errors go to stderr. This makes Mailroom composable with `jq`, shell scripts, and AI agent skill definitions.
 
 ```bash
-# What's unread?
-mailroom search "is:unread" --folder INBOX --limit 10
+# Look up several keywords in one invocation; each gets its own outer key
+# in the result, so hits stay attributed to the keyword that matched them
+mailroom search "from:alice" search 'subject:"hotel booking"' search "is:unread"
 
-# Search by subject across all folders
-mailroom search 'subject:"hotel booking"'
+# What's unread in INBOX?
+mailroom search "is:unread" --folder INBOX --limit 10
 
 # Read an email
 mailroom read -f INBOX -u 4523

@@ -86,17 +86,17 @@ When the user names a person to look up ("tell me about Alice Doe, from emails")
 
 ## Lookups
 
-`mailroom search` chains multiple keywords in one invocation. Each keyword becomes its own operation in the result, keyed by the operation string, so each message comes labelled with which keyword matched it:
+Look up several keywords in one go by repeating the verb:
 
 ```bash
 mailroom -A search "sergio" search "panedas" search "sergiopanedas"
 ```
 
-Output is JSON: `{op_key: {imap_name: {results: [...], provenance: {...}}}}`. Different limits per term, separate provenance per term, and per-term hit attribution all come for free. Use this pattern for any name-with-variants lookup, an event covered by several keywords, or related topics in one pass. With `[local_cache]` configured the queries run against a local index orders of magnitude faster than IMAP; without it the same calls hit IMAP. Every per-term response carries a `provenance` field reporting `source` (`"local"` or `"remote"`) and any fall-back reason.
+Each keyword sits under its own outer key in the result, so a message comes labelled with the keyword that matched it. Output is JSON of shape `{op_key: {imap_name: {results: [...], provenance: {...}}}}`. With `[local_cache]` configured the queries run against a local index orders of magnitude faster than IMAP; without it the same calls hit IMAP. Each per-term response carries a `provenance` field reporting `source` (`"local"` or `"remote"`) and any fall-back reason.
 
-`from:alice OR from:bob` is also a valid Gmail-style query. The IMAP server returns one mixed result set with no per-keyword attribution, so reach for it only when the union genuinely is what you want.
+`from:alice OR from:bob` is also a valid Gmail-style query. The server returns one mixed result set with no per-keyword attribution, which is fine when the union is what you want.
 
-`mailroom -A` runs the chain against every imap block; `-i NAME` (repeatable) selects specific blocks. Verbs mix in one chain: `mailroom search foo read -f INBOX -u 42` runs the search and the fetch over one connection per block.
+`mailroom -A` queries every imap block; `-i NAME` (repeatable) selects specific blocks. Verbs mix freely: `mailroom search foo read -f INBOX -u 42` runs the search and the fetch over one connection per block.
 
 Read, list and extract attachments, or export the verbatim `.eml` for a hit:
 

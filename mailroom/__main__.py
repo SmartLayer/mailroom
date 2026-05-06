@@ -39,13 +39,11 @@ app = typer.Typer(
     name="mailroom",
     help=(
         "Email toolkit for AI assistants and command-line scripting.\n\n"
-        "search and read chain at the top level. Each chainable verb starts "
-        "a new operation; output is JSON keyed by operation:\n\n"
-        "  mailroom -A search 'sergio' search 'panedas' read -f INBOX -u 42\n\n"
+        "Examples:\n\n"
+        "  mailroom -A search 'sergio' search 'panedas' read -f INBOX -u 42\n"
+        "  mailroom search 'from:alice@x' || mailroom search 'alice'\n\n"
         "Exit codes for data-returning commands (search, attachments, links): "
-        "0 on success with results, 1 on success with zero results. "
-        "This makes shell idioms work:\n\n"
-        "  mailroom search 'from:alice@x' || mailroom search 'alice'\n"
+        "0 on success with results, 1 on success with zero results."
     ),
     no_args_is_help=True,
 )
@@ -98,14 +96,14 @@ def _global_options(
         "-i",
         help=(
             "[imap.NAME] block to use. Uses default_imap if omitted. "
-            "Pass multiple times with 'search' to query several blocks."
+            "Repeat for several blocks."
         ),
     ),
     all_imap: bool = typer.Option(
         False,
         "--all-imap",
         "-A",
-        help="Search every configured [imap.NAME] block. Only meaningful for 'search'.",
+        help="Use every configured [imap.NAME] block.",
     ),
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Enable verbose logging."
@@ -214,8 +212,8 @@ def _make_client(imap_override: Optional[str] = None) -> ImapClient:
 def _make_client_soft(name: str) -> Optional[ImapClient]:
     """Connect for one [imap.NAME] block, returning None on failure.
 
-    Used by the multi-block search loop so one unreachable block does
-    not abort the whole command. Emits a stderr warning on failure.
+    Used by the chain executor so one unreachable block does not abort
+    the whole chain. Emits a stderr warning on failure.
     """
     try:
         cfg = load_config(_config_path)
@@ -460,16 +458,13 @@ def _parse_read_args(tokens: List[str]) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Verb-chain dispatcher
+# Top-level multi-op dispatch
 # ---------------------------------------------------------------------------
 #
-# Read-only verbs may be chained at the top level: e.g.
-#     mailroom search foo search bar read -f INBOX -u 42
-# The chain dispatcher pre-scans argv before typer runs. If two or more
-# chainable verbs appear, it parses the chain itself and routes to
-# ``_execute_chain``. If only one chainable verb is present, the dispatcher
-# returns and typer dispatches normally, leaving single-op invocations and
-# ``--help`` unchanged.
+# Repeating a read-only verb (search, read) at the top level runs each as
+# a separate operation in one invocation. argv is pre-scanned before typer
+# runs; with one verb present, the scanner returns and typer dispatches
+# normally, leaving single-op invocations and ``--help`` unchanged.
 
 _CHAINABLE_VERBS = {"search", "read"}
 
@@ -1393,7 +1388,7 @@ def _print_status_table(rows: List[Tuple[str, str, str, str]]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# folders (NEW)
+# folders
 # ---------------------------------------------------------------------------
 
 
@@ -1439,6 +1434,9 @@ def search(
     ),
 ) -> None:
     """Search for emails.
+
+    Repeat the verb to look up several keywords in one invocation:
+    ``mailroom search foo search bar``.
 
     Output is a JSON object keyed first by operation string, then by
     [imap.NAME] block. Each per-block value is ``{"results": [...],
@@ -1507,7 +1505,7 @@ def read(
     """Read an email's content.
 
     Output is a JSON object keyed by operation string, then by [imap.NAME]
-    block, consistent with the chain output format.
+    block name.
     """
     name = _resolve_single_imap_name()
     client = _make_client()
