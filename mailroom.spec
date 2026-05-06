@@ -1,5 +1,5 @@
 Name:           mailroom
-Version:        1.1.4
+Version:        1.1.5
 Release:        1%{?dist}
 Summary:        Email toolkit for AI assistants and command-line scripting
 License:        MIT
@@ -66,6 +66,15 @@ install -Dpm 644 debian/mailroom.1 %{buildroot}%{_mandir}/man1/mailroom.1
 %{_mandir}/man1/mailroom.1*
 
 %changelog
+* Wed May 06 2026 Weiwu Zhang <a@colourful.land> - 1.1.5-1
+- `mailroom status` is now a connection-probe table rather than a
+  JSON inventory. Each [imap.NAME] runs a full IMAP login; each
+  [smtp.NAME] runs EHLO + STARTTLS plus an authenticated login when
+  credentials are configured. Output is a short aligned table
+  answering "which servers are reachable right now". Template SMTP
+  blocks (no own creds) stop at STARTTLS and are marked. Scripts
+  that parsed status JSON should switch to `mailroom list`. Closes #29.
+
 * Tue May 06 2026 Weiwu Zhang <a@colourful.land> - 1.1.4-1
 - New per-account redact policy. An optional `redact = "rules.sieve"`
   field on [imap.NAME] points at a Sieve script; messages matching any

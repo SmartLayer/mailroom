@@ -1,3 +1,18 @@
+mailroom (1.1.5) unstable; urgency=medium
+
+  * `mailroom status` is now a connection-probe table rather than a
+    JSON inventory. Every [imap.NAME] runs a full IMAP login attempt
+    and every [smtp.NAME] runs an EHLO + STARTTLS handshake plus an
+    authenticated login when the block carries credentials. Output
+    is a short aligned table answering "which servers are reachable
+    right now". Probes run concurrently across blocks. Template SMTP
+    blocks (no own creds, inherit at send time) are probed as far as
+    STARTTLS only and marked accordingly. Scripts that parsed the
+    prior status JSON inventory should switch to `mailroom list`,
+    which still emits it. Closes #29.
+
+ -- Weiwu Zhang <a@colourful.land>  Wed, 06 May 2026 00:00:00 +0000
+
 mailroom (1.1.4) unstable; urgency=medium
 
   * New per-account redact policy. An optional `redact = "rules.sieve"`
