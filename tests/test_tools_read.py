@@ -55,13 +55,13 @@ def _make_email(
 class TestReadCLIThreadingHeaders:
 
     def _read_inner(self, result_output: str) -> dict:
-        """Extract the email dict from the batch-wrapped read output.
+        """Extract the email dict from the chain-wrapped read output.
 
         Output shape: ``{op_key: {account_name: email_dict}}``.
         """
-        batch = json.loads(result_output)
+        wrapped = json.loads(result_output)
         # There is exactly one op_key, one account.
-        return next(iter(next(iter(batch.values())).values()))
+        return next(iter(next(iter(wrapped.values())).values()))
 
     def test_message_id_always_present(self):
         client = MagicMock()

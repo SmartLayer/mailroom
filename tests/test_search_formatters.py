@@ -5,7 +5,7 @@ SPAR-A prompt, so the Message-ID has to appear there for the agent to thread
 a reply onto the parent.
 """
 
-from mailroom.__main__ import _format_batch_oneline, _format_batch_text
+from mailroom.__main__ import _format_chain_oneline, _format_chain_text
 
 
 def _hit(message_id: str = "<m@example.com>") -> dict:
@@ -37,29 +37,29 @@ def _wrap(hits: list, account: str = "acct1", op_key: str = "search q") -> dict:
     }
 
 
-class TestFormatBatchText:
+class TestFormatChainText:
 
     def test_renders_message_id_when_present(self):
-        out = _format_batch_text(_wrap([_hit("<thread-1@example.com>")]))
+        out = _format_chain_text(_wrap([_hit("<thread-1@example.com>")]))
         assert "<thread-1@example.com>" in out
         assert "id:" in out
 
     def test_omits_id_line_when_missing(self):
         h = _hit()
         del h["message_id"]
-        out = _format_batch_text(_wrap([h]))
+        out = _format_chain_text(_wrap([h]))
         assert "id:" not in out
 
     def test_op_key_header_present(self):
-        out = _format_batch_text(_wrap([_hit()], op_key="search from:alice"))
+        out = _format_chain_text(_wrap([_hit()], op_key="search from:alice"))
         assert "=== search from:alice ===" in out
 
     def test_account_header_present(self):
-        out = _format_batch_text(_wrap([_hit()], account="work"))
+        out = _format_chain_text(_wrap([_hit()], account="work"))
         assert "== work ==" in out
 
     def test_multiple_op_keys(self):
-        batch = {
+        wrapped = {
             "search from:a": {
                 "acct1": {
                     "results": [_hit("<id1>")],
@@ -81,22 +81,22 @@ class TestFormatBatchText:
                 }
             },
         }
-        out = _format_batch_text(batch)
+        out = _format_chain_text(wrapped)
         assert "=== search from:a ===" in out
         assert "=== search from:b ===" in out
         assert "<id1>" in out
         assert "<id2>" in out
 
     def test_error_value_renders_without_crash(self):
-        batch = {"search from:x": {"acct1": {"error": "connection failed"}}}
-        out = _format_batch_text(batch)
+        wrapped = {"search from:x": {"acct1": {"error": "connection failed"}}}
+        out = _format_chain_text(wrapped)
         assert "error: connection failed" in out
 
 
-class TestFormatBatchOneline:
+class TestFormatChainOneline:
 
     def test_appends_message_id_column(self):
-        out = _format_batch_oneline(_wrap([_hit("<thread-1@example.com>")]))
+        out = _format_chain_oneline(_wrap([_hit("<thread-1@example.com>")]))
         assert "<thread-1@example.com>" in out
         first = out.splitlines()[0]
         cols = first.split("\t")
@@ -105,25 +105,25 @@ class TestFormatBatchOneline:
     def test_blank_when_message_id_missing(self):
         h = _hit()
         del h["message_id"]
-        out = _format_batch_oneline(_wrap([h]))
+        out = _format_chain_oneline(_wrap([h]))
         first = out.splitlines()[0]
         cols = first.split("\t")
         assert cols[-1] == ""
 
     def test_op_key_is_first_column(self):
-        out = _format_batch_oneline(_wrap([_hit()], op_key="search from:alice"))
+        out = _format_chain_oneline(_wrap([_hit()], op_key="search from:alice"))
         first = out.splitlines()[0]
         cols = first.split("\t")
         assert cols[0] == "search from:alice"
 
     def test_account_is_second_column(self):
-        out = _format_batch_oneline(_wrap([_hit()], account="work", op_key="search q"))
+        out = _format_chain_oneline(_wrap([_hit()], account="work", op_key="search q"))
         first = out.splitlines()[0]
         cols = first.split("\t")
         assert cols[1] == "work"
 
     def test_no_results_line(self):
-        batch = {
+        wrapped = {
             "search from:x": {
                 "acct1": {
                     "results": [],
@@ -135,7 +135,7 @@ class TestFormatBatchOneline:
                 }
             }
         }
-        out = _format_batch_oneline(batch)
+        out = _format_chain_oneline(wrapped)
         assert "(no results)" in out
         first = out.splitlines()[0]
         assert first.startswith("search from:x\tacct1\t")

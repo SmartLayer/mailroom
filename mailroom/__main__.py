@@ -8,7 +8,6 @@ importing the mcp package.
 import json
 import logging
 import os
-import shlex
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -40,13 +39,13 @@ app = typer.Typer(
     name="mailroom",
     help=(
         "Email toolkit for AI assistants and command-line scripting.\n\n"
+        "search and read chain at the top level. Each chainable verb starts "
+        "a new operation; output is JSON keyed by operation:\n\n"
+        "  mailroom -A search 'sergio' search 'panedas' read -f INBOX -u 42\n\n"
         "Exit codes for data-returning commands (search, attachments, links): "
         "0 on success with results, 1 on success with zero results. "
         "This makes shell idioms work:\n\n"
         "  mailroom search 'from:alice@x' || mailroom search 'alice'\n"
-        "  ( mailroom -i A search Q ; mailroom -i B search Q ) | jq -s add\n\n"
-        "Multi-block search (-i A -i B or --all-imap) makes the second "
-        "idiom unnecessary in most cases."
     ),
     no_args_is_help=True,
 )
@@ -278,7 +277,7 @@ def _build_op_key(subcmd: str, **kwargs: Any) -> str:
 
     Non-default arguments are included; defaults are omitted so the key
     remains compact. The key for a single-command run is used as the outer
-    JSON key, matching the format expected by the batch subcommand.
+    JSON key, matching the chain output shape.
     """
     parts = [subcmd]
     if subcmd == "search":
@@ -301,7 +300,7 @@ def _build_op_key(subcmd: str, **kwargs: Any) -> str:
 def _fetch_email_result(client: ImapClient, folder: str, uid: int) -> Dict[str, Any]:
     """Fetch one email and return its JSON representation, or ``{"error": ...}``.
 
-    Extracted so both the standalone ``read`` command and the batch executor
+    Extracted so both the standalone ``read`` command and the chain executor
     share identical output structure.
     """
     email_obj = client.fetch_email(uid, folder)
@@ -351,7 +350,7 @@ def _run_op(client: ImapClient, subcmd: str, kwargs: Dict[str, Any]) -> Dict[str
         kwargs: Parsed arguments for the subcommand.
 
     Returns:
-        Per-block result dict suitable for inclusion in the batch output.
+        Per-block result dict suitable for inclusion in the chain output.
     """
     if subcmd == "search":
         return client.search_emails(
@@ -364,7 +363,7 @@ def _run_op(client: ImapClient, subcmd: str, kwargs: Dict[str, Any]) -> Dict[str
     return {"error": f"unknown subcommand '{subcmd}'"}
 
 
-def _execute_batch(
+def _execute_chain(
     operations: List[Tuple[str, str, Dict[str, Any]]],
     names: List[str],
 ) -> Dict[str, Dict[str, Any]]:
@@ -380,30 +379,30 @@ def _execute_batch(
         names: [imap.NAME] block names to query, processed in order.
 
     Returns:
-        ``{op_key: {imap_name: result_dict}}`` -- the batch JSON shape.
+        ``{op_key: {imap_name: result_dict}}`` -- the chain output shape.
 
     Raises:
         ValueError: Re-raised from ``_run_op`` so the caller can map it to
             exit code 2 (invalid query syntax).
     """
-    batch: Dict[str, Dict[str, Any]] = {key: {} for key, _, _ in operations}
+    result: Dict[str, Dict[str, Any]] = {key: {} for key, _, _ in operations}
     for name in names:
         client = _make_client_soft(name)
         if client is None:
             for key, subcmd, _ in operations:
-                batch[key][name] = _empty_result_for_subcmd(subcmd)
+                result[key][name] = _empty_result_for_subcmd(subcmd)
             continue
         try:
             for key, subcmd, kwargs in operations:
                 try:
-                    batch[key][name] = _run_op(client, subcmd, kwargs)
+                    result[key][name] = _run_op(client, subcmd, kwargs)
                 except ValueError:
                     raise
                 except Exception as exc:
-                    batch[key][name] = {"error": str(exc)}
+                    result[key][name] = {"error": str(exc)}
         finally:
             client.disconnect()
-    return batch
+    return result
 
 
 def _parse_search_args(tokens: List[str]) -> Dict[str, Any]:
@@ -460,34 +459,230 @@ def _parse_read_args(tokens: List[str]) -> Dict[str, Any]:
     return {"folder": folder, "uid": uid}
 
 
-def _parse_op_string(op_string: str) -> Tuple[str, str, Dict[str, Any]]:
-    """Parse an operation string into ``(op_key, subcmd, kwargs)``.
+# ---------------------------------------------------------------------------
+# Verb-chain dispatcher
+# ---------------------------------------------------------------------------
+#
+# Read-only verbs may be chained at the top level: e.g.
+#     mailroom search foo search bar read -f INBOX -u 42
+# The chain dispatcher pre-scans argv before typer runs. If two or more
+# chainable verbs appear, it parses the chain itself and routes to
+# ``_execute_chain``. If only one chainable verb is present, the dispatcher
+# returns and typer dispatches normally, leaving single-op invocations and
+# ``--help`` unchanged.
 
-    The ``op_key`` is the original string echoed back unchanged so the caller
-    can correlate input operations with output results.
+_CHAINABLE_VERBS = {"search", "read"}
 
-    Args:
-        op_string: A subcommand string such as ``"search from:x"`` or
-            ``"read -f INBOX --uid 42"``.
+_GLOBAL_FLAGS_VALUE = {"-c", "--config", "-i", "--imap"}
+_GLOBAL_FLAGS_BOOL = {"-A", "--all-imap", "-v", "--verbose", "--version"}
 
-    Returns:
-        ``(op_string, subcmd, kwargs)`` ready for ``_execute_batch``.
+_VERB_FLAGS_VALUE: Dict[str, set] = {
+    "search": {"-f", "--folder", "-n", "--limit", "-q", "--query"},
+    "read": {"-f", "--folder", "-u", "--uid"},
+}
 
-    Raises:
-        ValueError: If the string is empty or names an unsupported subcommand.
+
+def _split_chain_argv(
+    argv: List[str],
+) -> Optional[Tuple[List[str], List[Tuple[str, List[str]]], str]]:
+    """Detect a verb-chain invocation and split argv into its parts.
+
+    Returns ``(global_argv, [(verb, verb_tokens), ...], output_format)`` when
+    two or more chainable verbs are found at command position; ``None``
+    otherwise so the caller can fall back to typer dispatch.
+
+    Walks argv left to right in two passes. The first pass strips global
+    flags and the chain-level ``--format/-F`` option. The second pass walks
+    the remainder, splitting on chainable-verb tokens while respecting each
+    verb's value-taking flags so a folder named ``search`` does not split
+    the chain.
     """
-    tokens = shlex.split(op_string)
-    if not tokens:
-        raise ValueError("empty operation string")
-    subcmd = tokens[0]
-    args = tokens[1:]
-    if subcmd == "search":
-        kwargs: Dict[str, Any] = _parse_search_args(args)
-    elif subcmd == "read":
-        kwargs = _parse_read_args(args)
+    out_format = "json"
+    globals_: List[str] = []
+    rest: List[str] = []
+
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok == "--":
+            rest.extend(argv[i + 1 :])
+            break
+        if tok in _GLOBAL_FLAGS_VALUE and i + 1 < len(argv):
+            globals_.extend([tok, argv[i + 1]])
+            i += 2
+            continue
+        if (
+            tok.startswith("--")
+            and "=" in tok
+            and tok.split("=", 1)[0] in _GLOBAL_FLAGS_VALUE
+        ):
+            globals_.append(tok)
+            i += 1
+            continue
+        if tok.startswith("-i=") or tok.startswith("--imap="):
+            globals_.append(tok)
+            i += 1
+            continue
+        if tok in _GLOBAL_FLAGS_BOOL:
+            globals_.append(tok)
+            i += 1
+            continue
+        if tok in ("--format", "-F") and i + 1 < len(argv):
+            out_format = argv[i + 1]
+            i += 2
+            continue
+        if tok.startswith("--format=") or tok.startswith("-F="):
+            out_format = tok.split("=", 1)[1]
+            i += 1
+            continue
+        rest.append(tok)
+        i += 1
+
+    if not rest or rest[0] not in _CHAINABLE_VERBS:
+        return None
+
+    verbs: List[Tuple[str, List[str]]] = []
+    cur_verb: Optional[str] = None
+    cur_args: List[str] = []
+    skip_next = False
+    j = 0
+    while j < len(rest):
+        tok = rest[j]
+        if skip_next:
+            cur_args.append(tok)
+            skip_next = False
+            j += 1
+            continue
+        if tok in ("--format", "-F") and j + 1 < len(rest):
+            out_format = rest[j + 1]
+            j += 2
+            continue
+        if tok.startswith("--format=") or tok.startswith("-F="):
+            out_format = tok.split("=", 1)[1]
+            j += 1
+            continue
+        if cur_verb is not None and tok in _VERB_FLAGS_VALUE.get(cur_verb, set()):
+            cur_args.append(tok)
+            skip_next = True
+            j += 1
+            continue
+        if tok in _CHAINABLE_VERBS:
+            if cur_verb is not None:
+                verbs.append((cur_verb, cur_args))
+            cur_verb = tok
+            cur_args = []
+            j += 1
+            continue
+        cur_args.append(tok)
+        j += 1
+    if cur_verb is not None:
+        verbs.append((cur_verb, cur_args))
+
+    if len(verbs) < 2:
+        return None
+    return (globals_, verbs, out_format)
+
+
+def _apply_global_flags(global_argv: List[str]) -> None:
+    """Apply pre-parsed global flags to module-level state.
+
+    Mirrors the typer top-level callback (``_global_options``) without
+    typer dispatch, so the chain branch shares state with the rest of the
+    codebase. Honours ``--version`` by printing and exiting before any
+    chain work begins.
+    """
+    global _config_path, _imap_names, _all_imap
+    cfg_path: Optional[str] = None
+    imap_names: List[str] = []
+    all_imap = False
+    verbose = False
+    i = 0
+    while i < len(global_argv):
+        tok = global_argv[i]
+        if tok in ("-c", "--config") and i + 1 < len(global_argv):
+            cfg_path = global_argv[i + 1]
+            i += 2
+            continue
+        if tok.startswith("--config=") or tok.startswith("-c="):
+            cfg_path = tok.split("=", 1)[1]
+            i += 1
+            continue
+        if tok in ("-i", "--imap") and i + 1 < len(global_argv):
+            imap_names.append(global_argv[i + 1])
+            i += 2
+            continue
+        if tok.startswith("--imap=") or tok.startswith("-i="):
+            imap_names.append(tok.split("=", 1)[1])
+            i += 1
+            continue
+        if tok in ("-A", "--all-imap"):
+            all_imap = True
+        elif tok in ("-v", "--verbose"):
+            verbose = True
+        elif tok == "--version":
+            typer.echo(f"mailroom {__version__}")
+            raise SystemExit(0)
+        i += 1
+    _config_path = cfg_path
+    _imap_names = imap_names
+    _all_imap = all_imap
+    level = logging.DEBUG if verbose else logging.WARNING
+    logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
+
+
+def _run_chain(
+    verbs: List[Tuple[str, List[str]]],
+    output_format: str,
+) -> int:
+    """Execute a parsed verb-chain. Returns the process exit code.
+
+    Builds the operations list from each verb's parsed kwargs, resolves the
+    [imap.NAME] blocks under the global flags already applied to module
+    state, and dispatches to ``_execute_chain``.
+    """
+    operations: List[Tuple[str, str, Dict[str, Any]]] = []
+    for verb, tokens in verbs:
+        if verb == "search":
+            kwargs = _parse_search_args(tokens)
+        elif verb == "read":
+            try:
+                kwargs = _parse_read_args(tokens)
+            except ValueError as exc:
+                typer.echo(f"Error: {exc}", err=True)
+                return 2
+        else:  # pragma: no cover - guarded by _split_chain_argv
+            typer.echo(f"Error: unsupported chain verb {verb!r}", err=True)
+            return 2
+        op_key = _build_op_key(verb, **kwargs)
+        operations.append((op_key, verb, kwargs))
+    try:
+        names = _resolve_imap_names()
+    except typer.Exit as exc:
+        return int(exc.exit_code or 1)
+    try:
+        result = _execute_chain(operations, names)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        return 2
+    if output_format == "json":
+        _out(result)
+    elif output_format == "text":
+        typer.echo(_format_chain_text(result))
+    elif output_format == "oneline":
+        typer.echo(_format_chain_oneline(result))
     else:
-        raise ValueError(f"unsupported batch subcommand '{subcmd}'")
-    return op_string, subcmd, kwargs
+        typer.echo(
+            f"Error: unknown --format '{output_format}'. Use json, text, or oneline.",
+            err=True,
+        )
+        return 2
+    has_results = any(
+        v.get("results")
+        for per_block in result.values()
+        for v in per_block.values()
+        if isinstance(v, dict)
+    )
+    return 0 if has_results else 1
 
 
 def _out(data: object) -> None:
@@ -904,10 +1099,10 @@ def _format_provenance_line(provenance: Dict[str, Any]) -> str:
     return "# " + " ".join(parts)
 
 
-def _format_batch_text(batch: Dict[str, Dict[str, Any]]) -> str:
-    """Render a batch result as multi-line, prompt-friendly text."""
+def _format_chain_text(result: Dict[str, Dict[str, Any]]) -> str:
+    """Render a chain result as multi-line, prompt-friendly text."""
     sections: List[str] = []
-    for op_key, blocks in batch.items():
+    for op_key, blocks in result.items():
         lines: List[str] = [f"=== {op_key} ==="]
         for imap_name, value in blocks.items():
             hits: List[Dict[str, Any]] = value.get("results", []) or []
@@ -938,13 +1133,13 @@ def _format_batch_text(batch: Dict[str, Dict[str, Any]]) -> str:
     return "\n\n".join(sections)
 
 
-def _format_batch_oneline(batch: Dict[str, Dict[str, Any]]) -> str:
-    """Render a batch result as one tab-separated line per result.
+def _format_chain_oneline(result: Dict[str, Dict[str, Any]]) -> str:
+    """Render a chain result as one tab-separated line per result.
 
     Columns: op_key, imap_name, date, subject, from -> to, message_id.
     """
     lines: List[str] = []
-    for op_key, blocks in batch.items():
+    for op_key, blocks in result.items():
         for imap_name, value in blocks.items():
             hits: List[Dict[str, Any]] = value.get("results", []) or []
             if not hits:
@@ -1264,7 +1459,7 @@ def search(
     op_key = _build_op_key("search", query=effective, folder=folder, limit=limit)
     names = _resolve_imap_names()
     try:
-        batch = _execute_batch(
+        result = _execute_chain(
             [
                 (
                     op_key,
@@ -1278,11 +1473,11 @@ def search(
         typer.echo(str(exc), err=True)
         raise typer.Exit(2)
     if output_format == "json":
-        _out(batch)
+        _out(result)
     elif output_format == "text":
-        typer.echo(_format_batch_text(batch))
+        typer.echo(_format_chain_text(result))
     elif output_format == "oneline":
-        typer.echo(_format_batch_oneline(batch))
+        typer.echo(_format_chain_oneline(result))
     else:
         typer.echo(
             f"Error: unknown --format '{output_format}'. Use json, text, or oneline.",
@@ -1291,7 +1486,7 @@ def search(
         raise typer.Exit(2)
     has_results = any(
         v.get("results")
-        for per_block in batch.values()
+        for per_block in result.values()
         for v in per_block.values()
         if isinstance(v, dict)
     )
@@ -1300,107 +1495,7 @@ def search(
 
 
 # ---------------------------------------------------------------------------
-# batch
-# ---------------------------------------------------------------------------
-
-
-@app.command("batch")
-def batch_cmd(
-    operations: Optional[List[str]] = typer.Argument(
-        None,
-        help=(
-            "Operation strings to execute, e.g. "
-            "'search from:x' 'read -f INBOX --uid 1'."
-        ),
-    ),
-    file: Optional[Path] = typer.Option(
-        None,
-        "--file",
-        help="JSON file containing an array of operation strings.",
-    ),
-    output_format: str = typer.Option(
-        "json",
-        "--format",
-        "-F",
-        help="Output format: json (default), text, or oneline.",
-    ),
-) -> None:
-    """Execute multiple operations in one IMAP connection per block.
-
-    Supply operations as positional arguments, via ``--file``, or as a
-    JSON array on stdin. Each operation is a subcommand string identical
-    to what you would pass on the command line (e.g. ``"search from:x"``).
-
-    All operations for a given [imap.NAME] block are executed over a
-    single connection before moving to the next block, which avoids
-    per-query reconnections and server-side throttling.
-
-    Output JSON is keyed by operation string, then by block name -- the
-    same shape as a single-command run but with multiple outer keys.
-
-    Exit code: 0 if any search operation returned results, 1 otherwise.
-    """
-    op_strings: List[str] = []
-    if file is not None:
-        try:
-            op_strings = json.loads(file.read_text())
-        except Exception as exc:
-            typer.echo(f"Error reading --file: {exc}", err=True)
-            raise typer.Exit(1)
-    elif operations:
-        op_strings = list(operations)
-    elif not sys.stdin.isatty():
-        try:
-            op_strings = json.loads(sys.stdin.read())
-        except Exception as exc:
-            typer.echo(f"Error reading stdin: {exc}", err=True)
-            raise typer.Exit(1)
-    else:
-        typer.echo(
-            "Error: provide operations as arguments, via --file, or on stdin.",
-            err=True,
-        )
-        raise typer.Exit(1)
-
-    parsed: List[Tuple[str, str, Dict[str, Any]]] = []
-    for s in op_strings:
-        try:
-            parsed.append(_parse_op_string(s))
-        except ValueError as exc:
-            typer.echo(f"Error parsing operation {s!r}: {exc}", err=True)
-            raise typer.Exit(1)
-
-    names = _resolve_imap_names()
-    try:
-        batch = _execute_batch(parsed, names)
-    except ValueError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2)
-
-    if output_format == "json":
-        _out(batch)
-    elif output_format == "text":
-        typer.echo(_format_batch_text(batch))
-    elif output_format == "oneline":
-        typer.echo(_format_batch_oneline(batch))
-    else:
-        typer.echo(
-            f"Error: unknown --format '{output_format}'. Use json, text, or oneline.",
-            err=True,
-        )
-        raise typer.Exit(2)
-    has_results = any(
-        v.get("results")
-        for per_block in batch.values()
-        for v in per_block.values()
-        if isinstance(v, dict)
-    )
-    if not has_results:
-        raise typer.Exit(1)
-
-
-# ---------------------------------------------------------------------------
-# read (NEW)
+# read
 # ---------------------------------------------------------------------------
 
 
@@ -1412,7 +1507,7 @@ def read(
     """Read an email's content.
 
     Output is a JSON object keyed by operation string, then by [imap.NAME]
-    block, consistent with the batch output format.
+    block, consistent with the chain output format.
     """
     name = _resolve_single_imap_name()
     client = _make_client()
@@ -2725,6 +2820,11 @@ def _rewrite_argv(argv: List[str]) -> List[str]:
 
 def main() -> None:
     sys.argv[1:] = _rewrite_argv(sys.argv[1:])
+    chain = _split_chain_argv(sys.argv[1:])
+    if chain is not None:
+        global_argv, verbs, output_format = chain
+        _apply_global_flags(global_argv)
+        sys.exit(_run_chain(verbs, output_format))
     _print_eager_warnings_if_relevant()
     app()
 

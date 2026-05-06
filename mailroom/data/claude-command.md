@@ -86,15 +86,19 @@ When the user names a person to look up ("tell me about Alice Doe, from emails")
 
 ## Lookups
 
-`mailroom search` is the single search interface. With `[local_cache]` configured, the query runs against a local index orders of magnitude faster than IMAP; without it, the same call hits IMAP. The shape is identical and every response carries a `provenance` field reporting `source` (`"local"` or `"remote"`) and any fall-back reason.
+`mailroom search` chains multiple keywords in one invocation. Each keyword becomes its own operation in the result, keyed by the operation string, so each message comes labelled with which keyword matched it:
 
 ```bash
-mailroom -A search "from:alice@example.com"      # all imap blocks
-mailroom -i <imap> search "subject:invoice"      # one block
-mailroom search "is:unread"                      # default_imap
+mailroom -A search "sergio" search "panedas" search "sergiopanedas"
 ```
 
-Read one returned message, list and extract attachments, or export the verbatim `.eml`:
+Output is JSON: `{op_key: {imap_name: {results: [...], provenance: {...}}}}`. Different limits per term, separate provenance per term, and per-term hit attribution all come for free. Use this pattern for any name-with-variants lookup, an event covered by several keywords, or related topics in one pass. With `[local_cache]` configured the queries run against a local index orders of magnitude faster than IMAP; without it the same calls hit IMAP. Every per-term response carries a `provenance` field reporting `source` (`"local"` or `"remote"`) and any fall-back reason.
+
+`from:alice OR from:bob` is also a valid Gmail-style query. The IMAP server returns one mixed result set with no per-keyword attribution, so reach for it only when the union genuinely is what you want.
+
+`mailroom -A` runs the chain against every imap block; `-i NAME` (repeatable) selects specific blocks. Verbs mix in one chain: `mailroom search foo read -f INBOX -u 42` runs the search and the fetch over one connection per block.
+
+Read, list and extract attachments, or export the verbatim `.eml` for a hit:
 
 ```bash
 mailroom -i <imap> read -f <folder> -u <uid>
@@ -103,4 +107,4 @@ mailroom -i <imap> save -f <folder> -u <uid> -i <name> -o <path>
 mailroom -i <imap> export -f <folder> -u <uid> --raw -o /tmp/msg.eml
 ```
 
-`mailroom -A search` is the cross-block starting point when which imap block holds a message is not known. `mailroom list` enumerates configured blocks/identities/SMTP - run it only when the user explicitly asks.
+`mailroom list` enumerates configured blocks/identities/SMTP. Run it only when the user explicitly asks.

@@ -1,0 +1,555 @@
+"""Unit and CLI tests for the verb-chain dispatcher and the chain output shape.
+
+Mailroom's read-only verbs (``search``, ``read``) chain at the top level:
+
+    mailroom search foo search bar read -f INBOX -u 42
+
+The dispatcher pre-scans argv before typer runs. With one chainable verb the
+dispatcher returns and typer dispatches normally, so single-op invocations and
+``--help`` keep working unchanged. With two or more chainable verbs the
+dispatcher parses the chain itself and routes to ``_execute_chain``.
+
+All tests run without a network connection. IMAP clients are mocked.
+"""
+
+import json
+from typing import List, Optional, Tuple
+from unittest.mock import MagicMock, patch
+
+import pytest
+from typer.testing import CliRunner
+
+from mailroom.__main__ import (
+    _apply_global_flags,
+    _build_op_key,
+    _empty_result_for_subcmd,
+    _execute_chain,
+    _parse_read_args,
+    _parse_search_args,
+    _run_chain,
+    _split_chain_argv,
+    app,
+)
+
+runner = CliRunner()
+
+
+# ---------------------------------------------------------------------------
+# _build_op_key
+# ---------------------------------------------------------------------------
+
+
+class TestBuildOpKey:
+    def test_search_query_only(self):
+        assert _build_op_key("search", query="from:foo") == "search from:foo"
+
+    def test_search_with_folder(self):
+        assert _build_op_key("search", query="x", folder="INBOX") == "search -f INBOX x"
+
+    def test_search_default_limit_omitted(self):
+        key = _build_op_key("search", query="x", limit=10)
+        assert "--limit" not in key
+
+    def test_search_non_default_limit_included(self):
+        key = _build_op_key("search", query="x", limit=20)
+        assert "--limit 20" in key
+
+    def test_search_empty_query(self):
+        key = _build_op_key("search", query="", folder="INBOX")
+        assert key == "search -f INBOX"
+
+    def test_read_key(self):
+        assert _build_op_key("read", folder="INBOX", uid=42) == "read -f INBOX --uid 42"
+
+    def test_unknown_subcmd_returns_bare_name(self):
+        assert _build_op_key("folders") == "folders"
+
+
+# ---------------------------------------------------------------------------
+# _empty_result_for_subcmd
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyResultForSubcmd:
+    def test_search_returns_search_shape(self):
+        r = _empty_result_for_subcmd("search")
+        assert "results" in r
+        assert "provenance" in r
+        assert r["results"] == []
+
+    def test_read_returns_error_dict(self):
+        r = _empty_result_for_subcmd("read")
+        assert "error" in r
+
+
+# ---------------------------------------------------------------------------
+# _parse_search_args / _parse_read_args
+# ---------------------------------------------------------------------------
+
+
+class TestParseSearchArgs:
+    def test_bare_query(self):
+        r = _parse_search_args(["from:foo"])
+        assert r["query"] == "from:foo"
+        assert r["folder"] is None
+        assert r["limit"] == 10
+
+    def test_folder_short(self):
+        r = _parse_search_args(["-f", "INBOX", "from:foo"])
+        assert r["folder"] == "INBOX"
+
+    def test_folder_long(self):
+        r = _parse_search_args(["--folder=Sent", "x"])
+        assert r["folder"] == "Sent"
+
+    def test_limit_short(self):
+        r = _parse_search_args(["-n", "5", "x"])
+        assert r["limit"] == 5
+
+    def test_limit_long_equals(self):
+        r = _parse_search_args(["--limit=20", "x"])
+        assert r["limit"] == 20
+
+    def test_multi_word_query(self):
+        r = _parse_search_args(["hello", "world"])
+        assert r["query"] == "hello world"
+
+    def test_unknown_flags_ignored(self):
+        r = _parse_search_args(["--unknown", "from:foo"])
+        assert r["query"] == "from:foo"
+
+
+class TestParseReadArgs:
+    def test_basic(self):
+        r = _parse_read_args(["-f", "INBOX", "--uid", "42"])
+        assert r["folder"] == "INBOX"
+        assert r["uid"] == 42
+
+    def test_equals_forms(self):
+        r = _parse_read_args(["--folder=Sent", "--uid=7"])
+        assert r["folder"] == "Sent"
+        assert r["uid"] == 7
+
+    def test_missing_folder_raises(self):
+        with pytest.raises(ValueError, match="--folder"):
+            _parse_read_args(["--uid", "1"])
+
+    def test_missing_uid_raises(self):
+        with pytest.raises(ValueError, match="--uid"):
+            _parse_read_args(["-f", "INBOX"])
+
+
+# ---------------------------------------------------------------------------
+# _split_chain_argv
+# ---------------------------------------------------------------------------
+
+
+def _verb_args(
+    split: Optional[Tuple[List[str], List[Tuple[str, List[str]]], str]],
+    index: int,
+) -> List[str]:
+    assert split is not None
+    return split[1][index][1]
+
+
+class TestSplitChainArgv:
+    def test_single_search_returns_none(self):
+        assert _split_chain_argv(["search", "foo"]) is None
+
+    def test_single_read_returns_none(self):
+        assert _split_chain_argv(["read", "-f", "INBOX", "-u", "1"]) is None
+
+    def test_search_help_returns_none(self):
+        assert _split_chain_argv(["search", "--help"]) is None
+
+    def test_two_searches_split(self):
+        s = _split_chain_argv(["search", "foo", "search", "bar"])
+        assert s is not None
+        assert s[1] == [("search", ["foo"]), ("search", ["bar"])]
+
+    def test_search_then_read(self):
+        s = _split_chain_argv(["search", "foo", "read", "-f", "INBOX", "-u", "1"])
+        assert s is not None
+        assert s[1] == [("search", ["foo"]), ("read", ["-f", "INBOX", "-u", "1"])]
+
+    def test_folder_named_search_does_not_split(self):
+        # `-f search` consumes 'search' as the folder value; the second 'search'
+        # is the chain split point.
+        s = _split_chain_argv(["search", "-f", "search", "foo", "search", "bar"])
+        assert s is not None
+        assert s[1] == [
+            ("search", ["-f", "search", "foo"]),
+            ("search", ["bar"]),
+        ]
+
+    def test_quoted_query_equal_to_verb_name(self):
+        # The shell already unquotes "search me" into one token before argv,
+        # so ``_split_chain_argv(["search", "search me"])`` is one op.
+        assert _split_chain_argv(["search", "search me"]) is None
+
+    def test_global_flags_extracted(self):
+        s = _split_chain_argv(
+            ["-A", "-c", "/tmp/x.toml", "search", "foo", "search", "bar"]
+        )
+        assert s is not None
+        global_argv, verbs, _ = s
+        assert "-A" in global_argv
+        assert "-c" in global_argv
+        assert "/tmp/x.toml" in global_argv
+        assert verbs == [("search", ["foo"]), ("search", ["bar"])]
+
+    def test_imap_equals_form(self):
+        s = _split_chain_argv(["--imap=acct1", "search", "foo", "search", "bar"])
+        assert s is not None
+        assert "--imap=acct1" in s[0]
+
+    def test_repeated_imap(self):
+        s = _split_chain_argv(
+            ["-i", "acct1", "-i", "acct2", "search", "foo", "search", "bar"]
+        )
+        assert s is not None
+        assert s[0].count("-i") == 2
+
+    def test_format_flag_extracted(self):
+        s = _split_chain_argv(["search", "foo", "search", "bar", "--format", "oneline"])
+        assert s is not None
+        assert s[2] == "oneline"
+
+    def test_format_equals_form(self):
+        s = _split_chain_argv(["search", "foo", "search", "bar", "--format=text"])
+        assert s is not None
+        assert s[2] == "text"
+
+    def test_only_one_verb_returns_none_even_with_format(self):
+        assert _split_chain_argv(["search", "foo", "--format", "json"]) is None
+
+
+# ---------------------------------------------------------------------------
+# _execute_chain
+# ---------------------------------------------------------------------------
+
+
+def _fake_search_result(query: str = "q") -> dict:
+    return {
+        "results": [{"subject": f"result for {query}", "from": "x@y.com"}],
+        "provenance": {
+            "source": "remote",
+            "indexed_at": None,
+            "fell_back_reason": None,
+        },
+    }
+
+
+class TestExecuteChain:
+    def _make_client(self):
+        client = MagicMock()
+        client.search_emails.return_value = _fake_search_result("q")
+        return client
+
+    @patch("mailroom.__main__._make_client_soft")
+    def test_single_search_wraps_in_op_key(self, mock_soft):
+        mock_soft.return_value = self._make_client()
+        ops = [
+            (
+                "search from:foo",
+                "search",
+                {"query": "from:foo", "folder": None, "limit": 10},
+            )
+        ]
+        result = _execute_chain(ops, ["acct1"])
+        assert "search from:foo" in result
+        assert "acct1" in result["search from:foo"]
+        assert "results" in result["search from:foo"]["acct1"]
+
+    @patch("mailroom.__main__._make_client_soft")
+    def test_two_ops_produce_two_outer_keys(self, mock_soft):
+        mock_soft.return_value = self._make_client()
+        ops = [
+            (
+                "search from:a",
+                "search",
+                {"query": "from:a", "folder": None, "limit": 10},
+            ),
+            (
+                "search from:b",
+                "search",
+                {"query": "from:b", "folder": None, "limit": 10},
+            ),
+        ]
+        result = _execute_chain(ops, ["acct1"])
+        assert set(result.keys()) == {"search from:a", "search from:b"}
+
+    @patch("mailroom.__main__._make_client_soft")
+    def test_one_connection_per_account(self, mock_soft):
+        client = self._make_client()
+        mock_soft.return_value = client
+        ops = [
+            (
+                "search from:a",
+                "search",
+                {"query": "from:a", "folder": None, "limit": 10},
+            ),
+            (
+                "search from:b",
+                "search",
+                {"query": "from:b", "folder": None, "limit": 10},
+            ),
+        ]
+        _execute_chain(ops, ["acct1"])
+        assert mock_soft.call_count == 1
+        assert client.disconnect.call_count == 1
+
+    @patch("mailroom.__main__._make_client_soft")
+    def test_sequential_accounts_two_connections(self, mock_soft):
+        mock_soft.return_value = self._make_client()
+        ops = [("search q", "search", {"query": "q", "folder": None, "limit": 10})]
+        _execute_chain(ops, ["acct1", "acct2"])
+        assert mock_soft.call_count == 2
+
+    @patch("mailroom.__main__._make_client_soft")
+    def test_failed_connection_produces_empty_result(self, mock_soft):
+        mock_soft.return_value = None
+        ops = [("search q", "search", {"query": "q", "folder": None, "limit": 10})]
+        result = _execute_chain(ops, ["acct1"])
+        assert "acct1" in result["search q"]
+        assert "results" in result["search q"]["acct1"]
+
+    @patch("mailroom.__main__._make_client_soft")
+    def test_runtime_error_produces_error_dict(self, mock_soft):
+        client = MagicMock()
+        client.search_emails.side_effect = RuntimeError("timeout")
+        mock_soft.return_value = client
+        ops = [("search q", "search", {"query": "q", "folder": None, "limit": 10})]
+        result = _execute_chain(ops, ["acct1"])
+        assert "error" in result["search q"]["acct1"]
+        assert "timeout" in result["search q"]["acct1"]["error"]
+
+    @patch("mailroom.__main__._make_client_soft")
+    def test_valueerror_propagates(self, mock_soft):
+        client = MagicMock()
+        client.search_emails.side_effect = ValueError("bad query")
+        mock_soft.return_value = client
+        ops = [("search q", "search", {"query": "q", "folder": None, "limit": 10})]
+        with pytest.raises(ValueError, match="bad query"):
+            _execute_chain(ops, ["acct1"])
+
+    @patch("mailroom.__main__._make_client_soft")
+    def test_multi_account_results_keyed_by_account(self, mock_soft):
+        def make(name):
+            c = MagicMock()
+            c.search_emails.return_value = _fake_search_result(name)
+            return c
+
+        mock_soft.side_effect = make
+        ops = [("search q", "search", {"query": "q", "folder": None, "limit": 10})]
+        result = _execute_chain(ops, ["acct1", "acct2"])
+        assert "acct1" in result["search q"]
+        assert "acct2" in result["search q"]
+
+
+# ---------------------------------------------------------------------------
+# CLI: chain dispatch through main(). Tests use _run_chain directly to avoid
+# rewriting sys.argv globally; argv parsing is covered by TestSplitChainArgv.
+# ---------------------------------------------------------------------------
+
+
+def _patch_config(imap_name: str = "default"):
+    from mailroom.config import ImapBlock, MailroomConfig
+
+    block = ImapBlock(
+        host="imap.example.com",
+        port=993,
+        username="user@example.com",
+        password="secret",
+        use_ssl=True,
+    )
+    cfg = MailroomConfig(imap_blocks={imap_name: block}, _default_imap=imap_name)
+    return patch("mailroom.__main__.load_config", return_value=cfg)
+
+
+def _patch_search_client(result=None):
+    if result is None:
+        result = _fake_search_result()
+
+    def factory(name):
+        client = MagicMock()
+        client.search_emails.return_value = result
+        return client
+
+    return patch("mailroom.__main__._make_client_soft", side_effect=factory)
+
+
+class TestRunChain:
+    def test_two_searches_produce_two_keys(self, capsys):
+        _apply_global_flags([])
+        with _patch_config(), _patch_search_client():
+            code = _run_chain([("search", ["foo"]), ("search", ["bar"])], "json")
+        captured = capsys.readouterr()
+        assert code == 0
+        data = json.loads(captured.out)
+        assert len(data) == 2
+        assert any("foo" in k for k in data)
+        assert any("bar" in k for k in data)
+
+    def test_mixed_search_and_read(self, capsys):
+        _apply_global_flags([])
+
+        def factory(name):
+            client = MagicMock()
+            client.search_emails.return_value = _fake_search_result()
+            email = MagicMock()
+            email.from_ = MagicMock(__str__=lambda s: "alice@example.com")
+            email.to = []
+            email.subject = "Hello"
+            email.date = None
+            email.flags = []
+            email.message_id = "<hello@example.com>"
+            email.content.html = None
+            email.content.text = "body"
+            email.in_reply_to = None
+            email.references = None
+            email.cc = []
+            email.attachments = []
+            client.fetch_email.return_value = email
+            return client
+
+        with (
+            _patch_config(),
+            patch("mailroom.__main__._make_client_soft", side_effect=factory),
+        ):
+            code = _run_chain(
+                [("search", ["foo"]), ("read", ["-f", "INBOX", "-u", "1"])], "json"
+            )
+        assert code == 0
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        search_key = next(k for k in data if k.startswith("search"))
+        read_key = next(k for k in data if k.startswith("read"))
+        assert "results" in data[search_key]["default"]
+        assert "subject" in data[read_key]["default"]
+
+    def test_no_results_returns_exit_1(self, capsys):
+        _apply_global_flags([])
+        empty = {
+            "results": [],
+            "provenance": {
+                "source": "remote",
+                "indexed_at": None,
+                "fell_back_reason": None,
+            },
+        }
+        with _patch_config(), _patch_search_client(empty):
+            code = _run_chain([("search", ["foo"]), ("search", ["bar"])], "json")
+        assert code == 1
+
+    def test_invalid_query_returns_exit_2(self, capsys):
+        _apply_global_flags([])
+        client = MagicMock()
+        client.search_emails.side_effect = ValueError("bad query")
+        with (
+            _patch_config(),
+            patch("mailroom.__main__._make_client_soft", return_value=client),
+        ):
+            code = _run_chain([("search", ["foo"]), ("search", ["bar"])], "json")
+        assert code == 2
+
+    def test_read_missing_uid_returns_exit_2(self, capsys):
+        _apply_global_flags([])
+        with _patch_config():
+            code = _run_chain([("search", ["foo"]), ("read", ["-f", "INBOX"])], "json")
+        assert code == 2
+
+    def test_unknown_format_returns_exit_2(self, capsys):
+        _apply_global_flags([])
+        with _patch_config(), _patch_search_client():
+            code = _run_chain([("search", ["foo"]), ("search", ["bar"])], "yaml")
+        assert code == 2
+
+    def test_text_format_renders_op_key_headers(self, capsys):
+        _apply_global_flags([])
+        with _patch_config(), _patch_search_client():
+            code = _run_chain([("search", ["foo"]), ("search", ["bar"])], "text")
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "=== search foo ===" in out
+        assert "=== search bar ===" in out
+
+    def test_oneline_format_first_column_op_key(self, capsys):
+        _apply_global_flags([])
+        with _patch_config(), _patch_search_client():
+            code = _run_chain([("search", ["foo"]), ("search", ["bar"])], "oneline")
+        assert code == 0
+        first = capsys.readouterr().out.strip().splitlines()[0]
+        assert first.split("\t")[0].startswith("search ")
+
+
+# ---------------------------------------------------------------------------
+# Single-op typer dispatch is unchanged (smoke test the chain didn't break it)
+# ---------------------------------------------------------------------------
+
+
+class TestSingleOpUnchanged:
+    def test_search_single_keyword_keeps_op_key_outer(self):
+        with _patch_config(), _patch_search_client():
+            result = runner.invoke(app, ["search", "from:alice"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data) == 1
+        key = next(iter(data))
+        assert key.startswith("search ")
+        assert "default" in data[key]
+        assert "results" in data[key]["default"]
+
+    def test_search_no_results_exit_1(self):
+        empty = {
+            "results": [],
+            "provenance": {
+                "source": "remote",
+                "indexed_at": None,
+                "fell_back_reason": None,
+            },
+        }
+        with _patch_config(), _patch_search_client(empty):
+            result = runner.invoke(app, ["search", "from:nobody"])
+        assert result.exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# Apply global flags
+# ---------------------------------------------------------------------------
+
+
+class TestApplyGlobalFlags:
+    def test_imap_repeats(self):
+        _apply_global_flags(["-i", "a", "-i", "b"])
+        from mailroom.__main__ import _imap_names
+
+        assert _imap_names == ["a", "b"]
+        # reset for other tests
+        _apply_global_flags([])
+
+    def test_imap_equals_form(self):
+        _apply_global_flags(["--imap=a", "-i=b"])
+        from mailroom.__main__ import _imap_names
+
+        assert _imap_names == ["a", "b"]
+        _apply_global_flags([])
+
+    def test_all_imap_flag(self):
+        _apply_global_flags(["-A"])
+        from mailroom.__main__ import _all_imap
+
+        assert _all_imap is True
+        _apply_global_flags([])
+
+    def test_config_flag(self):
+        _apply_global_flags(["-c", "/tmp/x.toml"])
+        from mailroom.__main__ import _config_path
+
+        assert _config_path == "/tmp/x.toml"
+        _apply_global_flags([])
+
+    def test_version_short_circuits_with_systemexit(self, capsys):
+        with pytest.raises(SystemExit) as exc_info:
+            _apply_global_flags(["--version"])
+        assert exc_info.value.code == 0
